@@ -178,7 +178,7 @@ def write_csv(games, path) -> Path:
     return path
 
 
-def write_reports(games, reports_dir, data_dir) -> dict:
+def write_reports(games, reports_dir, data_dir, csv_name: str = "games.csv") -> dict:
     reports_dir, data_dir = Path(reports_dir), Path(data_dir)
     for sub in ("campeones", "partidas"):
         (reports_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -186,7 +186,7 @@ def write_reports(games, reports_dir, data_dir) -> dict:
         for old in (reports_dir / sub).glob("*.md"):
             old.unlink()
 
-    csv_path = write_csv(games, data_dir / "games.csv")
+    csv_path = write_csv(games, data_dir / csv_name)
     (reports_dir / "resumen.md").write_text(render_summary(games), encoding="utf-8")
 
     champions = sorted({g["champion"] for g in games if g.get("champion")})

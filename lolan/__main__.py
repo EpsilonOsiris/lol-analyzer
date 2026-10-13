@@ -31,6 +31,14 @@ QUEUE_ALIASES = {"solo": 420, "soloq": 420, "flex": 440, "normal": 400, "blind":
                  "quickplay": 490}
 
 
+# Folder/file name used for a queue's reports (analyze --cola).
+QUEUE_SLUGS = {420: "solo", 440: "flex", 400: "normal", 430: "blind", 490: "quickplay"}
+
+
+def queue_slug(queue: int) -> str:
+    return QUEUE_SLUGS.get(queue, f"cola-{queue}")
+
+
 def _parse_queue(text: str) -> int:
     key = text.strip().lower()
     if key in QUEUE_ALIASES:
@@ -118,14 +126,19 @@ def cmd_analyze(args, cfg) -> int:
         print("Hay partidas guardadas pero ninguna es analizable (remakes o colas que no son de la "
               "Grieta del Invocador). Usa --todas-las-colas para incluir otras colas.")
         return 0
-    info = report.write_reports(games, cfg.reports_dir, cfg.data_dir)
+    # Each queue gets its own folder and CSV so analyzing one doesn't overwrite another.
+    reports_dir, csv_name = cfg.reports_dir, "games.csv"
+    if args.cola is not None:
+        slug = queue_slug(args.cola)
+        reports_dir, csv_name = cfg.reports_dir / slug, f"games-{slug}.csv"
+    info = report.write_reports(games, reports_dir, cfg.data_dir, csv_name)
     o = an.group_stats(games)
     print(f"Partidas analizadas: {info['games']} | winrate {an.fmt_pct(o['winrate'])} | "
           f"KDA {o['kda']:.2f}")
     print(f"CSV: {info['csv']}")
-    print(f"Resumen: {cfg.reports_dir / 'resumen.md'}")
-    print(f"Campeones: {info['champions']} archivos en {cfg.reports_dir / 'campeones'}")
-    print(f"Partidas: {info['cards']} reportes en {cfg.reports_dir / 'partidas'}")
+    print(f"Resumen: {reports_dir / 'resumen.md'}")
+    print(f"Campeones: {info['champions']} archivos en {reports_dir / 'campeones'}")
+    print(f"Partidas: {info['cards']} reportes en {reports_dir / 'partidas'}")
     return 0
 
 

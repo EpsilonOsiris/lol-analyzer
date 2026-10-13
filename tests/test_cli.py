@@ -41,3 +41,20 @@ def test_queue_aliases():
     assert _parse_queue("solo") == 420
     assert _parse_queue("Flex") == 440
     assert _parse_queue("450") == 450
+
+
+def test_analyze_with_queue_writes_its_own_folder(isolated, capsys):
+    from conftest import ME_PUUID, make_match, make_timeline
+
+    from lolan.store import Store
+    store = Store(isolated / "data" / "lol.db")
+    store.save_account(ME_PUUID, "A#B")
+    store.save_match("LA1_1", make_match("LA1_1", queue=420), make_timeline())
+    store.save_match("LA1_2", make_match("LA1_2", queue=440, created=1_700_000_000_000), None)
+    store.close()
+    assert main(["analyze", "--cola", "solo"]) == 0
+    assert main(["analyze", "--cola", "flex"]) == 0
+    assert (isolated / "reports" / "solo" / "partidas" / "LA1_1.md").exists()
+    assert (isolated / "reports" / "flex" / "partidas" / "LA1_2.md").exists()
+    assert (isolated / "data" / "games-solo.csv").exists()
+    assert (isolated / "data" / "games-flex.csv").exists()

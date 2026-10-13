@@ -80,6 +80,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |
 | `reports/campeones/<Campeón>.md` | Promedios y qué separa tus victorias de tus derrotas con ese campeón |
 | `reports/partidas/<matchId>.md` | Boleta de cada una de tus últimas 30 partidas |
+| `reports/<cola>/…` y `data/games-<cola>.csv` | Lo mismo, pero solo de una cola (`analyze --cola solo` → `reports/solo/`, `data/games-solo.csv`) |
 
 `data/` y `reports/` están en `.gitignore`.
 
