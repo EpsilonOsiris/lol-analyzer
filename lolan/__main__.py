@@ -5,6 +5,8 @@ import argparse
 import sys
 from datetime import datetime
 
+import truststore
+
 from . import analyze as an
 from . import report
 from .config import ConfigError, load_config
@@ -25,6 +27,21 @@ def _parse_date(text: str):
         raise argparse.ArgumentTypeError("la fecha debe tener el formato AAAA-MM-DD (por ejemplo, 2024-01-31)")
 
 
+QUEUE_ALIASES = {"solo": 420, "soloq": 420, "flex": 440, "normal": 400, "blind": 430,
+                 "quickplay": 490}
+
+
+def _parse_queue(text: str) -> int:
+    key = text.strip().lower()
+    if key in QUEUE_ALIASES:
+        return QUEUE_ALIASES[key]
+    try:
+        return int(key)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "la cola debe ser solo, flex, normal, blind, quickplay o un número de cola (por ejemplo, 420)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m lolan",
@@ -40,18 +57,25 @@ def build_parser() -> argparse.ArgumentParser:
                    help="solo partidas desde esta fecha (AAAA-MM-DD)")
     p.add_argument("--no-timeline", action="store_true",
                    help="no descarga el timeline (más rápido, pero sin métricas por minuto)")
+    p.add_argument("--cola", type=_parse_queue, metavar="COLA",
+                   help="solo partidas de esa cola: solo (420), flex (440), normal (400), "
+                        "blind (430), quickplay (490) o un número de cola")
 
     p = sub.add_parser("analyze", help="reconstruye data/games.csv y los reportes en reports/")
     p.add_argument("--todas-las-colas", action="store_true",
                    help="incluye colas que no son de la Grieta del Invocador")
+    p.add_argument("--cola", type=_parse_queue, metavar="COLA",
+                   help="analiza solo esa cola: solo, flex, normal, blind, quickplay o un número")
 
     p = sub.add_parser("game", help="muestra el reporte de una partida")
     p.add_argument("match_id", help="ID de la partida (por ejemplo LA1_123456) o 'ultima'")
     p.add_argument("--todas-las-colas", action="store_true")
+    p.add_argument("--cola", type=_parse_queue, metavar="COLA")
 
     p = sub.add_parser("campeon", help="muestra qué decide tus partidas con un campeón")
     p.add_argument("nombre", help="nombre del campeón (por ejemplo Ahri)")
     p.add_argument("--todas-las-colas", action="store_true")
+    p.add_argument("--cola", type=_parse_queue, metavar="COLA")
     return parser
 
 
@@ -68,25 +92,25 @@ def cmd_sync(args, cfg) -> int:
     store = Store(cfg.db_path)
     try:
         run_sync(client, store, cfg.riot_id, max_matches=args.max_matches, since=args.since,
-                 with_timeline=not args.no_timeline)
+                 with_timeline=not args.no_timeline, queue=args.cola)
     finally:
         store.close()
     print("Para analizar lo descargado ejecuta: python -m lolan analyze")
     return 0
 
 
-def _load(cfg, include_all: bool):
+def _load(cfg, include_all: bool, queue: int | None = None):
     store = Store(cfg.db_path)
     try:
         if store.count_matches() == 0:
             return None
-        return an.load_games(store, include_all_queues=include_all)
+        return an.load_games(store, include_all_queues=include_all, queue=queue)
     finally:
         store.close()
 
 
 def cmd_analyze(args, cfg) -> int:
-    games = _load(cfg, args.todas_las_colas)
+    games = _load(cfg, args.todas_las_colas, args.cola)
     if games is None:
         print(EMPTY_DB_MESSAGE)
         return 0
@@ -106,7 +130,7 @@ def cmd_analyze(args, cfg) -> int:
 
 
 def cmd_game(args, cfg) -> int:
-    games = _load(cfg, args.todas_las_colas)
+    games = _load(cfg, args.todas_las_colas, args.cola)
     if games is None:
         print(EMPTY_DB_MESSAGE)
         return 0
@@ -127,7 +151,7 @@ def cmd_game(args, cfg) -> int:
 
 
 def cmd_campeon(args, cfg) -> int:
-    games = _load(cfg, args.todas_las_colas)
+    games = _load(cfg, args.todas_las_colas, args.cola)
     if games is None:
         print(EMPTY_DB_MESSAGE)
         return 0
@@ -143,6 +167,9 @@ COMMANDS = {"sync": cmd_sync, "analyze": cmd_analyze, "game": cmd_game, "campeon
 
 
 def main(argv=None) -> int:
+    # Verify TLS against the OS certificate store, so antivirus/proxy roots trusted by
+    # Windows (e.g. Norton's HTTPS scanning) don't break requests with CERTIFICATE_VERIFY_FAILED.
+    truststore.inject_into_ssl()
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")

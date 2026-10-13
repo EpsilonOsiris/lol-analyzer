@@ -180,8 +180,11 @@ def write_csv(games, path) -> Path:
 
 def write_reports(games, reports_dir, data_dir) -> dict:
     reports_dir, data_dir = Path(reports_dir), Path(data_dir)
-    (reports_dir / "campeones").mkdir(parents=True, exist_ok=True)
-    (reports_dir / "partidas").mkdir(parents=True, exist_ok=True)
+    for sub in ("campeones", "partidas"):
+        (reports_dir / sub).mkdir(parents=True, exist_ok=True)
+        # Drop reports from a previous run so a narrower run (e.g. --cola) leaves no stale files.
+        for old in (reports_dir / sub).glob("*.md"):
+            old.unlink()
 
     csv_path = write_csv(games, data_dir / "games.csv")
     (reports_dir / "resumen.md").write_text(render_summary(games), encoding="utf-8")

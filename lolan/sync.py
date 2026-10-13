@@ -49,14 +49,15 @@ def since_to_epoch(since: date | None) -> int | None:
 
 
 def sync(client, store, riot_id: str, max_matches: int | None = None, since: date | None = None,
-         with_timeline: bool = True, out=print, clock=time.monotonic) -> SyncResult:
+         with_timeline: bool = True, queue: int | None = None, out=print,
+         clock=time.monotonic) -> SyncResult:
     name, tag = parse_riot_id(riot_id)
     out(f"Buscando la cuenta {name}#{tag} ...")
     puuid = client.get_puuid(name, tag)
     store.save_account(puuid, f"{name}#{tag}")
 
     out("Listando las partidas de la cuenta ...")
-    ids = client.list_match_ids(puuid, start_time=since_to_epoch(since))
+    ids = client.list_match_ids(puuid, start_time=since_to_epoch(since), queue=queue)
     stored = store.existing_match_ids()
     new_ids = [m for m in ids if m not in stored]
     already = len(ids) - len(new_ids)

@@ -9,7 +9,7 @@ Qué produce:
 - Un resumen general: winrate por cola, rol y campeón, y tendencias por mes, por día de la semana y por número de partida dentro de una sesión (una sesión es una racha de partidas con menos de 45 minutos de separación).
 - Un CSV con una fila por partida y todas las métricas, para que lo explores con tu herramienta favorita.
 
-Solo se analizan las colas de la Grieta del Invocador (400, 420, 430, 440 y 490) y se excluyen los remakes (menos de 5 minutos o rendición temprana). Las demás partidas se guardan en la base de datos, pero se omiten del análisis (puedes incluirlas con `--todas-las-colas`).
+Solo se analizan las colas de la Grieta del Invocador (400, 420, 430, 440 y 490) y se excluyen los remakes (menos de 5 minutos o rendición temprana). Las demás partidas se guardan en la base de datos, pero se omiten del análisis (puedes incluirlas con `--todas-las-colas`). Para analizar una sola cola, pasa `--cola` a `analyze`, `game` o `campeon` (por ejemplo, `analyze --cola solo`).
 
 ## Instalación
 
@@ -56,8 +56,8 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 ## Uso
 
 ```bash
-.venv/Scripts/python -m lolan sync [--max N] [--since AAAA-MM-DD] [--no-timeline]
-.venv/Scripts/python -m lolan analyze
+.venv/Scripts/python -m lolan sync [--max N] [--since AAAA-MM-DD] [--cola solo] [--no-timeline]
+.venv/Scripts/python -m lolan analyze [--cola solo]
 .venv/Scripts/python -m lolan game <matchId | ultima>
 .venv/Scripts/python -m lolan campeon <Nombre>
 ```
@@ -65,6 +65,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 - `sync` descarga las partidas nuevas (la partida y su timeline; cada partida son unas 2 peticiones). Respeta los límites de una key de desarrollo (20 peticiones por segundo y 100 cada 2 minutos), así que rinde unas 50 partidas cada 2 minutos. **Una sincronización completa de ~1000 partidas tarda alrededor de 40 minutos.** Guarda cada partida apenas la descarga: si se interrumpe (Ctrl+C, falla la red, expira la key), vuelve a ejecutar el mismo comando y continúa donde se quedó, sin repetir lo ya guardado.
   - `--max N`: descarga como máximo N partidas nuevas (útil para probar).
   - `--since AAAA-MM-DD`: solo partidas desde esa fecha.
+  - `--cola COLA`: solo partidas de esa cola: `solo` (clasificatoria solo/dúo, 420), `flex` (440), `normal` (400), `blind` (430), `quickplay` (490) o el número de cola.
   - `--no-timeline`: no descarga el timeline. Es el doble de rápido, pero se pierden las métricas por minuto (diferencias a los minutos 7/14/21/28, muertes por fase, objetivos, etc.).
 - `analyze` reconstruye `data/games.csv` y todos los reportes a partir de lo que ya está en la base de datos (no usa la red, así que puedes correrlo las veces que quieras).
 - `game <matchId>` imprime la boleta de una partida; `game ultima` usa la más reciente.

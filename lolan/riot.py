@@ -7,8 +7,12 @@ from urllib.parse import quote
 
 import requests
 
-# Development key limits: 20 requests / 1 s and 100 requests / 120 s.
+# Development key limits: 20 requests / 1 s and 100 requests / 120 s, enforced per
+# routing value. Every endpoint we call lives on the regional host, so one limiter suffices.
 DEFAULT_LIMITS = ((20, 1.0), (100, 120.0))
+# Requests are stamped when sent but Riot counts them on arrival; latency jitter (e.g. the
+# TLS handshake on the first request) could push a request into a window early -> 429.
+WINDOW_MARGIN = 0.5
 MAX_THROTTLE_RETRIES = 10
 
 MISSING_KEY_MESSAGE = (
@@ -40,10 +44,11 @@ class NotFoundError(RiotError):
 class RateLimiter:
     """Sliding-window limiter. Blocks (via the injected sleep) until a request may go out."""
 
-    def __init__(self, limits=DEFAULT_LIMITS, clock=time.monotonic, sleep=time.sleep):
+    def __init__(self, limits=DEFAULT_LIMITS, clock=time.monotonic, sleep=time.sleep,
+                 margin=WINDOW_MARGIN):
         self._clock = clock
         self._sleep = sleep
-        self._windows = [(limit, window, deque()) for limit, window in limits]
+        self._windows = [(limit, window + margin, deque()) for limit, window in limits]
 
     def acquire(self) -> None:
         while True:

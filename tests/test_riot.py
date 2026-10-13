@@ -1,8 +1,8 @@
 import pytest
 import requests
 
-from lolan.riot import (InvalidApiKeyError, MissingApiKeyError, NotFoundError, RateLimiter,
-                        RiotClient, RiotError)
+from lolan.riot import (WINDOW_MARGIN, InvalidApiKeyError, MissingApiKeyError, NotFoundError,
+                        RateLimiter, RiotClient, RiotError)
 
 
 class FakeClock:
@@ -58,7 +58,7 @@ def test_limiter_allows_20_per_second_then_waits():
     assert clock.sleeps == []
     lim.acquire()  # 21st must wait for the 1 s window
     assert len(clock.sleeps) >= 1
-    assert sum(clock.sleeps) == pytest.approx(1.0)
+    assert sum(clock.sleeps) == pytest.approx(1.0 + WINDOW_MARGIN)
 
 
 def test_limiter_100_per_120_seconds():

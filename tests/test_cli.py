@@ -34,3 +34,10 @@ def test_help_works(capsys):
         main(["--help"])
     assert exc.value.code == 0
     assert "sync" in capsys.readouterr().out
+
+
+def test_queue_aliases():
+    from lolan.__main__ import _parse_queue
+    assert _parse_queue("solo") == 420
+    assert _parse_queue("Flex") == 440
+    assert _parse_queue("450") == 450

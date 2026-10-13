@@ -198,8 +198,9 @@ def add_session_info(games) -> None:
             prev_end = start + (g.get("duration_s") or 0) * 1000
 
 
-def load_games(store, include_all_queues: bool = False, puuid: str | None = None):
-    """Flat metric rows for every analyzable game stored, oldest first."""
+def load_games(store, include_all_queues: bool = False, puuid: str | None = None,
+               queue: int | None = None):
+    """Flat metric rows for every analyzable game stored, oldest first (optionally one queue)."""
     puuid = puuid or store.get_puuid()
     if puuid is None:
         return []
@@ -209,6 +210,8 @@ def load_games(store, include_all_queues: bool = False, puuid: str | None = None
         if row is None or row["remake"]:
             continue
         if not include_all_queues and not row["analyzable"]:
+            continue
+        if queue is not None and row["queue_id"] != queue:
             continue
         games.append(row)
     games.sort(key=lambda g: (g.get("game_creation") or 0, str(g.get("match_id"))))
@@ -427,8 +430,11 @@ def _pct_text(r) -> str:
         "campeón": "tus partidas con este campeón",
         "rol": "tus partidas en el mismo rol",
     }.get(r["scope"], "todas tus partidas")
-    verdict = "mejor" if r["goodness"] >= 50 else "peor"
-    return f"{r['label']}: {r['fmt']} ({verdict} que el {r['goodness']:.0f}% de {scope})."
+    if r["goodness"] >= 50:
+        verdict, pct = "mejor", r["goodness"]
+    else:
+        verdict, pct = "peor", 100 - r["goodness"]
+    return f"{r['label']}: {r['fmt']} ({verdict} que el {pct:.0f}% de {scope})."
 
 
 def render_card_text(card) -> str:

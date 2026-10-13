@@ -115,3 +115,9 @@ def test_resumable_after_key_expires(store):
     result, _ = run(client2, store)
     assert client2.matches_fetched == ["LA1_3", "LA1_4"]
     assert store.count_matches() == 4 and result.downloaded == 2
+
+
+def test_queue_filter_is_passed_to_match_list(store):
+    client = FakeClient(["LA1_1"])
+    run(client, store, queue=420)
+    assert client.list_kwargs["queue"] == 420

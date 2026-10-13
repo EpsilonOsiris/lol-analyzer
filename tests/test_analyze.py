@@ -157,6 +157,26 @@ def test_load_games_excludes_remakes_and_other_queues(tmp_path):
     store.close()
 
 
+def test_load_games_single_queue(tmp_path):
+    store = Store(tmp_path / "lol.db")
+    store.save_account(ME_PUUID, "A#B")
+    store.save_match("LA1_1", make_match("LA1_1", queue=420, created=BASE_TIME_MS), None)
+    store.save_match("LA1_2", make_match("LA1_2", queue=440, created=BASE_TIME_MS + 1), None)
+    assert [g["match_id"] for g in an.load_games(store, queue=420)] == ["LA1_1"]
+    assert [g["match_id"] for g in an.load_games(store, queue=440)] == ["LA1_2"]
+    store.close()
+
+
+def test_write_reports_removes_stale_reports(tmp_path):
+    games = [an.extract_game_metrics(make_match("LA1_1", champion="Ahri"), make_timeline(), ME_PUUID)]
+    stale = tmp_path / "reports" / "campeones" / "Zed.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("viejo", encoding="utf-8")
+    report.write_reports(games, tmp_path / "reports", tmp_path / "data")
+    assert not stale.exists()
+    assert (tmp_path / "reports" / "campeones" / "Ahri.md").exists()
+
+
 def test_write_reports_creates_files(tmp_path):
     gs = games_list(8)
     info = report.write_reports(gs, tmp_path / "reports", tmp_path / "data")
@@ -167,3 +187,10 @@ def test_write_reports_creates_files(tmp_path):
     assert csv_text.splitlines()[0].startswith("match_id,") and len(csv_text.splitlines()) == 9
     assert info["games"] == 8
     assert "Resumen general" in (tmp_path / "reports" / "resumen.md").read_text(encoding="utf-8")
+
+
+def test_pct_text_reports_the_side_it_names():
+    good = {"label": "KDA", "fmt": "5.00", "scope": "campeón", "goodness": 86.0}
+    bad = {"label": "KDA", "fmt": "0.78", "scope": "campeón", "goodness": 0.0}
+    assert "mejor que el 86% de tus partidas con este campeón" in an._pct_text(good)
+    assert "peor que el 100% de tus partidas con este campeón" in an._pct_text(bad)
