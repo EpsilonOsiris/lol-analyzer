@@ -1138,7 +1138,9 @@ def recommend(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
 #   * "Aleatorio" (or a person without enough games): TYPES of that role, never specific champions.
 # Score = weighted average of values in [-1, 1] (same idea as the ADC recommender):
 #   rules      weight 1 (constant): framework of each line (see `_line_rules`) + the team plan bonus
-#   champion   weight 2n/(n+10), n = games of that person with that champion in that role
+#   champion   weight 2n/(n+5), n = games of that person with that champion in that role
+#              (heavier than the ADC recommender's 2n/(n+10): the person's own record on a
+#              champion should move the ranking more than a generic type rule)
 #   type       weight 2n/(n+TYPE_K), n = games of the main's team with that ally type in that role;
 #              only if n >= MIN_DATA_GAMES (10)
 #   pair       weight p*2n/(n+PAIR_K) per type of the neighbouring line (jg x mid, jg x top,
@@ -1146,6 +1148,8 @@ def recommend(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
 # With little data the rules dominate; with 10+ games the results start to weigh as much.
 DRAFT_ROLES = ("TOP", "JUNGLE", "MIDDLE", "UTILITY")     # the other four lines; the main is the ADC
 MIN_DATA_GAMES = 10
+PERSON_CHAMPION_K = 5          # weight 2n/(n+5) of the person's record on a champion
+UNCOMFORTABLE_WR = 0.45        # shrunk WR below this adds a caution reason
 TYPE_K = 20
 PAIR_K = 20
 MAX_PICKS = 3
@@ -1308,7 +1312,8 @@ PAIR_RELATIONS = {"TOP": [("jg_top", "JUNGLE", False)],
                   "UTILITY": [("sup_adc", "BOTTOM", True)]}
 
 
-def _score_candidate(role, kind, champion, slots, tables, base_members, adc, stat, min_games):
+def _score_candidate(role, kind, champion, slots, tables, base_members, adc, stat, min_games,
+                     person=None):
     """(raw score in [-1, 1], reasons, plan) of a type (champion None) or of a champion."""
     champ_for_plan = champion or TYPE_REPRESENTATIVE.get(role, {}).get(kind)
     rule_parts = _line_rules(role, kind, slots)
@@ -1321,9 +1326,13 @@ def _score_candidate(role, kind, champion, slots, tables, base_members, adc, sta
 
     n = stat["games"] if stat else 0
     if n:
-        w, sig = 2 * n / (n + CHAMPION_K), _wr_signal(stat["shrunk"])
+        w, sig = 2 * n / (n + PERSON_CHAMPION_K), _wr_signal(stat["shrunk"])
         num, den = num + w * sig, den + w
-        if n >= min_games:
+        if n >= min_games and stat["shrunk"] < UNCOMFORTABLE_WR:
+            cands.append((abs(sig) * w + 0.5,
+                          f"{person or 'Esta persona'} va {stat['wins']}-{stat['losses']} con {champion}; "
+                          "poco cómodo."))
+        elif n >= min_games:
             cands.append((abs(sig) * w + 0.1,
                           f"{champion} en {role_name(role)} con esta persona: {stat['wins']}-{stat['losses']} "
                           f"({stat['winrate'] * 100:.0f}%, ajustado {stat['shrunk'] * 100:.0f}%)."))
@@ -1401,7 +1410,7 @@ def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_
                 st = _stat(recs, min_games)
                 kind = role_type(role, champion)
                 raw, reasons, plan = _score_candidate(role, kind, champion, slots, tables, base_members,
-                                                      adc, st, min_games)
+                                                      adc, st, min_games, v["person"])
                 picks.append({"kind": "campeon", "champion": champion, "type": kind,
                               "type_label": type_label(role, kind), "source": role_source(role, champion),
                               "score": round((raw + 1) * 50), "raw_score": raw,

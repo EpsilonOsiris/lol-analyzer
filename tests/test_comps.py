@@ -810,3 +810,27 @@ def test_draft_empty_records_do_not_crash():
     draft = comps.recommend_draft({"TOP": ("Epsilon Nadie", None)}, [])
     assert draft["roles"]["TOP"]["mode"] == "tipos" and draft["roles"]["BOTTOM"]["picks"] == []
     assert draft["plan"]["plan"] in comps.PLAN_LABELS
+
+
+def test_draft_person_losing_on_a_champion_outweighs_the_type_rule():
+    # The main is a flexible ADC (scaling carry), which favours a carry/farm jungler by rule,
+    # but Beta is 2-8 on Viego and 8-2 on Lee Sin: his own record must win.
+    b = TeamBuilder()
+    b.repeat(10, 2, blue={"JUNGLE": (BETA, "Viego")})
+    b.repeat(10, 8, blue={"JUNGLE": (BETA, "LeeSin")})
+    draft = comps.recommend_draft({"JUNGLE": ("Epsilon Beta", None)}, records_of(b))
+    jungle = {x["champion"]: x for x in draft["roles"]["JUNGLE"]["picks"]}
+    assert picks(draft, "JUNGLE") == ["LeeSin", "Viego"]
+    assert jungle["LeeSin"]["raw_score"] - jungle["Viego"]["raw_score"] > 0.2
+    assert "Epsilon Beta va 2-8 con Viego; poco cómodo." in jungle["Viego"]["reasons"]
+    assert not any("poco cómodo" in r for r in jungle["LeeSin"]["reasons"])
+    assert 1 <= len(jungle["Viego"]["reasons"]) <= 3
+
+
+def test_draft_caution_needs_min_games_and_a_low_shrunk_wr():
+    b = TeamBuilder()
+    b.repeat(2, 0, blue={"JUNGLE": (BETA, "Viego")})              # 0-2: too few games for a pick at all
+    b.repeat(5, 3, blue={"JUNGLE": (BETA, "LeeSin")})             # 3-2: shrunk 53%, no caution
+    draft = comps.recommend_draft({"JUNGLE": ("Epsilon Beta", None)}, records_of(b))
+    assert picks(draft, "JUNGLE") == ["LeeSin"]
+    assert not any("poco cómodo" in r for r in draft["roles"]["JUNGLE"]["picks"][0]["reasons"])
