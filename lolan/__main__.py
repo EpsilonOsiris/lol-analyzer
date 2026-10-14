@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("riot_id", metavar="Nombre#TAG")
 
     p = sub.add_parser("composiciones",
-                       help="analiza qué compones con tu clan y recomienda ADC (escribe reports/composiciones.md)")
+                       help="analiza qué compones con tu clan (por línea, duplas, plan de pelea) y recomienda picks (escribe reports/composiciones.md)")
     p.add_argument("--cola", type=_parse_queue, metavar="COLA",
                    help="solo esa cola: solo, flex, normal, blind, quickplay o un número (por defecto, todas)")
     p.add_argument("--todos-los-adc", action="store_true",
@@ -427,12 +427,14 @@ def cmd_composiciones(args, cfg) -> int:
     draft = {role: (person, None) for role, person in lineup.items() if role != "BOTTOM"}
     ranking = comps.recommend(draft, records, include_all=args.todos_los_adc)
     notes = comps.draft_notes(draft, records)
+    plan_draft = comps.recommend_draft(draft, records, include_all=args.todos_los_adc)
     cola_text = f"cola {queue_slug(args.cola)}" if args.cola else "todas las colas"
-    print(comps.render_summary(analysis, ranking, lineup, notes, cola_text))
+    print(comps.render_summary(analysis, ranking, lineup, notes, cola_text, plan_draft))
     reports_dir = cfg.reports_dir / queue_slug(args.cola) if args.cola else cfg.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / "composiciones.md"
-    path.write_text(comps.render_markdown(analysis, ranking, lineup, cola_text, notes), encoding="utf-8")
+    path.write_text(comps.render_markdown(analysis, ranking, lineup, cola_text, notes, plan_draft),
+                    encoding="utf-8")
     print(f"\nReporte completo: {path}")
     return 0
 

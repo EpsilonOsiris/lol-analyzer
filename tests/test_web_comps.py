@@ -67,6 +67,43 @@ def test_page_renders_with_data(client):
     assert '<option value="Epsilon Beta" selected>' in html
 
 
+def test_page_shows_lines_pairs_and_plans(client):
+    html = text(client.get("/composiciones?cola=flex"))
+    for needle in ('id="por-linea"', "tus aliados, sin contarte", 'id="duplas"', "Jungla × Mid",
+                   "Jungla × Top", "Soporte × ADC", 'id="plan-de-pelea"', "Tu plan × plan rival",
+                   "Tanque/engage", "son propias", "EarlyGame", "no son datos oficiales de Riot"):
+        assert needle in html, needle
+    # Sejuani is the only classified ally in the jungle: 12 games, and Beta appears as a person there.
+    assert "Epsilon Beta" in html[html.index('id="por-linea"'):html.index('id="duplas"')]
+    # Plan distribution: the table of the team plans lists at least one plan label with its games.
+    assert "Proteger al carry" in html[html.index('id="plan-de-pelea"'):]
+
+
+def test_page_draft_recommends_every_line(client):
+    r = client.get("/composiciones?cola=flex&armar=1&p_UTILITY=Epsilon+Alfa&p_JUNGLE=Epsilon+Beta&c_TOP=ornn")
+    html = text(r)
+    assert r.status_code == 200
+    for needle in ("Otras líneas", "Ornn ya está escogido", "Plan de pelea resultante", "ADC (tú)"):
+        assert needle in html, needle
+    # Beta's jungle pool (Sejuani) is suggested as a champion; the random mid as types only.
+    assert "<strong>Sejuani</strong>" in html and "Tipo: Control/artillería" in html
+    assert "Sin persona del clan ni campeón" in html
+
+
+def test_draft_defaults_prefill_and_recommend_types_for_random_lines(client):
+    html = text(client.get("/composiciones?cola=flex&armar=1"))
+    assert "Tipo: " in html and "Plan de pelea resultante" in html
+    assert text(client.get("/composiciones?cola=flex")).count("Otras líneas") == 0
+
+
+def test_match_page_shows_both_team_plans(client):
+    r = client.get("/partida/LA1_0?cola=flex")
+    html = text(r)
+    assert r.status_code == 200
+    assert 'id="plan-pelea"' in html and "Plan de pelea: tu equipo" in html
+    assert "Clasificación propia" in html
+
+
 def test_nav_link_after_clan(client):
     html = text(client.get("/composiciones?cola=todas"))
     assert html.index(">Clan</a>") < html.index(">Composiciones</a>") < html.index(">Jugadores</a>")
@@ -156,6 +193,12 @@ def test_cli_composiciones_prints_summary_and_writes_report(root, capsys):
     assert report.exists()
     md = report.read_text(encoding="utf-8")
     assert "## Pools del clan" in md and "## Recomendación de ADC" in md
+    for header in ("## Por línea", "## Duplas de tipos", "## Plan de pelea", "## Recomendación por línea",
+                   "## Sobre las clasificaciones"):
+        assert header in md
+    for needle in ("Por línea (WR", "Duplas Jungla × Mid", "Plan de pelea de tu equipo",
+                   "Recomendación por línea (alineación más común)"):
+        assert needle in out
 
 
 def test_cli_composiciones_by_queue_goes_to_its_folder(root, capsys):
@@ -169,3 +212,10 @@ def test_cli_composiciones_by_queue_goes_to_its_folder(root, capsys):
 def test_cli_composiciones_empty_db(root, capsys):
     assert main(["composiciones"]) == 0
     assert "No hay partidas" in capsys.readouterr().out
+
+
+def test_cli_composiciones_all_adc_flag_still_works(root, capsys):
+    add_comp_games(root)
+    assert main(["composiciones", "--todos-los-adc"]) == 0
+    out = capsys.readouterr().out
+    assert "Recomendación de ADC" in out and "  4. " in out and "Recomendación por línea" in out

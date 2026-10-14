@@ -448,3 +448,365 @@ def test_make_match_builders_still_work_without_clan_fields():
         comps.build_records([("LA1_1", make_match("LA1_1", queue=440), make_timeline())], ME_PUUID),
         clan())
     assert len(recs) == 1 and not any(m["person"] for m in recs[0]["team"][:3])
+
+
+# ================================================================== lines, plans, drafts
+class TeamBuilder(Builder):
+    """Full teams: `blue`/`red` map role -> champion or (who, champion); the main is always ME."""
+
+    def game(self, win, blue=None, red=None, main_role="BOTTOM", main_champ="Jinx", **kw):
+        n = len(self.items)
+        roster = {}
+        for role, value in (blue or {}).items():
+            who, champion = value if isinstance(value, tuple) else (("p-anon-" + role, ""), value)
+            roster[role] = (who[0], who[1], champion)
+        roster[main_role] = (ME_PUUID, "Epsilon Me", main_champ)
+        match = make_comp_match(f"LA1_{n}", blue=roster, red=red, win=win, main_role=main_role,
+                                created=BASE_TIME_MS + n * HOUR, **kw)
+        self.items.append((f"LA1_{n}", match, None))
+
+    def repeat(self, count, wins, **kw):
+        for i in range(count):
+            self.game(win=i < wins, **kw)
+
+
+def team(top, jg, mid, adc, sup):
+    return [{"role": r, "champion": c} for r, c in
+            zip(("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"), (top, jg, mid, adc, sup))]
+
+
+# ------------------------------------------------------------- role tables
+def test_role_tables_are_keyed_by_role():
+    assert comps.role_type("TOP", "Sylas") == "split"
+    assert comps.role_type("JUNGLE", "Sylas") == "farm"
+    assert comps.role_type("MIDDLE", "Sylas") == "melee"
+    assert comps.role_type("TOP", "Ekko") == "split" and comps.role_type("JUNGLE", "Ekko") == "farm"
+    assert comps.role_type("MIDDLE", "Ekko") == "asesino"
+    assert comps.role_type("TOP", "Malphite") == "tanque" and comps.role_type("MIDDLE", "Malphite") == "melee"
+    assert comps.role_type("JUNGLE", "Nunu") == "tanque" and comps.role_type("MIDDLE", "Nunu") == "melee"
+    assert comps.role_type("JUNGLE", "JarvanIV") == "early" and comps.role_type("TOP", "JarvanIV") == "bruiser"
+    assert comps.role_type("TOP", "Zzz") == "otro" and comps.role_type("JUNGLE", "Jinx") == "otro"
+
+
+def test_role_tables_reuse_support_and_adc_and_accept_typed_names():
+    assert comps.role_type("UTILITY", "Leona") == "engage" and comps.role_type("BOTTOM", "Kaisa") == "followup"
+    assert comps.role_type("UTILITY", "Garen") == "otro" and comps.role_type("BOTTOM", "Ornn") == "otro"
+    assert comps.role_type("TOP", "k'sante") == "tanque"
+    assert comps.role_type("JUNGLE", "wukong") == "early" and comps.role_type("TOP", "Wukong") == "bruiser"
+    assert comps.role_type("JUNGLE", "Fiddlesticks") == "farm" and comps.role_type("MIDDLE", "Vel'Koz") == "control"
+    assert comps.role_type("MIDDLE", "Qiyana") == "asesino" and comps.role_type("JUNGLE", "Rek'Sai") == "early"
+    assert comps.canonical_champion("aurelion sol") == "AurelionSol"
+
+
+def test_role_sources_are_own_and_no_champion_sits_in_two_types_of_a_role():
+    assert comps.role_source("TOP", "Ornn") == "propia" and comps.role_source("MIDDLE", "Zed") == "propia"
+    assert comps.role_source("JUNGLE", "Viego") == "propia" and comps.role_source("TOP", "Zzz") is None
+    assert comps.role_source("UTILITY", "Taric") == "video" and comps.role_source("BOTTOM", "Jhin") == "propia"
+    assert all(e["source"] == "propia" for t in comps.ROLE_CLASS.values() for e in t.values())
+    # 16 + 19 + 22, 20 + 15 + 19 and 23 + 18 + 13 distinct champions: a duplicate across types
+    # would silently shrink these numbers.
+    assert [len(comps.ROLE_CLASS[r]) for r in ("TOP", "JUNGLE", "MIDDLE")] == [57, 54, 54]
+    assert {e["type"] for e in comps.ROLE_CLASS["TOP"].values()} == {"tanque", "bruiser", "split"}
+    assert comps.type_label("MIDDLE", "asesino") == "Asesino/roamer" and comps.type_label("TOP", "x") == "x"
+
+
+def test_type_representatives_have_their_type():
+    for role, reps in comps.TYPE_REPRESENTATIVE.items():
+        for kind, champion in reps.items():
+            assert comps.role_type(role, champion) == kind, (role, kind, champion)
+        assert set(reps) == set(comps.ROLE_TYPE_ORDER[role]) - {"otro"}
+
+
+# ------------------------------------------------------------------- team plan
+@pytest.mark.parametrize("expected, comp", [
+    ("engage", team("Malphite", "Sejuani", "Orianna", "Jinx", "Leona")),          # 3 hard engage
+    ("engage", team("Malphite", "Viego", "Orianna", "Kaisa", "Leona")),           # 2 + a follow-up ADC
+    ("poke", team("Garen", "Viego", "Xerath", "Jinx", "Lux")),                    # Xerath + Lux
+    ("pick", team("Garen", "LeeSin", "Zed", "Jinx", "Thresh")),                   # Zed + Lee Sin + Thresh
+    ("split", team("Fiora", "Viego", "Orianna", "Kaisa", "Leona")),               # split top, 1 engage
+    ("proteger", team("Garen", "Viego", "Orianna", "Jinx", "Lulu")),              # Jinx + Lulu
+    ("mixto", team("Garen", "Viego", "Orianna", "Kaisa", "Alistar")),
+])
+def test_team_plan_one_team_per_plan(expected, comp):
+    plan, reasons = comps.team_plan(comp)
+    assert plan == expected
+    assert reasons and all(isinstance(r, str) and r for r in reasons)
+
+
+def test_team_plan_reasons_name_the_champions():
+    plan, reasons = comps.team_plan(team("Malphite", "Sejuani", "Orianna", "Jinx", "Leona"))
+    assert plan == "engage" and "Malphite" in reasons[0] and "Leona" in reasons[0]
+    plan, reasons = comps.team_plan(team("Garen", "Viego", "Orianna", "Jinx", "Lulu"))
+    assert plan == "proteger" and "Jinx" in reasons[0] and "Lulu" in reasons[0]
+    plan, reasons = comps.team_plan(team("Garen", "Viego", "Orianna", "Kaisa", "Alistar"))
+    assert plan == "mixto" and "Ninguna señal domina" in reasons[0]
+
+
+def test_team_plan_priorities_and_signals():
+    # Engage beats proteger: Jinx + Lulu would protect, but 3 hard engage is the identity.
+    assert comps.team_plan(team("Malphite", "Sejuani", "Galio", "Jinx", "Lulu"))[0] == "engage"
+    # Proteger needs at most 1 hard engage; with 1 it still holds.
+    assert comps.team_plan(team("Malphite", "Viego", "Orianna", "Jinx", "Lulu"))[0] == "proteger"
+    assert comps.team_plan(team("Malphite", "Zac", "Orianna", "Jinx", "Lulu"))[0] == "mixto"
+    # A warden anywhere counts as peel; Braum as a support counts once, not twice.
+    sig = comps.team_signals(team("Shen", "Viego", "Orianna", "Jinx", "Braum"))
+    assert sig["peel"] == ["Shen", "Braum"] and sig["hyper"] == ["Jinx"]
+    # Scalers at top/mid are hypercarries; poke carries count in any role.
+    assert comps.team_signals(team("Kayle", "Viego", "Kassadin", "Kaisa", "Alistar"))["hyper"] == ["Kayle", "Kassadin"]
+    assert comps.team_signals(team("Jayce", "Viego", "Orianna", "Caitlyn", "Alistar"))["poke"] == ["Jayce", "Caitlyn"]
+    # Split needs little engage: a split top with 2 hard engage is not "split".
+    assert comps.team_plan(team("Fiora", "Sejuani", "Orianna", "Kaisa", "Leona"))[0] == "engage"
+    assert comps.team_plan(team("Fiora", "Viego", "Orianna", "Kaisa", "Leona"))[0] == "split"
+    # Typed names and gaps are tolerated.
+    assert comps.team_plan([{"champion": "wukong", "role": "JUNGLE"}, {"champion": "", "role": "TOP"}])[0] == "mixto"
+    assert comps.team_plan([])[0] == "mixto"
+
+
+def test_match_plans_from_participants():
+    match = make_comp_match("LA1_0", blue={"TOP": ("p1", "", "Malphite"), "JUNGLE": ("p2", "", "Sejuani"),
+                                          "UTILITY": ("p3", "", "Leona")},
+                            red={"TOP": "Garen", "JUNGLE": "Viego", "MIDDLE": "Orianna", "BOTTOM": "Jinx",
+                                 "UTILITY": "Lulu"})
+    assert comps.match_plans(match["info"]["participants"], 100) == ("engage", "proteger")
+    assert comps.match_plans(match["info"]["participants"], 200) == ("proteger", "engage")
+
+
+def test_records_carry_both_plans_and_rosters():
+    b = TeamBuilder()
+    b.game(True, blue={"TOP": "Malphite", "JUNGLE": "Sejuani", "UTILITY": "Leona"},
+           red={"TOP": "Garen", "JUNGLE": "Viego", "MIDDLE": "Orianna", "BOTTOM": "Jinx", "UTILITY": "Lulu"})
+    r = records_of(b)[0]
+    assert r["plan"] == "engage" and r["enemy_plan"] == "proteger"
+    assert len(r["enemy_team"]) == 5 and {"champion": "Lulu", "role": "UTILITY"} in r["enemy_team"]
+
+
+def test_metrics_row_has_plans_only_for_summoners_rift():
+    from lolan.metrics import extract_game_metrics
+    ok = make_comp_match("LA1_0", queue=440, blue={"TOP": ("p1", "", "Malphite"), "JUNGLE": ("p2", "", "Sejuani"),
+                                                    "UTILITY": ("p3", "", "Leona")})
+    row = extract_game_metrics(ok, None, ME_PUUID)
+    assert row["team_plan"] == "engage" and row["enemy_plan"] in comps.PLAN_LABELS
+    row = extract_game_metrics(make_comp_match("LA1_1", queue=450), None, ME_PUUID)       # ARAM
+    assert row["team_plan"] is None and row["enemy_plan"] is None
+
+
+# --------------------------------------------------- per-line / pair / plan tables
+@pytest.fixture
+def line_records():
+    b = TeamBuilder()
+    b.repeat(4, 3, blue={"TOP": (ALFA, "Ornn")})                  # tanque 3-1
+    b.repeat(3, 1, blue={"TOP": (ALFA, "Garen")})                 # bruiser 1-2
+    b.repeat(2, 2, blue={"TOP": (RANDOM_SUP, "Fiora")})             # split 2-0 (not clan)
+    b.repeat(2, 0, main_role="TOP", main_champ="Ornn")              # the main plays TOP: not counted there
+    return records_of(b)
+
+
+def test_by_line_groups_allies_by_type_and_excludes_the_main(line_records):
+    lines = {x["role"]: x for x in comps.by_line(line_records)}
+    top = lines["TOP"]
+    assert top["games"] == 9 and top["label"] == "Top"          # the 2 games where the main is TOP are out
+    by_type = {x["key"]: x for x in top["by_type"]}
+    assert (by_type["tanque"]["games"], by_type["tanque"]["wins"]) == (4, 3)
+    assert (by_type["bruiser"]["games"], by_type["bruiser"]["wins"]) == (3, 1)
+    assert by_type["split"]["small"] and by_type["split"]["label"] == "Duelista/split pusher"
+    assert by_type["tanque"]["share"] == pytest.approx(4 / 9)
+    assert by_type["tanque"]["shrunk"] == pytest.approx(8 / 14)
+    assert [x["key"] for x in top["by_type"]] == ["tanque", "bruiser", "split"]      # small samples last
+    # Per clan person: only Alfa is clan; her type distribution and WR by type.
+    assert [p["person"] for p in top["people"]] == ["Epsilon Alfa"]
+    alfa = top["people"][0]
+    assert alfa["games"] == 7 and {t["key"]: t["games"] for t in alfa["types"]} == {"tanque": 4, "bruiser": 3}
+    assert next(t for t in alfa["types"] if t["key"] == "tanque")["share"] == pytest.approx(4 / 7)
+    # The main is ADC in 9 games, so the ADC line only has the 2 games where he plays TOP.
+    assert lines["BOTTOM"]["games"] == 2
+    assert [x["role"] for x in comps.by_line(line_records)] == ["TOP", "JUNGLE", "MIDDLE", "UTILITY", "BOTTOM"]
+    assert [x["key"] for x in lines["JUNGLE"]["by_type"]] == ["otro"]     # unknown champions: "Sin clasificar"
+
+
+def test_type_pairs_jungle_mid_jungle_top_and_support_adc():
+    b = TeamBuilder()
+    b.repeat(5, 4, blue={"JUNGLE": (BETA, "LeeSin"), "MIDDLE": "Zed", "TOP": "Garen", "UTILITY": (ALFA, "Taric")})
+    b.repeat(3, 1, blue={"JUNGLE": (BETA, "LeeSin"), "MIDDLE": "Orianna", "TOP": "Ornn", "UTILITY": (ALFA, "Leona")})
+    b.repeat(2, 0, blue={"JUNGLE": (BETA, "Zac"), "MIDDLE": "Zed", "TOP": "Garen", "UTILITY": (ALFA, "Leona")})
+    # The main is the jungler here: he counts in the jungle pairs; the ally ADC counts in support x ADC.
+    b.repeat(3, 3, blue={"MIDDLE": "Orianna", "BOTTOM": (BETA, "Kaisa"), "UTILITY": (ALFA, "Leona")},
+             main_role="JUNGLE", main_champ="Viego")
+    pairs = comps.type_pairs(records_of(b))
+    assert [p["key"] for p in pairs.values()] == ["jg_mid", "jg_top", "sup_adc"]
+    jg_mid = {(x["a"], x["b"]): x for x in pairs["jg_mid"]["rows"]}
+    assert (jg_mid[("early", "asesino")]["games"], jg_mid[("early", "asesino")]["wins"]) == (5, 4)
+    assert (jg_mid[("early", "control")]["games"], jg_mid[("early", "control")]["wins"]) == (3, 1)
+    assert jg_mid[("tanque", "asesino")]["small"] and jg_mid[("farm", "control")]["games"] == 3
+    assert jg_mid[("early", "asesino")]["shrunk"] == pytest.approx(9 / 15)
+    rows = pairs["jg_mid"]["rows"]
+    assert [(x["a"], x["b"]) for x in rows[:2]] == [("farm", "control"), ("early", "asesino")]     # by shrunk WR
+    assert (rows[1]["a_label"], rows[1]["b_label"]) == ("Early/ganker", "Asesino/roamer") and rows[-1]["small"]
+    assert pairs["jg_mid"]["games"] == 13 and pairs["jg_mid"]["title"] == "Jungla × Mid"
+    jg_top = {(x["a"], x["b"]): x for x in pairs["jg_top"]["rows"]}
+    assert jg_top[("early", "bruiser")]["games"] == 5 and jg_top[("early", "tanque")]["games"] == 3
+    assert jg_top[("tanque", "bruiser")]["games"] == 2 and jg_top[("farm", "otro")]["games"] == 3
+    sup_adc = {(x["a"], x["b"]): x for x in pairs["sup_adc"]["rows"]}
+    assert (sup_adc[("engage", "followup")]["games"], sup_adc[("engage", "followup")]["wins"]) == (3, 3)
+    assert sup_adc[("peel", "flexible")]["games"] == 5 and sup_adc[("engage", "flexible")]["games"] == 5
+
+
+def test_plan_analysis_distribution_and_matrix():
+    engage = {"TOP": "Malphite", "JUNGLE": "Sejuani", "UTILITY": "Leona"}
+    protect = {"TOP": "Garen", "JUNGLE": "Viego", "MIDDLE": "Orianna", "UTILITY": "Lulu"}
+    red_protect = {"TOP": "Garen", "JUNGLE": "Viego", "MIDDLE": "Orianna", "BOTTOM": "Jinx", "UTILITY": "Lulu"}
+    red_engage = {"TOP": "Malphite", "JUNGLE": "Sejuani", "MIDDLE": "Orianna", "BOTTOM": "Jinx", "UTILITY": "Leona"}
+    b = TeamBuilder()
+    b.repeat(4, 1, blue=engage, red=red_protect)
+    b.repeat(3, 3, blue=protect, red=red_engage)
+    b.repeat(1, 1, blue=protect, red=red_protect)
+    analysis = comps.plan_analysis(records_of(b))
+    assert analysis["games"] == 8
+    mine = {x["plan"]: x for x in analysis["mine"]}
+    assert (mine["engage"]["games"], mine["engage"]["wins"]) == (4, 1)
+    assert (mine["proteger"]["games"], mine["proteger"]["wins"]) == (4, 4)
+    assert mine["engage"]["share"] == pytest.approx(0.5) and "mixto" not in mine
+    assert [x["plan"] for x in analysis["mine"]] == ["engage", "proteger"]       # PLAN_ORDER
+    assert {x["plan"] for x in analysis["enemy"]} == {"engage", "proteger"}
+    cells = {r["plan"]: dict(zip(analysis["matrix"]["plans"], r["cells"])) for r in analysis["matrix"]["rows"]}
+    assert (cells["engage"]["proteger"]["games"], cells["engage"]["proteger"]["wins"]) == (4, 1)
+    assert cells["proteger"]["engage"]["small"] is False and cells["proteger"]["engage"]["wins"] == 3
+    assert cells["proteger"]["proteger"]["small"] and cells["engage"]["engage"] is None
+    assert comps.plan_analysis([])["games"] == 0
+
+
+def test_analyze_all_includes_the_new_tables(line_records):
+    a = comps.analyze_all(line_records)
+    assert len(a["lines"]) == 5 and set(a["type_pairs"]) == {"jg_mid", "jg_top", "sup_adc"}
+    assert a["plans"]["games"] == 11
+    md = comps.render_markdown(a, [], {}, "todas las colas", [])
+    for needle in ("## Por línea", "## Duplas de tipos", "## Plan de pelea", "no son datos oficiales de Riot"):
+        assert needle in md
+    summary = comps.render_summary(a, [], {}, [])
+    assert "Por línea" in summary and "Duplas Jungla × Mid" in summary and "Plan de pelea de tu equipo" in summary
+
+
+# ---------------------------------------------------------- draft recommender
+def picks(draft, role):
+    return [x["champion"] or x["type"] for x in draft["roles"][role]["picks"]]
+
+
+def test_draft_without_clan_person_suggests_types_not_champions(duo_records):
+    draft = comps.recommend_draft({}, duo_records)
+    for role in comps.DRAFT_ROLES:
+        e = draft["roles"][role]
+        assert e["mode"] == "tipos" and len(e["picks"]) == 3
+        assert all(x["kind"] == "tipo" and x["champion"] is None and 1 <= len(x["reasons"]) <= 3
+                   for x in e["picks"])
+    assert set(picks(draft, "JUNGLE")) == {"early", "tanque", "farm"}
+    assert draft["roles"]["BOTTOM"]["mode"] == "adc"
+    assert draft["plan"]["plan"] in comps.PLAN_LABELS and draft["plan"]["reasons"]
+
+
+def test_draft_adc_output_matches_the_existing_recommender(duo_records):
+    lineup = {"UTILITY": ("Epsilon Alfa", None)}
+    draft = comps.recommend_draft(lineup, duo_records)
+    adc = draft["roles"]["BOTTOM"]["picks"]
+    assert [x["champion"] for x in adc] == names(comps.recommend(lineup, duo_records))[:3]
+    assert adc[0]["reasons"] == comps.recommend(lineup, duo_records)[0]["reasons"]
+
+
+def test_draft_fixed_champion_gets_no_picks():
+    draft = comps.recommend_draft({"TOP": (None, "Ornn")}, [])
+    top = draft["roles"]["TOP"]
+    assert top["mode"] == "fijo" and top["picks"] == [] and top["fixed_type"] == "tanque"
+    assert {"role": "TOP", "label": "Top", "text": "Ornn"} in draft["plan"]["members"]
+
+
+def jungle_pool_records(early_wins, tank_wins, games):
+    b = TeamBuilder()
+    # The main plays top, so his ADC slot is unknown (no scaling-carry rule interferes).
+    b.repeat(games, early_wins, blue={"JUNGLE": (BETA, "LeeSin"), "MIDDLE": "Zed"}, main_role="TOP", main_champ="Garen")
+    b.repeat(games, tank_wins, blue={"JUNGLE": (BETA, "Zac"), "MIDDLE": "Zed"}, main_role="TOP", main_champ="Garen")
+    return records_of(b)
+
+
+def test_draft_rules_dominate_with_thin_data():
+    # Mid is a typed assassin: an early jungler is favoured and a tank jungler penalized, even
+    # when the sample says the opposite (Zac 3-0, Lee Sin 0-3).
+    recs = jungle_pool_records(early_wins=0, tank_wins=3, games=3)
+    draft = comps.recommend_draft({"JUNGLE": ("Epsilon Beta", None), "MIDDLE": (None, "Zed")}, recs)
+    assert draft["roles"]["JUNGLE"]["mode"] == "campeones"
+    assert picks(draft, "JUNGLE") == ["LeeSin", "Zac"]
+    top = draft["roles"]["JUNGLE"]["picks"][0]
+    assert top["type"] == "early" and any("asesino" in r for r in top["reasons"]) and 1 <= len(top["reasons"]) <= 3
+    assert top["source"] == "propia" and top["games"] == 3
+
+
+def test_draft_data_shifts_the_ranking_with_enough_games():
+    recs = jungle_pool_records(early_wins=0, tank_wins=30, games=30)
+    draft = comps.recommend_draft({"JUNGLE": ("Epsilon Beta", None), "MIDDLE": (None, "Zed")}, recs)
+    assert picks(draft, "JUNGLE") == ["Zac", "LeeSin"]
+    assert any("30-0" in r for r in draft["roles"]["JUNGLE"]["picks"][0]["reasons"])
+
+
+def test_draft_pool_needs_min_games_and_falls_back_to_types():
+    b = TeamBuilder()
+    b.repeat(2, 2, blue={"JUNGLE": (BETA, "LeeSin")})
+    draft = comps.recommend_draft({"JUNGLE": ("Epsilon Beta", None)}, records_of(b))
+    e = draft["roles"]["JUNGLE"]
+    assert e["mode"] == "tipos" and "Epsilon Beta no tiene 3 partidas" in e["note"]
+    assert all(x["kind"] == "tipo" for x in e["picks"])
+
+
+def test_draft_scaling_carry_favors_farm_jungle():
+    b = TeamBuilder()
+    b.repeat(3, 1, blue={"JUNGLE": (BETA, "Viego")})            # the main is ADC Jinx: a scaling carry
+    b.repeat(3, 1, blue={"JUNGLE": (BETA, "LeeSin")})
+    jungle = {x["champion"]: x for x in comps.recommend_draft(
+        {"JUNGLE": ("Epsilon Beta", None)}, records_of(b))["roles"]["JUNGLE"]["picks"]}
+    assert jungle["Viego"]["raw_score"] > jungle["LeeSin"]["raw_score"]
+    assert any("carry de escalado" in r for r in jungle["Viego"]["reasons"])
+
+
+def test_draft_mid_rules_control_is_safe_melee_needs_engage():
+    safe = comps.recommend_draft({}, [])["roles"]["MIDDLE"]["picks"]
+    assert [x["type"] for x in safe][0] == "control" and [x["type"] for x in safe][-1] == "melee"
+    with_engage = comps.recommend_draft({"JUNGLE": (None, "Sejuani"), "TOP": (None, "Malphite"),
+                                         "UTILITY": (None, "Leona")}, [])["roles"]["MIDDLE"]["picks"]
+    melee = next(x for x in with_engage if x["type"] == "melee")
+    assert melee["raw_score"] > next(x for x in safe if x["type"] == "melee")["raw_score"]
+    assert any("engage" in r for r in melee["reasons"])
+
+
+def test_draft_top_rules():
+    plain = {x["type"]: x for x in comps.recommend_draft({}, [])["roles"]["TOP"]["picks"]}
+    assert plain["split"]["raw_score"] < plain["bruiser"]["raw_score"]            # split needs peel/control
+    held = {x["type"]: x for x in comps.recommend_draft(
+        {"UTILITY": (None, "Lulu"), "MIDDLE": (None, "Orianna")}, [])["roles"]["TOP"]["picks"]}
+    assert held["split"]["raw_score"] > plain["split"]["raw_score"]
+    frontline = {x["type"]: x for x in comps.recommend_draft(
+        {"JUNGLE": (None, "Zac"), "UTILITY": (None, "Leona")}, [])["roles"]["TOP"]["picks"]}
+    assert frontline["tanque"]["raw_score"] < plain["tanque"]["raw_score"]       # frontline already there
+
+
+def test_draft_support_follows_the_adc_fit_table():
+    b = Builder()
+    b.many(3, 1, "Kaisa", ALFA, "Leona")                    # the main is a follow-up ADC
+    sup = comps.recommend_draft({}, records_of(b))["roles"]["UTILITY"]["picks"]
+    assert sup[0]["type"] == "engage" and sup[0]["kind"] == "tipo"
+    assert any("follow-up" in r for r in sup[0]["reasons"])
+
+
+def test_draft_prefers_proteger_when_hypercarry_and_peel_are_locked():
+    b = TeamBuilder()
+    b.repeat(6, 3, blue={"JUNGLE": (BETA, "LeeSin")})        # the main is a flexible ADC (Jinx)
+    draft = comps.recommend_draft({"TOP": (None, "Malphite"), "UTILITY": (None, "Lulu")}, records_of(b))
+    jungle = {x["type"]: x for x in draft["roles"]["JUNGLE"]["picks"]}
+    # Malphite is 1 hard engage: a second one (Zac) would break "proteger".
+    assert jungle["early"]["plan"] == "proteger" and jungle["farm"]["plan"] == "proteger"
+    assert jungle["tanque"]["plan"] != "proteger"
+    assert jungle["early"]["raw_score"] > jungle["tanque"]["raw_score"]
+    assert any("proteger al carry" in r for r in jungle["farm"]["reasons"])
+    assert draft["plan"]["plan"] == "proteger" and draft["plan"]["label"] == "Proteger al carry"
+    assert {"role": "UTILITY", "label": "Soporte", "text": "Lulu"} in draft["plan"]["members"]
+
+
+def test_draft_empty_records_do_not_crash():
+    draft = comps.recommend_draft({"TOP": ("Epsilon Nadie", None)}, [])
+    assert draft["roles"]["TOP"]["mode"] == "tipos" and draft["roles"]["BOTTOM"]["picks"] == []
+    assert draft["plan"]["plan"] in comps.PLAN_LABELS

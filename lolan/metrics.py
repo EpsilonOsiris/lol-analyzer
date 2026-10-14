@@ -335,6 +335,12 @@ def extract_game_metrics(match, timeline, puuid):
         "has_timeline": 1 if timeline else 0,
     }
     row.update(_player_rates(me, dur_min))
+    # Team "plan de pelea" of both sides (comps imports this module, hence the late import).
+    if row["analyzable"]:
+        from .comps import match_plans
+        row["team_plan"], row["enemy_plan"] = match_plans(participants, team_id)
+    else:
+        row["team_plan"] = row["enemy_plan"] = None
 
     team = [p for p in participants if p.get("teamId") == team_id]
     team_kills = sum(_int(p.get("kills")) for p in team)

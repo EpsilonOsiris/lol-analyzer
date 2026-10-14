@@ -516,6 +516,27 @@ def create_app(root=None, ddragon=None) -> Flask:
         ins = an.champion_insights(d.games, nombre)
         return render_template("campeon.html", name=ins["champion"], ins=ins, games=games[::-1])
 
+    def game_plans(game):
+        """Both teams' "plan de pelea" for the match page (None when the game has none).
+
+        The labels come from the game row; for the main player's own games the reasons are
+        recomputed from the compositions records, which keep both rosters.
+        """
+        if not game.get("team_plan"):
+            return None
+        own = {"plan": game["team_plan"], "reasons": []}
+        foe = {"plan": game["enemy_plan"], "reasons": []}
+        if g.player.is_main:
+            st = g.settings
+            rec = next((r for r in cache.comps(g.player.puuid, st.clan_prefix, st.clan_aliases)
+                        if r["match_id"] == game["match_id"]), None)
+            if rec:
+                own["reasons"] = comps.team_plan(rec["team"])[1]
+                foe["reasons"] = comps.team_plan(rec["enemy_team"])[1]
+        for side in (own, foe):
+            side["label"] = comps.PLAN_LABELS[side["plan"]]
+        return {"own": own, "enemy": foe}
+
     @app.get("/partida/<match_id>")
     def match(match_id):
         d = data()
@@ -536,7 +557,8 @@ def create_app(root=None, ddragon=None) -> Flask:
             abort(404, description=f"No se encontró la partida {match_id} entre {owner} "
                                    "analizables (puede ser un remake o de una cola que no es de la Grieta).")
         card = an.game_report_card(game, pool)
-        return render_template("partida.html", card=card, pool_size=len(pool),
+        plans = game_plans(game)
+        return render_template("partida.html", card=card, plans=plans, pool_size=len(pool),
                                pool_label="todas las colas" if other_queue or g.cola == "todas"
                                else QUEUE_LABELS[g.cola], other_queue=other_queue,
                                dv=match_deaths(game))
@@ -587,14 +609,15 @@ def create_app(root=None, ddragon=None) -> Flask:
                 for role in comps.ROLES if role != "BOTTOM"}
         enemies = [e.strip()[:30] for e in re.split(r"[,;\n]", args.get("enemigos", "")) if e.strip()][:5]
         include_all = args.get("todos") == "1"
-        ranking = notes = None
+        ranking = notes = draft = None
         if submitted:
             lineup = {role: (v["person"] or None, v["champion"] or None) for role, v in form.items()}
             ranking = comps.recommend(lineup, records, enemies, include_all=include_all)
             notes = comps.draft_notes(lineup, records, enemies)
+            draft = comps.recommend_draft(lineup, records, enemies, include_all=include_all)
         return render_template(
             "composiciones.html", a=analysis, form=form, people=people, submitted=submitted,
-            ranking=ranking, notes=notes, enemies=", ".join(enemies), include_all=include_all,
+            ranking=ranking, notes=notes, draft=draft, enemies=", ".join(enemies), include_all=include_all,
             draft_roles=[r for r in comps.ROLES if r != "BOTTOM"], c=comps,
             min_games=analysis["min_games"], clan_prefix=st.clan_prefix, cola_text="todas las colas" if g.cola == "todas"
             else QUEUE_LABELS[g.cola])

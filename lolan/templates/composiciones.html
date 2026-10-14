@@ -17,12 +17,13 @@
     <li><strong>Itemización</strong>: si un enemigo tiene más de 100 de armadura adicional, necesitas % de penetración de armadura. <strong>Hechizos</strong>: Purificar contra mucho CC.</li>
   </ul>
   <p>Las clasificaciones marcadas como <em>propia</em> (por ejemplo Jhin, Yunara, Miss Fortune, Xayah o los soportes que no son Taric, Tahm Kench y Braum) <strong>no son del video</strong>: las añadimos nosotros por analogía. Los ADC y soportes sin clasificar aparecen como «Sin clasificar».</p>
+  <p>Las clasificaciones de <strong>top, jungla y mid</strong> (top: tanque, bruiser, split; jungla: early, tanque/engage, carry/farm; mid: control/artillería, asesino/roamer, duelista melee) y el <strong>plan de pelea</strong> de cada equipo (engage, proteger al carry, poke, pick, split, mixto) <strong>son propias</strong>, armadas a partir de guías (EarlyGame, LoLTheory, WeCoach, Mobalytics); no son datos oficiales de Riot. El plan sale de contar en los cinco aliados el engage duro, el peel, el poke, los picks y el split.</p>
   <p>Los winrates se ordenan con el winrate ajustado <code>(victorias + 5) / (partidas + 10)</code>, que evita que un 2-0 parezca mejor que un 20-8. El récord y las partidas siempre se muestran. Las filas con menos de {{ min_games }} partidas aparecen atenuadas y con <abbr class="tag" title="Muestra pequeña">*</abbr>.</p>
 </details>
 
 <section class="card" id="draft">
   <h2>Armar draft</h2>
-  <p class="muted">Elige quién juega en cada rol de tu equipo (si no sabes, «Aleatorio») y, si ya lo escogieron, su campeón. La alineación viene rellenada con la más común del clan. Te sugerimos el ADC de tu pool que mejor encaja.</p>
+  <p class="muted">Elige quién juega en cada rol de tu equipo (si no sabes, «Aleatorio») y, si ya lo escogieron, su campeón. La alineación viene rellenada con la más común del clan. Te sugerimos el ADC de tu pool que mejor encaja y, para cada línea sin campeón, los 3 mejores picks (los campeones de esa persona si elegiste a alguien del clan; si dejas «Aleatorio», solo tipos de campeón), con el plan de pelea resultante.</p>
   <form method="get" action="{{ u('comps_page') }}" class="draft-form">
     <input type="hidden" name="cola" value="{{ cola }}">
     <input type="hidden" name="armar" value="1">
@@ -54,6 +55,7 @@
   {% if submitted %}
   <h3>Recomendación</h3>
   {% if notes %}<ul class="muted">{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  <h4>ADC (tú)</h4>
   {% if ranking %}
   <ol class="rec-list">
     {% for x in ranking[:8] %}
@@ -68,6 +70,37 @@
   </ol>
   {% else %}
   <p class="muted">Ningún ADC tiene aún 3 partidas tuyas. Marca «Incluir todos los ADC clasificados» para ver sugerencias basadas solo en el marco.</p>
+  {% endif %}
+
+  {% if draft %}
+  <h3>Otras líneas</h3>
+  <p class="muted">Cada pick se puntúa con las reglas del marco (pesan más cuando hay pocos datos) y con tus resultados: el winrate de tu equipo con ese tipo en esa línea y con la dupla relevante (jungla × mid, jungla × top, soporte × ADC) cuando hay 10 partidas o más, y el winrate de esa persona con ese campeón. Las clasificaciones son propias, no datos de Riot.</p>
+  {% for role in draft_roles %}
+  {% set e = draft.roles[role] %}
+  <div class="draft-role">
+    <h4>{{ e.label }}{% if e.person %} <span class="muted">· {{ e.person }}</span>{% endif %}</h4>
+    {% if e.mode == 'fijo' %}
+    <p class="muted">{{ e.fixed }} ya está escogido ({{ e.fixed_type_label|lower }}).</p>
+    {% else %}
+    {% if e.note %}<p class="muted">{{ e.note }}</p>
+    {% elif e.mode == 'tipos' %}<p class="muted">Sin persona del clan ni campeón: te sugerimos tipos, no campeones.</p>{% endif %}
+    <ol class="rec-list">
+      {% for x in e.picks %}
+      <li>
+        <div class="rec-head"><strong>{% if x.kind == 'tipo' %}Tipo: {{ x.type_label }}{% else %}{{ x.champion }}{% endif %}</strong>
+          {% if x.kind == 'campeon' %}<span class="badge main">{{ x.type_label }}{% if x.source == 'propia' %} · clasificación propia{% endif %}</span>{% endif %}
+          <span class="muted">puntaje {{ x.score }}</span>
+          {% if x.plan_label %}<span class="muted">· plan {{ x.plan_label }}</span>{% endif %}</div>
+        <ul>{% for r in x.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <h3>Plan de pelea resultante</h3>
+  <p><strong>{{ draft.plan.label }}</strong> <span class="muted">con {% for mm in draft.plan.members %}{{ mm.label }}: {{ mm.text }}{% if not loop.last %} · {% endif %}{% endfor %}</span></p>
+  <ul>{% for r in draft.plan.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
   {% endif %}
   {% endif %}
 </section>
@@ -166,6 +199,99 @@
     {% else %}<p class="muted pad">Sin datos.</p>{% endif %}
   </section>
 </div>
+
+<section class="card flush" id="por-linea">
+  <h2 class="pad">Por línea <span class="sub muted">tus aliados, sin contarte</span></h2>
+  <p class="note pad">Winrate de tu equipo según el tipo del aliado en cada línea (clasificación propia en top, jungla y mid). Las partidas en las que tú juegas esa línea no cuentan en ella. Debajo, qué tipos juega cada persona del clan en esa línea y cómo le va a tu equipo con cada uno.</p>
+  {% for line in a.lines %}
+  <h3 class="pad">{{ line.label }} <span class="muted">· {{ line.games }} partidas</span></h3>
+  {% if line.by_type %}
+  <div class="table-wrap"><table class="sortable">
+    <thead><tr><th>Tipo</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">% de partidas</th><th class="num" data-type="num">Récord</th><th class="num" data-type="num">WR ajustado</th></tr></thead>
+    <tbody>
+    {% for r in line.by_type %}
+    <tr class="{{ 'dim' if r.small else '' }}">
+      <td>{{ r.label }}</td>
+      <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
+      <td class="num" data-v="{{ r.share }}">{{ r.share|pct }}</td>
+      <td class="num" data-v="{{ r.winrate }}">{{ m.rec(r) }}</td>
+      <td class="num" data-v="{{ r.shrunk }}">{{ r.shrunk|pct }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if line.people %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Persona del clan</th><th class="num">Partidas</th><th>Tipos que juega y récord de tu equipo con cada uno</th></tr></thead>
+    <tbody>
+    {% for p in line.people %}
+    <tr class="{{ 'dim' if p.small else '' }}">
+      <td>{{ p.person }}</td><td class="num">{{ p.games }}</td>
+      <td class="wrap-cell">{% for t in p.types %}<div>{{ t.label }} <span class="muted">{{ t.games }}p · {{ t.share|pct }}</span> {{ m.rec(t) }}</div>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+  {% else %}<p class="muted pad">Sin partidas con un aliado en esta línea.</p>{% endif %}
+  {% endfor %}
+</section>
+
+<section class="card flush" id="duplas">
+  <h2 class="pad">Duplas de tipos</h2>
+  <p class="note pad">Tipo de una línea × tipo de otra, en todas tus partidas con ambas líneas ocupadas (tú incluido si juegas una de ellas). Se ordena por winrate ajustado; las filas con menos de {{ min_games }} partidas van al final y atenuadas.</p>
+  {% for pair in a.type_pairs.values() %}
+  <h3 class="pad">{{ pair.title }} <span class="muted">· {{ pair.games }} partidas</span></h3>
+  {% if pair.rows %}
+  <div class="table-wrap"><table class="sortable">
+    <thead><tr><th>{{ pair.role_a|role }}</th><th>{{ pair.role_b|role }}</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Récord</th><th class="num" data-type="num">WR ajustado</th></tr></thead>
+    <tbody>
+    {% for r in pair.rows %}
+    <tr class="{{ 'dim' if r.small else '' }}">
+      <td>{{ r.a_label }}</td><td>{{ r.b_label }}</td>
+      <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
+      <td class="num" data-v="{{ r.winrate }}">{{ m.rec(r) }}</td>
+      <td class="num" data-v="{{ r.shrunk }}">{{ r.shrunk|pct }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted pad">Sin datos.</p>{% endif %}
+  {% endfor %}
+</section>
+
+{% set plans = a.plans %}
+<section class="card flush" id="plan-de-pelea">
+  <h2 class="pad">Plan de pelea <span class="sub muted">{{ plans.games }} partidas</span></h2>
+  <p class="note pad">Qué plan tiene cada equipo según sus cinco campeones: <em>engage</em> (3 o más engages duros, o 2 con un ADC follow-up), <em>poke/asedio</em> (2 o más fuentes de poke), <em>pick</em> (2 o más picks), <em>split push</em> (top de split con poco engage), <em>proteger al carry</em> (peel + un carry de escalado y poco engage) o <em>mixto</em> si ninguna domina. Es una heurística propia, no un dato de Riot.</p>
+  {% if plans.games %}
+  <div class="grid-2">
+    {% for title, rows in (("Tu equipo", plans.mine), ("El equipo rival", plans.enemy)) %}
+    <div>
+      <h3 class="pad">{{ title }}</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Plan</th><th class="num">Partidas</th><th class="num">% de partidas</th><th class="num">Récord de tu equipo</th><th class="num">WR ajustado</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'dim' if r.small else '' }}"><td>{{ r.label }}</td><td class="num">{{ r.games }}</td><td class="num">{{ r.share|pct }}</td><td class="num">{{ m.rec(r) }}</td><td class="num">{{ r.shrunk|pct }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+    {% endfor %}
+  </div>
+  <h3 class="pad">Tu plan × plan rival</h3>
+  <p class="note pad">Récord de tu equipo según tu plan (filas) contra el del rival (columnas).</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tu plan \ rival</th>{% for p in plans.matrix.plans %}<th>{{ c.PLAN_LABELS[p] }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in plans.matrix.rows if row.games %}
+    <tr><th scope="row">{{ row.label }}</th>{% for cell in row.cells %}<td>{{ m.rec(cell) }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted pad">Sin datos.</p>{% endif %}
+</section>
 
 <section class="card flush">
   <h2 class="pad">Alineaciones del clan</h2>

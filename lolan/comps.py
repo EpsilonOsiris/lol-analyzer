@@ -8,6 +8,11 @@ The ADC framework comes from a coaching video by a Challenger support:
   * kiting ADCs shine when chased and want peel/enchanter supports;
   * flexible ADCs work with any support and are safe first picks.
 Champions that the video names carry `source == "video"`; the ones added by us carry "propia".
+
+The other roles (top, jungle, mid) and the team-level "plan de pelea" use classifications of our
+own (`source == "propia"`), put together from public guides (EarlyGame, LoLTheory, WeCoach,
+Mobalytics); they are NOT official Riot data. Everything is seen from the main player's seat:
+only games he played, with his team's result.
 """
 from __future__ import annotations
 
@@ -80,12 +85,85 @@ HARD_ENGAGE = frozenset({
     "KSante", "Sett",
 })
 
+# Classification of the other lines. Same champion, different role -> possibly different type, so
+# the tables are keyed by role (Sylas is "split" at top, "farm" in the jungle, "melee" in mid).
+# Everything here is our own ("propia"); UTILITY and BOTTOM reuse SUPPORT_CLASS / ADC_CLASS above.
+#   TOP:    tanque (tank / engage), bruiser (bruiser / juggernaut), split (duelist / split pusher)
+#   JUNGLE: early (early game / ganker), tanque (tank / engage), farm (carry / farm)
+#   MIDDLE: control (control mage / artillery), asesino (assassin / roamer), melee (melee duelist)
+ROLE_CLASS = {
+    "TOP": _build({
+        "tanque": {"propia": [
+            "Malphite", "Shen", "DrMundo", "KSante", "Ornn", "TahmKench", "Sion", "Poppy", "Zaahen",
+            "Volibear", "Kennen", "Gnar", "Chogath", "Maokai", "Sejuani", "Rammus"]},
+        "bruiser": {"propia": [
+            "Sett", "Garen", "Mordekaiser", "Nasus", "Illaoi", "Darius", "Aatrox", "Trundle",
+            "Renekton", "Olaf", "Ambessa", "Yorick", "MonkeyKing", "Pantheon", "JarvanIV", "Urgot",
+            "Udyr", "Warwick", "Skarner"]},
+        "split": {"propia": [
+            "Kayle", "Jax", "Gwen", "Gangplank", "Yone", "Tryndamere", "Jayce", "Riven", "Yasuo",
+            "Irelia", "Teemo", "Fiora", "Camille", "Akali", "Aurora", "Ekko", "Sylas", "Vladimir",
+            "Quinn", "Vayne", "Kled", "Rumble"]},
+    }),
+    "JUNGLE": _build({
+        "early": {"propia": [
+            "JarvanIV", "LeeSin", "XinZhao", "Nocturne", "Vi", "MonkeyKing", "Elise", "RekSai",
+            "Pantheon", "Briar", "Warwick", "Qiyana", "Trundle", "Naafiri", "Rengar", "Khazix",
+            "Evelynn", "Shyvana", "Nidalee", "Talon"]},
+        "tanque": {"propia": [
+            "Zac", "DrMundo", "Sejuani", "Amumu", "Nunu", "Skarner", "Chogath", "Poppy", "Shen",
+            "Volibear", "Ivern", "Zaahen", "Rammus", "Maokai", "Rell"]},
+        "farm": {"propia": [
+            "Viego", "Graves", "Kayn", "Sylas", "Ekko", "Lillia", "Kindred", "Karthus", "Belveth",
+            "Diana", "Aatrox", "FiddleSticks", "Gwen", "Nasus", "Darius", "Jayce", "MasterYi",
+            "Hecarim", "Udyr"]},
+    }),
+    "MIDDLE": _build({
+        "control": {"propia": [
+            "Xerath", "Orianna", "Veigar", "Lux", "Malzahar", "Syndra", "Lissandra", "AurelionSol",
+            "Viktor", "Anivia", "Hwei", "Mel", "Ziggs", "Azir", "Cassiopeia", "Vex", "Ryze",
+            "Vladimir", "Swain", "Zilean", "Velkoz", "Taliyah", "Corki"]},
+        "asesino": {"propia": [
+            "Ahri", "Akali", "Zoe", "Fizz", "Zed", "Ekko", "Diana", "Aurora", "Akshan", "Leblanc",
+            "Naafiri", "TwistedFate", "Qiyana", "Galio", "Talon", "Katarina", "Kassadin", "Neeko"]},
+        "melee": {"propia": [
+            "Yasuo", "Yone", "Sylas", "Irelia", "Gwen", "Locke", "Sion", "KSante", "Malphite",
+            "Chogath", "Nunu", "Vi", "Pantheon"]},
+    }),
+}
+
+TOP_LABELS = {"tanque": "Tanque", "bruiser": "Bruiser/juggernaut", "split": "Duelista/split pusher",
+              "otro": "Sin clasificar"}
+JUNGLE_LABELS = {"early": "Early/ganker", "tanque": "Tanque/engage", "farm": "Carry/farm",
+                 "otro": "Sin clasificar"}
+MIDDLE_LABELS = {"control": "Control/artillería", "asesino": "Asesino/roamer",
+                 "melee": "Duelista melee", "otro": "Sin clasificar"}
+# role -> {type: label}, and the order in which the types are listed.
+ROLE_TYPE_LABELS = {"TOP": TOP_LABELS, "JUNGLE": JUNGLE_LABELS, "MIDDLE": MIDDLE_LABELS,
+                    "UTILITY": SUPPORT_LABELS, "BOTTOM": ADC_LABELS}
+ROLE_TYPE_ORDER = {"TOP": ("tanque", "bruiser", "split", "otro"),
+                   "JUNGLE": ("early", "tanque", "farm", "otro"),
+                   "MIDDLE": ("control", "asesino", "melee", "otro"),
+                   "UTILITY": SUPPORT_ORDER, "BOTTOM": ADC_ORDER}
+LINE_ROLES = ("TOP", "JUNGLE", "MIDDLE", "UTILITY", "BOTTOM")      # order of the per-line tables
+
+# A neutral champion of each type (used when a recommendation is only a TYPE and we still need a
+# champion to predict the team plan). Chosen so they carry no special plan signal of their own.
+TYPE_REPRESENTATIVE = {
+    "TOP": {"tanque": "Gnar", "bruiser": "Garen", "split": "Fiora"},
+    "JUNGLE": {"early": "LeeSin", "tanque": "Zac", "farm": "Viego"},
+    "MIDDLE": {"control": "Orianna", "asesino": "Zed", "melee": "Yasuo"},
+    "UTILITY": {"engage": "Leona", "peel": "Lulu", "mixto": "Thresh", "poke": "Lux"},
+    "BOTTOM": {"followup": "Kaisa", "kiting": "Zeri", "flexible": "Jinx"},
+}
+
 # What a user may type -> Data Dragon name (normalized with `normalize_name`).
 CHAMPION_ALIASES = {"wukong": "MonkeyKing", "renataglasc": "Renata", "nunuywillump": "Nunu",
                     "kogmaw": "KogMaw", "velkoz": "Velkoz", "ksante": "KSante", "jarvaniv": "JarvanIV",
                     "tahmkench": "TahmKench", "missfortune": "MissFortune"}
 
-_CANONICAL = {normalize_name(c): c for c in (*ADC_CLASS, *SUPPORT_CLASS, *HARD_ENGAGE)}
+_CANONICAL = {normalize_name(c): c for c in (*ADC_CLASS, *SUPPORT_CLASS, *HARD_ENGAGE,
+                                              *(c for table in ROLE_CLASS.values() for c in table))}
 _CANONICAL.update({k: v for k, v in CHAMPION_ALIASES.items()})
 
 
@@ -130,6 +208,30 @@ def support_source(champion) -> str | None:
     return entry["source"] if entry else None
 
 
+def role_type(role: str, champion) -> str:
+    """Type of `champion` when played in `role` (any of the five), or "otro" if not classified."""
+    if role == "UTILITY":
+        return support_archetype(champion)
+    if role == "BOTTOM":
+        return adc_archetype(champion)
+    entry = _lookup(ROLE_CLASS.get(role, {}), champion)
+    return entry["type"] if entry else "otro"
+
+
+def role_source(role: str, champion) -> str | None:
+    """"video" / "propia" for a classified champion in that role, None when not classified."""
+    if role == "UTILITY":
+        return support_source(champion)
+    if role == "BOTTOM":
+        return adc_source(champion)
+    entry = _lookup(ROLE_CLASS.get(role, {}), champion)
+    return entry["source"] if entry else None
+
+
+def type_label(role: str, kind: str) -> str:
+    return ROLE_TYPE_LABELS.get(role, {}).get(kind, kind)
+
+
 def is_hard_engage(champion, role: str | None = None) -> bool:
     """A hard-engage champion, or a support classified as "engage" (Pyke) when played as UTILITY."""
     name = canonical_champion(champion)
@@ -145,6 +247,129 @@ def engage_count(members) -> int:
 
 def engage_bucket(count: int) -> str:
     return "3+" if count >= 3 else str(count)
+
+
+# ------------------------------------------------------------------ team "plan de pelea"
+PLAN_ORDER = ("engage", "proteger", "poke", "pick", "split", "mixto")
+PLAN_LABELS = {"engage": "Engage", "proteger": "Proteger al carry", "poke": "Poke/asedio",
+               "pick": "Pick", "split": "Split push", "mixto": "Mixto"}
+
+# Signals used by `team_plan`. All of them are our own judgement (guides, not Riot data).
+WARDENS = frozenset({"Shen", "TahmKench", "Braum"})              # peel anywhere on the map
+POKE_MID = frozenset({"Xerath", "Ziggs", "Velkoz", "Lux", "Hwei", "Mel", "Corki"})   # artillery mids
+POKE_CARRIES = frozenset({"Ezreal", "Varus", "Jayce", "Caitlyn"})                  # poke in any role
+SCALERS = frozenset({"Kayle", "Kassadin", "Vayne"})              # hypercarries outside the ADC slot
+CATCHERS = frozenset({"Thresh", "Blitzcrank", "Pyke", "Nautilus"})                 # pick supports
+
+# Thresholds of the rules, in priority order (the first one that holds wins):
+#   engage:   >= 3 hard engage, or >= 2 when the ADC is a follow-up
+#   poke:     >= 2 poke sources
+#   pick:     >= 2 pick sources
+#   split:    a "split" top and at most SPLIT_MAX_ENGAGE hard engage
+#   proteger: >= PEEL_MIN peel + >= 1 hypercarry + at most PROTEGER_MAX_ENGAGE hard engage
+#   mixto:    none of the above
+# Tuning (279 real games): with "proteger" first it swallowed 57% of the games, because ~3 of 4
+# teams have a peel support and a flexible/kiting ADC. Putting the more specific identities first
+# and "proteger" last leaves it as the default for "peel + scaling carry, nothing sharper":
+# engage 7%, poke 6%, pick 18%, split 21%, proteger 27%, mixto 21%.
+PEEL_MIN = 1
+PROTEGER_MAX_ENGAGE = 1
+ENGAGE_MIN = 3
+ENGAGE_MIN_WITH_FOLLOWUP = 2
+POKE_MIN = 2
+SPLIT_MAX_ENGAGE = 1
+PICK_MIN = 2
+
+
+def team_signals(team) -> dict[str, list[str]]:
+    """Per signal, the champions of `team` (dicts with champion/role) that contribute to it.
+
+    engage: hard engage (existing list, plus engage supports) · peel: peel/mixed supports and
+    Shen/Tahm Kench/Braum · poke: artillery mids, poke supports, Ezreal/Varus/Jayce/Caitlyn ·
+    hyper: flexible/kiting ADC, or Kayle/Kassadin/Vayne at top or mid · split: split top ·
+    pick: asesino mid, early jungle, catcher supports (Thresh, Blitzcrank, Pyke, Nautilus) ·
+    followup: a follow-up ADC. Each player counts at most once per signal.
+    """
+    sig = {k: [] for k in ("engage", "peel", "poke", "hyper", "split", "pick", "followup")}
+    for m in team:
+        champ, role = canonical_champion(m.get("champion")), m.get("role")
+        if not champ:
+            continue
+        sup = support_archetype(champ) if role == "UTILITY" else None
+        if is_hard_engage(champ, role):
+            sig["engage"].append(champ)
+        if sup in ("peel", "mixto") or champ in WARDENS:
+            sig["peel"].append(champ)
+        if (role == "MIDDLE" and champ in POKE_MID) or sup == "poke" or champ in POKE_CARRIES:
+            sig["poke"].append(champ)
+        if role == "BOTTOM" and adc_archetype(champ) in ("flexible", "kiting"):
+            sig["hyper"].append(champ)
+        elif role in ("TOP", "MIDDLE") and champ in SCALERS:
+            sig["hyper"].append(champ)
+        if role == "BOTTOM" and adc_archetype(champ) == "followup":
+            sig["followup"].append(champ)
+        if role == "TOP" and role_type("TOP", champ) == "split":
+            sig["split"].append(champ)
+        if (role == "MIDDLE" and role_type("MIDDLE", champ) == "asesino")                 or (role == "JUNGLE" and role_type("JUNGLE", champ) == "early")                 or (role == "UTILITY" and champ in CATCHERS):
+            sig["pick"].append(champ)
+    return sig
+
+
+def is_proteger(sig) -> bool:
+    """Peel + a scaling carry and little engage (the condition of the "proteger" plan)."""
+    return (len(sig["peel"]) >= PEEL_MIN and len(sig["hyper"]) >= 1
+            and len(sig["engage"]) <= PROTEGER_MAX_ENGAGE)
+
+
+def _names(champions) -> str:
+    return ", ".join(champions)
+
+
+def team_plan(team) -> tuple[str, list[str]]:
+    """(plan, reasons) of a team: engage / proteger / poke / pick / split / mixto.
+
+    `team`: dicts with `champion` and `role` (the 5 players of one side, main player included).
+    The reasons are short Spanish sentences naming the champions behind the decision.
+    """
+    sig = team_signals(team)
+    n = {k: len(v) for k, v in sig.items()}
+    engage_needed = ENGAGE_MIN_WITH_FOLLOWUP if n["followup"] else ENGAGE_MIN
+
+    if n["engage"] >= engage_needed:
+        plan = "engage"
+        reasons = [f"{n['engage']} campeones de engage duro ({_names(sig['engage'])})."]
+        if n["followup"]:
+            reasons.append(f"El ADC es follow-up ({_names(sig['followup'])}) y tiene a quién seguir.")
+    elif n["poke"] >= POKE_MIN:
+        plan = "poke"
+        reasons = [f"{n['poke']} fuentes de poke/asedio ({_names(sig['poke'])})."]
+    elif n["pick"] >= PICK_MIN:
+        plan = "pick"
+        reasons = [f"{n['pick']} campeones de pick/emboscada ({_names(sig['pick'])})."]
+    elif n["split"] >= 1 and n["engage"] <= SPLIT_MAX_ENGAGE:
+        plan = "split"
+        reasons = [f"Top de split push ({_names(sig['split'])}) y poco engage duro ({n['engage']}): "
+                   "se puede jugar 4v4 mientras el top presiona."]
+    elif is_proteger(sig):
+        plan = "proteger"
+        reasons = [f"Hay un carry de escalado ({_names(sig['hyper'])}) y peel para cuidarlo "
+                   f"({_names(sig['peel'])}).",
+                   f"Poco engage duro ({n['engage']}), así que el equipo juega a proteger, no a entrar."]
+    else:
+        plan = "mixto"
+        reasons = ["Ninguna señal domina: engage duro %d, peel %d, poke %d, pick %d, carry de "
+                   "escalado %d, split %d." % (n["engage"], n["peel"], n["poke"], n["pick"],
+                                               n["hyper"], n["split"])]
+    return plan, reasons
+
+
+def match_plans(participants, team_id) -> tuple[str, str]:
+    """(plan of the side `team_id`, plan of the other side) from raw match participants."""
+    ally, foe = [], []
+    for p in participants or []:
+        member = {"champion": p.get("championName") or "", "role": p.get("teamPosition") or ""}
+        (ally if p.get("teamId") == team_id else foe).append(member)
+    return team_plan(ally)[0], team_plan(foe)[0]
 
 
 # ------------------------------------------------------------------- statistics
@@ -286,6 +511,8 @@ def build_records(matches, main_puuid: str, queue: int | None = None) -> list[di
         team_id = me.get("teamId")
         team = [_member(p, main_puuid) for p in participants if p.get("teamId") == team_id]
         enemies = [p for p in participants if p.get("teamId") != team_id]
+        enemy_team = [{"champion": p.get("championName") or "", "role": p.get("teamPosition") or ""}
+                      for p in enemies]
         cc = [_num(p.get("timeCCingOthers")) for p in enemies]
         cc = [v for v in cc if v is not None]
         records.append({
@@ -295,6 +522,8 @@ def build_records(matches, main_puuid: str, queue: int | None = None) -> list[di
             "main_champion": me.get("championName") or "", "main_role": me.get("teamPosition") or "",
             "team": team,
             "enemy_champions": [p.get("championName") or "" for p in enemies],
+            "enemy_team": enemy_team,
+            "plan": team_plan(team)[0], "enemy_plan": team_plan(enemy_team)[0],
             "enemy_cc": sum(cc) if cc else None,
             "cleanse": CLEANSE_ID in (me.get("summoner1Id"), me.get("summoner2Id")),
             "pen": _penetration(timeline, me.get("participantId"),
@@ -442,6 +671,105 @@ def adc_engage_table(records, min_games=MIN_GAMES) -> dict:
     return {"buckets": ENGAGE_BUCKETS, "rows": rows, "games": sum(len(v) for v in cells.values())}
 
 
+def _member_in(r, role, include_main=True) -> dict | None:
+    """The player of the main's team in `role` (the first one if the data repeats a role)."""
+    return next((m for m in r["team"] if m["role"] == role and (include_main or not m["is_main"])),
+                None)
+
+
+def by_line(records, min_games=MIN_GAMES) -> list[dict]:
+    """a. Per line (TOP, JUNGLE, MIDDLE, UTILITY, BOTTOM): the main's team WR by the ALLY's type.
+
+    The main player is excluded from his own line (games where he plays that role are not
+    counted there). For each line also, per clan person who played it: how often each type, and
+    the team's WR with each type. Rows: {role, label, games, by_type, people}.
+    """
+    out = []
+    for role in LINE_ROLES:
+        items = []
+        for r in records:
+            ally = _member_in(r, role, include_main=False)
+            if ally is not None:
+                items.append((r, ally))
+        order = ROLE_TYPE_ORDER[role]
+
+        def typed(pairs):
+            buckets = defaultdict(list)
+            for r, m in pairs:
+                buckets[role_type(role, m["champion"])].append(r)
+            rows = [{"key": k, "label": type_label(role, k), **_stat(v, min_games),
+                     "share": len(v) / len(pairs)} for k, v in buckets.items()]
+            rows.sort(key=lambda x: (x["small"], -x["shrunk"], -x["games"], order.index(x["key"])
+                                     if x["key"] in order else 9))
+            return rows
+
+        by_person = defaultdict(list)
+        for r, m in items:
+            if m["person"]:
+                by_person[m["person"]].append((r, m))
+        people = [{"person": person, **_stat([r for r, _m in pairs], min_games), "types": typed(pairs)}
+                  for person, pairs in by_person.items()]
+        people.sort(key=lambda x: (-x["games"], x["person"]))
+        out.append({"role": role, "label": role_name(role), "games": len(items),
+                    "by_type": typed(items) if items else [], "people": people})
+    return out
+
+
+# Pairs of lines whose type combination is analysed: (role a, role b, key, title).
+PAIR_DEFS = (("JUNGLE", "MIDDLE", "jg_mid", "Jungla × Mid"),
+             ("JUNGLE", "TOP", "jg_top", "Jungla × Top"),
+             ("UTILITY", "BOTTOM", "sup_adc", "Soporte × ADC"))
+
+
+def type_pairs(records, min_games=MIN_GAMES) -> dict:
+    """b. Type of one line x type of another (jungle x mid, jungle x top, support x ADC).
+
+    Unlike `adc_support_matrix` (only games where the main is the ADC), this counts every game
+    of the main's team in which both lines are filled, whoever plays them (the main included).
+    Each pair: {key, title, role_a, role_b, games, rows[{a, b, labels, ...stats}]}.
+    """
+    out = {}
+    for role_a, role_b, key, title in PAIR_DEFS:
+        buckets = defaultdict(list)
+        for r in records:
+            a, b = _member_in(r, role_a), _member_in(r, role_b)
+            if a is not None and b is not None:
+                buckets[(role_type(role_a, a["champion"]), role_type(role_b, b["champion"]))].append(r)
+        rows = [{"a": ta, "b": tb, "a_label": type_label(role_a, ta), "b_label": type_label(role_b, tb),
+                 **_stat(v, min_games)} for (ta, tb), v in buckets.items()]
+        rows.sort(key=lambda x: (x["small"], -x["shrunk"], -x["games"], x["a"], x["b"]))
+        out[key] = {"key": key, "title": title, "role_a": role_a, "role_b": role_b,
+                    "games": sum(len(v) for v in buckets.values()), "rows": rows}
+    return out
+
+
+def plan_analysis(records, min_games=MIN_GAMES) -> dict:
+    """c. Distribution of the main's team plans and WR per plan; own plan x enemy plan matrix."""
+    usable = [r for r in records if r.get("plan")]
+    total = len(usable)
+
+    def distribution(field):
+        rows = []
+        for plan in PLAN_ORDER:
+            recs = [r for r in usable if r[field] == plan]
+            if recs:
+                rows.append({"plan": plan, "label": PLAN_LABELS[plan], **_stat(recs, min_games),
+                             "share": len(recs) / total})
+        return rows
+
+    cells = defaultdict(list)
+    for r in usable:
+        cells[(r["plan"], r["enemy_plan"])].append(r)
+    rows = []
+    for plan in PLAN_ORDER:
+        row_cells = [{"enemy": e, **_stat(cells[(plan, e)], min_games)} if cells.get((plan, e)) else None
+                     for e in PLAN_ORDER]
+        rows.append({"plan": plan, "label": PLAN_LABELS[plan],
+                     "games": sum(c["games"] for c in row_cells if c), "cells": row_cells})
+    return {"games": total, "mine": distribution("plan"), "enemy": distribution("enemy_plan"),
+            "matrix": {"plans": PLAN_ORDER, "rows": rows, "games": total}}
+
+
 def lineup_of(r) -> tuple:
     """Clan part of a game's team as a sorted tuple of (person, role)."""
     return tuple(sorted((m["person"], m["role"]) for m in _clan_members(r)))
@@ -549,6 +877,9 @@ def analyze_all(records, min_games=MIN_GAMES) -> dict:
         "duo": duo_bot(records, min_games),
         "matrix": adc_support_matrix(records, min_games),
         "engage": adc_engage_table(records, min_games),
+        "lines": by_line(records, min_games),
+        "type_pairs": type_pairs(records, min_games),
+        "plans": plan_analysis(records, min_games),
         "lineups": clan_lineups(records, min_games=min_games),
         "pairs": clan_pairs(records, min_games),
         "penetration": penetration_table(records, min_games),
@@ -800,6 +1131,337 @@ def recommend(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
     return ranking
 
 
+# --------------------------------------------------- generalized draft recommender
+# For every line without a fixed champion the form recommends up to MAX_PICKS picks:
+#   * a CLAN person was chosen: that person's champions in the role (>= `min_games` games in the
+#     DB, from every game where they appear with the main player);
+#   * "Aleatorio" (or a person without enough games): TYPES of that role, never specific champions.
+# Score = weighted average of values in [-1, 1] (same idea as the ADC recommender):
+#   rules      weight 1 (constant): framework of each line (see `_line_rules`) + the team plan bonus
+#   champion   weight 2n/(n+10), n = games of that person with that champion in that role
+#   type       weight 2n/(n+TYPE_K), n = games of the main's team with that ally type in that role;
+#              only if n >= MIN_DATA_GAMES (10)
+#   pair       weight p*2n/(n+PAIR_K) per type of the neighbouring line (jg x mid, jg x top,
+#              sup x adc), p = how likely that neighbour type is; only if n >= MIN_DATA_GAMES
+# With little data the rules dominate; with 10+ games the results start to weigh as much.
+DRAFT_ROLES = ("TOP", "JUNGLE", "MIDDLE", "UTILITY")     # the other four lines; the main is the ADC
+MIN_DATA_GAMES = 10
+TYPE_K = 20
+PAIR_K = 20
+MAX_PICKS = 3
+# Extra score for the plan the team would end up with (nothing for "mixto"), see `_plan_bonus`.
+PLAN_BONUS = {"engage": 0.3, "proteger": 0.4, "poke": 0.3, "pick": 0.3, "split": 0.2, "mixto": 0.0}
+PLAN_KEEP_BONUS = 0.2          # the pick keeps the plan the fixed picks already point to
+PROTEGER_KEEP_BONUS = 0.3      # ADC hypercarry + peel are locked and the pick keeps "proteger" alive
+# Framework values per jungle type (multiplied by how likely the condition is).
+JUNGLE_HYPER = {"farm": 0.6, "tanque": 0.4, "early": -0.2}      # team has a scaling hypercarry
+JUNGLE_ASESINO_MID = {"early": 0.6, "tanque": -0.6, "farm": 0.0}
+
+
+def _prob(slot, pred) -> float:
+    return sum(p for champion, p in slot["champs"] if pred(champion))
+
+
+def _union(*ps) -> float:
+    out = 1.0
+    for p in ps:
+        out *= 1 - _clamp(p, 0.0, 1.0)
+    return 1 - out
+
+
+def _slots(records, lu) -> dict:
+    """Per role: what we assume about who/what will be there.
+
+    {"kind": "champion" | "historial" | "desconocido", "champs": [(champion, probability)]}.
+    A typed champion is certain; a clan person without champion is their history in that role;
+    the main's ADC slot is his own ADC history (he is the one picking it).
+    """
+    slots = {}
+    for role in ROLES:
+        v = lu[role]
+        slot, hist = {"kind": "desconocido", "champs": []}, None
+        if role == "BOTTOM":
+            hist = Counter(r["main_champion"] for r in _bottom_games(records) if r["main_champion"])
+        elif v["champion"]:
+            slot = {"kind": "champion", "champs": [(v["champion"], 1.0)]}
+        elif v["person"]:
+            hist = Counter(m["champion"] for r in records for m in r["team"]
+                           if m["role"] == role and m["person"] == v["person"] and m["champion"])
+        if hist:
+            total = sum(hist.values())
+            slot = {"kind": "historial", "champs": [(c, n / total) for c, n in sorted(hist.items())]}
+        slots[role] = slot
+    return slots
+
+
+def _p_type(slots, role, *types) -> float:
+    return _prob(slots[role], lambda c: role_type(role, c) in types)
+
+
+def _p_hyper(slots) -> float:
+    """Chance that the team has a scaling hypercarry (flexible/kiting ADC, Kayle/Kassadin/Vayne)."""
+    return _union(_p_type(slots, "BOTTOM", "flexible", "kiting"),
+                  _prob(slots["TOP"], lambda c: c in SCALERS),
+                  _prob(slots["MIDDLE"], lambda c: c in SCALERS))
+
+
+def _p_engage(slots, *roles) -> float:
+    return _union(*(_prob(slots[r], lambda c, r=r: is_hard_engage(c, r)) for r in roles))
+
+
+def _line_rules(role, kind, slots) -> list[tuple[float, str | None]]:
+    """Framework values of a candidate of type `kind` in `role`: [(value, reason)]."""
+    label = type_label(role, kind).lower()
+    parts = []
+    if role == "JUNGLE":
+        hyper, ase = _p_hyper(slots), _p_type(slots, "MIDDLE", "asesino")
+        v = JUNGLE_HYPER.get(kind, 0.0) * hyper
+        text = None
+        if abs(v) >= 0.15:
+            text = (f"Hay un carry de escalado en tu equipo: un jungla {label} lo acompaña bien."
+                    if v > 0 else "Con un carry de escalado en el equipo, un jungla early aporta menos.")
+        parts.append((v, text))
+        v = JUNGLE_ASESINO_MID.get(kind, 0.0) * ase
+        text = None
+        if abs(v) >= 0.15:
+            text = ("Tu mid es asesino/roamer: un jungla early le da las rotaciones que necesita."
+                    if v > 0 else "Tu mid es asesino/roamer y un jungla tanque no le sirve: prefiere un early.")
+        parts.append((v, text))
+    elif role == "MIDDLE":
+        if kind == "control":
+            parts.append((0.5, "Un mid de control/artillería es el pick seguro: no depende del resto del equipo."))
+        elif kind == "asesino":
+            early, tank = _p_type(slots, "JUNGLE", "early"), _p_type(slots, "JUNGLE", "tanque")
+            v = -0.1 + 0.7 * early - 0.5 * tank
+            text = ("Un asesino/roamer funciona mejor con una jungla early que juegue con él." if v > 0.2
+                    else "Un asesino/roamer pide una jungla early; con otro tipo de jungla rinde menos."
+                    if v < -0.1 else None)
+            parts.append((v, text))
+        elif kind == "melee":
+            eng = _p_engage(slots, "TOP", "JUNGLE", "UTILITY")
+            v = -0.3 + 0.8 * eng
+            text = ("Un duelista melee necesita engage a quien seguir, y tu equipo lo tiene." if v > 0.2
+                    else "Un duelista melee necesita engage a quien seguir y aún no lo tienes asegurado.")
+            parts.append((v, text))
+    elif role == "TOP":
+        frontline = _union(_p_type(slots, "JUNGLE", "tanque"), _p_type(slots, "UTILITY", "engage"))
+        if kind == "tanque":
+            v = 0.1 + 0.5 * (1 - frontline)
+            text = ("Tu equipo no tiene frontline asegurada: un top tanque la aporta." if v >= 0.4
+                    else "Ya hay frontline (jungla o soporte): un top tanque suma menos." if v < 0.3 else None)
+            parts.append((v, text))
+        elif kind == "bruiser":
+            parts.append((0.3, "Un bruiser es el pick seguro del top: aguanta y pega."))
+        elif kind == "split":
+            hold = _union(_p_type(slots, "UTILITY", "peel", "mixto"), _p_type(slots, "MIDDLE", "control"))
+            v = -0.4 + 0.9 * hold
+            text = ("El resto puede aguantar el 4v4 (peel o control), así que el split push es viable."
+                    if v > 0.2 else "El split push solo funciona si el resto aguanta 4v4 (peel o control) "
+                    "y eso no está asegurado.")
+            parts.append((v, text))
+    elif role == "UTILITY":
+        adc = slots["BOTTOM"]
+        if adc["champs"]:
+            fit = sum(p * FIT[adc_archetype(c)][kind] for c, p in adc["champs"])
+            share = Counter()
+            for c, p in adc["champs"]:
+                share[adc_archetype(c)] += p
+            dominant = max(share, key=lambda a: (share[a], a))
+            text = None
+            if abs(fit) >= 0.2 and dominant != "otro":
+                text = (f"Tu ADC suele ser {ADC_LABELS[dominant].lower()}: un soporte {label} "
+                        f"{'encaja bien' if fit > 0 else 'encaja peor'}.")
+            parts.append((fit, text))
+    return parts
+
+
+def _members(slots, role=None, champion=None, adc=None) -> list[dict]:
+    """Team for the plan prediction: typed champions + the candidate + the assumed ADC."""
+    members = [{"champion": s["champs"][0][0], "role": r} for r, s in slots.items()
+               if s["kind"] == "champion" and r != role and r != "BOTTOM"]
+    if role and champion:
+        members.append({"champion": champion, "role": role})
+    if adc:
+        members.append({"champion": adc, "role": "BOTTOM"})
+    return members
+
+
+def _plan_bonus(members, base_members) -> tuple[float, str, str | None]:
+    """(bonus, plan, reason): extra score for the plan the team ends up with."""
+    plan = team_plan(members)[0]
+    bonus, text = PLAN_BONUS[plan], None
+    if is_proteger(team_signals(members)) and is_proteger(team_signals(base_members)):
+        bonus += PROTEGER_KEEP_BONUS
+        text = "Tu ADC de escalado y el peel ya están: este pick mantiene vivo el plan de proteger al carry."
+    elif plan != "mixto" and plan == team_plan(base_members)[0]:
+        bonus += PLAN_KEEP_BONUS
+        text = f"Refuerza el plan «{PLAN_LABELS[plan]}» que ya apuntan tus picks."
+    elif bonus >= 0.3:
+        text = f"Con este pick el equipo quedaría con plan «{PLAN_LABELS[plan]}»."
+    return bonus, plan, text
+
+
+# role -> [(pair key, neighbour role, is the candidate the first element of the pair)]
+PAIR_RELATIONS = {"TOP": [("jg_top", "JUNGLE", False)],
+                  "JUNGLE": [("jg_mid", "MIDDLE", True), ("jg_top", "TOP", True)],
+                  "MIDDLE": [("jg_mid", "JUNGLE", False)],
+                  "UTILITY": [("sup_adc", "BOTTOM", True)]}
+
+
+def _score_candidate(role, kind, champion, slots, tables, base_members, adc, stat, min_games):
+    """(raw score in [-1, 1], reasons, plan) of a type (champion None) or of a champion."""
+    champ_for_plan = champion or TYPE_REPRESENTATIVE.get(role, {}).get(kind)
+    rule_parts = _line_rules(role, kind, slots)
+    bonus, plan, plan_text = _plan_bonus(_members(slots, role, champ_for_plan, adc), base_members)
+    rule = _clamp(sum(v for v, _t in rule_parts) + bonus)
+    cands = [(abs(v), t) for v, t in rule_parts if t]
+    if plan_text:
+        cands.append((abs(bonus), plan_text))
+    num, den = RULE_WEIGHT * rule, RULE_WEIGHT
+
+    n = stat["games"] if stat else 0
+    if n:
+        w, sig = 2 * n / (n + CHAMPION_K), _wr_signal(stat["shrunk"])
+        num, den = num + w * sig, den + w
+        if n >= min_games:
+            cands.append((abs(sig) * w + 0.1,
+                          f"{champion} en {role_name(role)} con esta persona: {stat['wins']}-{stat['losses']} "
+                          f"({stat['winrate'] * 100:.0f}%, ajustado {stat['shrunk'] * 100:.0f}%)."))
+
+    line = tables["lines"].get(role, {}).get(kind)
+    if line and line["games"] >= MIN_DATA_GAMES:
+        w, sig = 2 * line["games"] / (line["games"] + TYPE_K), _wr_signal(line["shrunk"])
+        num, den = num + w * sig, den + w
+        cands.append((abs(sig) * w + 0.1,
+                      f"Tu equipo con {type_label(role, kind).lower()} en {role_name(role)}: "
+                      f"{line['wins']}-{line['losses']} ({line['winrate'] * 100:.0f}%, {line['games']} partidas)."))
+
+    for pair_key, other, first in PAIR_RELATIONS.get(role, []):
+        other_types = Counter()
+        for c, p in slots[other]["champs"]:
+            other_types[role_type(other, c)] += p
+        ra, rb = next((a, b) for a, b, k, _t in PAIR_DEFS if k == pair_key)
+        for o, p in other_types.items():
+            pa, pb = (kind, o) if first else (o, kind)
+            st = tables["pairs"].get(pair_key, {}).get((pa, pb))
+            if not st or st["games"] < MIN_DATA_GAMES:
+                continue
+            w, sig = p * 2 * st["games"] / (st["games"] + PAIR_K), _wr_signal(st["shrunk"])
+            num, den = num + w * sig, den + w
+            cands.append((abs(sig) * w + 0.1,
+                          f"{type_label(ra, pa)} + {type_label(rb, pb)}: {st['wins']}-{st['losses']} "
+                          f"({st['winrate'] * 100:.0f}%, {st['games']} partidas)."))
+    cands.sort(key=lambda c: -c[0])
+    return num / den, [t for _m, t in cands], plan
+
+
+def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
+                    max_picks=MAX_PICKS) -> dict:
+    """Recommendations for EVERY line without a fixed champion, plus the resulting team plan.
+
+    `lineup`: role -> (person, champion) as in `recommend` (BOTTOM is the main player). Returns
+    {"roles": {role: {...}}, "plan": {...}}. Each role has `mode`: "fijo" (champion typed),
+    "campeones" (picks from that person's pool), "tipos" (type suggestions: Aleatorio, or a person
+    without enough games in the role) or "adc" (the existing ADC recommender); and `picks`, the
+    top `max_picks` with 1-3 Spanish reasons each.
+    """
+    lu = normalize_lineup(lineup)
+    slots = _slots(records, lu)
+    tables = {
+        "lines": {x["role"]: {t["key"]: t for t in x["by_type"]} for x in by_line(records, min_games)},
+        "pairs": {k: {(x["a"], x["b"]): x for x in v["rows"]}
+                  for k, v in type_pairs(records, min_games).items()},
+    }
+    adc_hist = Counter(r["main_champion"] for r in _bottom_games(records) if r["main_champion"])
+    adc = max(adc_hist, key=lambda c: (adc_hist[c], c)) if adc_hist else None
+    base_members = _members(slots, adc=adc)
+
+    roles = {}
+    for role in DRAFT_ROLES:
+        v = lu[role]
+        entry = {"role": role, "label": role_name(role), "person": v["person"], "fixed": v["champion"],
+                 "picks": [], "note": None, "mode": "tipos"}
+        roles[role] = entry
+        if v["champion"]:
+            kind = role_type(role, v["champion"])
+            entry.update(mode="fijo", fixed_type=kind, fixed_type_label=type_label(role, kind))
+            continue
+        pool = {}
+        if v["person"]:
+            by = defaultdict(list)
+            for r in records:
+                for m in r["team"]:
+                    if m["role"] == role and m["person"] == v["person"] and m["champion"]:
+                        by[m["champion"]].append(r)
+            pool = {c: rs for c, rs in by.items() if len(rs) >= min_games}
+        picks = []
+        if pool:
+            entry["mode"] = "campeones"
+            for champion, recs in pool.items():
+                st = _stat(recs, min_games)
+                kind = role_type(role, champion)
+                raw, reasons, plan = _score_candidate(role, kind, champion, slots, tables, base_members,
+                                                      adc, st, min_games)
+                picks.append({"kind": "campeon", "champion": champion, "type": kind,
+                              "type_label": type_label(role, kind), "source": role_source(role, champion),
+                              "score": round((raw + 1) * 50), "raw_score": raw,
+                              "reasons": reasons[:3], "plan": plan, "plan_label": PLAN_LABELS[plan],
+                              "games": st["games"], "wins": st["wins"], "winrate": st["winrate"],
+                              "shrunk": st["shrunk"]})
+        else:
+            if v["person"]:
+                entry["note"] = (f"{v['person']} no tiene {min_games} partidas en {role_name(role)} "
+                                 "contigo: se sugieren tipos de campeón.")
+            for kind in (k for k in ROLE_TYPE_ORDER[role] if k != "otro"):
+                raw, reasons, plan = _score_candidate(role, kind, None, slots, tables, base_members,
+                                                      adc, None, min_games)
+                picks.append({"kind": "tipo", "champion": None, "type": kind,
+                              "type_label": type_label(role, kind), "source": None,
+                              "score": round((raw + 1) * 50), "raw_score": raw,
+                              "reasons": reasons[:3], "plan": plan, "plan_label": PLAN_LABELS[plan],
+                              "games": 0, "wins": 0, "winrate": None, "shrunk": None})
+        picks.sort(key=lambda x: (-x["raw_score"], -(x["shrunk"] or 0), x["champion"] or x["type"]))
+        for pick in picks:
+            if not pick["reasons"]:
+                pick["reasons"] = ["Sin una regla clara ni datos suficientes: pick neutro."]
+        entry["picks"] = picks[:max_picks]
+
+    adc_ranking = recommend(lineup, records, enemy, include_all=include_all, min_games=min_games)
+    roles["BOTTOM"] = {
+        "role": "BOTTOM", "label": role_name("BOTTOM"), "person": lu["BOTTOM"]["person"], "fixed": None,
+        "mode": "adc", "note": None,
+        "picks": [{"kind": "campeon", "champion": x["champion"], "type": x["adc_type"],
+                   "type_label": ADC_LABELS[x["adc_type"]], "source": x["adc_source"],
+                   "score": x["score"], "raw_score": x["raw_score"], "reasons": x["reasons"],
+                   "plan": None, "plan_label": None, "games": x["games"], "wins": x["wins"],
+                   "winrate": x["winrate"], "shrunk": x["shrunk"]} for x in adc_ranking[:max_picks]]}
+    return {"roles": roles, "plan": _predicted_plan(roles, adc)}
+
+
+def _predicted_plan(roles, adc) -> dict:
+    """Plan of the team made of the typed champions + the best pick of every other line.
+
+    A type-only pick stands in as TYPE_REPRESENTATIVE (a neutral champion of that type).
+    """
+    members, shown = [], []
+    for role in LINE_ROLES:
+        entry = roles[role]
+        champion, text = None, None
+        if entry.get("fixed"):
+            champion = text = entry["fixed"]
+        elif entry["picks"]:
+            top = entry["picks"][0]
+            champion = top["champion"] or TYPE_REPRESENTATIVE.get(role, {}).get(top["type"])
+            text = top["champion"] or top["type_label"]
+        elif role == "BOTTOM" and adc:
+            champion = text = adc
+        if champion:
+            members.append({"champion": champion, "role": role})
+            shown.append({"role": role, "label": role_name(role), "text": text})
+    plan, reasons = team_plan(members)
+    return {"plan": plan, "label": PLAN_LABELS[plan], "reasons": reasons, "members": shown}
+
+
 # ------------------------------------------------------------------ text rendering
 def _pct(v) -> str:
     return "-" if v is None else f"{v * 100:.0f}%"
@@ -826,8 +1488,163 @@ def _table(headers, rows) -> list[str]:
     return lines
 
 
+CLASSIFICATION_NOTE = (
+    "Las clasificaciones de top, jungla y mid, la del plan de pelea y las marcadas como «propia» en "
+    "ADC y soporte son nuestras (basadas en guías como EarlyGame, LoLTheory, WeCoach y Mobalytics); "
+    "no son datos oficiales de Riot. Solo los ADC y soportes del video de coaching llevan «video».")
+
+
+def _type_cell(row) -> str:
+    return f"{row['label']} {_rec(row)}"
+
+
+def _md_lines(a) -> list[str]:
+    out = ["", "## Por línea (tus aliados, sin contarte)", "",
+           "Winrate de tu equipo según el tipo del aliado en cada línea. Las partidas en las que tú "
+           "juegas esa línea no cuentan en ella.", ""]
+    for line in a["lines"]:
+        out += [f"### {line['label']} · {line['games']} partidas", ""]
+        if not line["by_type"]:
+            out += ["Sin datos.", ""]
+            continue
+        out += _table(["Tipo", "Partidas", "% de partidas", "Récord", "WR ajustado"],
+                      [[x["label"], x["games"], _pct(x["share"]), _rec(x), _pct(x["shrunk"])]
+                       for x in line["by_type"]])
+        if line["people"]:
+            out += ["", "Por persona del clan en esa línea (tipos que juega y WR con cada uno):", ""]
+            out += _table(["Persona", "Partidas", "Tipos: partidas, récord"],
+                          [[p["person"], p["games"],
+                            "; ".join(f"{t['label']} {t['games']}p ({_pct(t['share'])}) {_rec(t)}"
+                                      for t in p["types"])] for p in line["people"]])
+        out.append("")
+    return out
+
+
+def _md_type_pairs(a) -> list[str]:
+    out = ["## Duplas de tipos", "",
+           "Todas tus partidas con ambas líneas ocupadas (tú incluido si juegas una de ellas). "
+           "Se ordena por WR ajustado.", ""]
+    for pair in a["type_pairs"].values():
+        out += [f"### {pair['title']} · {pair['games']} partidas", ""]
+        out += _table([role_name(pair["role_a"]), role_name(pair["role_b"]), "Partidas",
+                       "Récord", "WR ajustado"],
+                      [[x["a_label"], x["b_label"], x["games"], _rec(x), _pct(x["shrunk"])]
+                       for x in pair["rows"]]) if pair["rows"] else ["Sin datos."]
+        out.append("")
+    return out
+
+
+def _md_plans(a) -> list[str]:
+    plans = a["plans"]
+    out = ["## Plan de pelea", "",
+           "Plan de tu equipo en cada partida (regla en `comps.team_plan`: engage, poke, pick, split, "
+           "proteger al carry; «mixto» si ninguna domina).", ""]
+    if not plans["games"]:
+        return out + ["Sin datos.", ""]
+    for title, rows in (("Tu equipo", plans["mine"]), ("El equipo rival", plans["enemy"])):
+        out += [f"### {title}", ""]
+        out += _table(["Plan", "Partidas", "% de partidas", "Récord", "WR ajustado"],
+                      [[x["label"], x["games"], _pct(x["share"]), _rec(x), _pct(x["shrunk"])]
+                       for x in rows])
+        out.append("")
+    m = plans["matrix"]
+    out += ["### Tu plan × plan rival (récord de tu equipo)", ""]
+    out += _table(["Tu plan \\ rival", *[PLAN_LABELS[p] for p in m["plans"]]],
+                  [[r["label"], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
+                   for r in m["rows"] if r["games"]])
+    out.append("")
+    return out
+
+
+def _pick_name(pick) -> str:
+    if pick["kind"] == "tipo":
+        return f"Tipo: {pick['type_label']}"
+    return f"{pick['champion']} ({pick['type_label'].lower()}" + \
+        (", propia" if pick["source"] == "propia" else "") + ")"
+
+
+def _md_draft(draft) -> list[str]:
+    out = ["", "## Recomendación por línea", ""]
+    for role in LINE_ROLES:
+        e = draft["roles"].get(role)
+        if not e:
+            continue
+        who = f" · {e['person']}" if e.get("person") else ""
+        if e["mode"] == "fijo":
+            out.append(f"- **{e['label']}**{who}: {e['fixed']} ({e['fixed_type_label'].lower()}), ya escogido.")
+            continue
+        out.append(f"- **{e['label']}**{who}" + (f" ({e['note']})" if e.get("note") else ""))
+        if not e["picks"]:
+            out.append("  - Sin sugerencias.")
+        for i, x in enumerate(e["picks"], 1):
+            out.append(f"  {i}. {_pick_name(x)} · puntaje {x['score']}"
+                       + (f" · plan {x['plan_label']}" if x.get("plan_label") else ""))
+            out += [f"     - {t}" for t in x["reasons"]]
+    plan = draft["plan"]
+    out += ["", f"Plan resultante con las mejores sugerencias: **{plan['label']}** "
+                f"({', '.join(m['label'] + ': ' + m['text'] for m in plan['members'])}).", ""]
+    out += [f"- {t}" for t in plan["reasons"]]
+    return out
+
+
+def _summary_lines(a) -> list[str]:
+    out = ["", "Por línea (WR de tu equipo según el tipo del aliado):"]
+    for line in a["lines"]:
+        rows = [x for x in line["by_type"] if x["key"] != "otro"][:3]
+        out.append(f"  {line['label']:<8}" + (" · ".join(_type_cell(x) for x in rows) if rows else "sin datos"))
+    return out
+
+
+def _summary_pairs(a) -> list[str]:
+    out = []
+    for key in ("jg_mid", "jg_top"):
+        pair = a["type_pairs"][key]
+        rows = [x for x in pair["rows"] if not x["small"] and "otro" not in (x["a"], x["b"])][:4]
+        out += ["", f"Duplas {pair['title']} (mejores por WR ajustado):"]
+        out += [f"  {x['a_label'] + ' + ' + x['b_label']:<46} {_rec(x):<14} ajustado {_pct(x['shrunk'])} "
+                f"· {x['games']} partidas" for x in rows] or ["  Sin datos."]
+    return out
+
+
+def _summary_plans(a) -> list[str]:
+    plans = a["plans"]
+    out = ["", "Plan de pelea de tu equipo:"]
+    if not plans["games"]:
+        return out + ["  Sin datos."]
+    out += [f"  {x['label']:<18} {x['games']:>3} partidas ({_pct(x['share'])}) · {_rec(x)} · "
+            f"ajustado {_pct(x['shrunk'])}" for x in plans["mine"]]
+    best = sorted((c | {"mine": r["label"], "foe": PLAN_LABELS[c["enemy"]]}
+                   for r in plans["matrix"]["rows"] for c in r["cells"] if c and not c["small"]),
+                  key=lambda c: (-c["shrunk"], -c["games"]))
+    if best:
+        out.append("  Mejores cruces (tu plan vs plan rival): " + "; ".join(
+            f"{c['mine']} vs {c['foe']} {_rec(c)}" for c in best[:3]))
+        out.append("  Peores cruces: " + "; ".join(
+            f"{c['mine']} vs {c['foe']} {_rec(c)}" for c in best[::-1][:3]))
+    return out
+
+
+def _summary_draft(draft) -> list[str]:
+    out = ["Recomendación por línea (alineación más común):"]
+    for role in LINE_ROLES:
+        e = draft["roles"].get(role)
+        if not e or role == "BOTTOM":
+            continue
+        who = f" ({e['person']})" if e.get("person") else ""
+        if e["mode"] == "fijo":
+            out.append(f"  {e['label']}{who}: {e['fixed']} (ya escogido)")
+            continue
+        out.append(f"  {e['label']}{who}:")
+        for i, x in enumerate(e["picks"], 1):
+            out.append(f"    {i}. {_pick_name(x)} (puntaje {x['score']})")
+            out += [f"       - {x['reasons'][0]}"] if x["reasons"] else []
+    plan = draft["plan"]
+    out.append(f"  Plan resultante: {plan['label']} - {plan['reasons'][0]}")
+    return out
+
+
 def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las colas",
-                    notes=None) -> str:
+                    notes=None, draft=None) -> str:
     """Full report with every analysis (written to reports/composiciones.md)."""
     mg = a["min_games"]
     out = [f"# Composiciones ({cola_text})", "",
@@ -878,6 +1695,10 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
                   [[ADC_LABELS[r["adc"]], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
                    for r in e["rows"] if r["games"]]) if e["games"] else ["Sin datos."]
 
+    out += _md_lines(a)
+    out += _md_type_pairs(a)
+    out += _md_plans(a)
+
     out += ["", "## Alineaciones del clan (3 o más miembros)", ""]
     out += _table(["Alineación", "Partidas", "Récord", "WR ajustado"],
                   [[_lineup_text(r["lineup"]), r["games"], _rec(r), _pct(r["shrunk"])]
@@ -921,10 +1742,14 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
             out.append(f"{i}. **{x['champion']}** ({ADC_LABELS[x['adc_type']].lower()}"
                        f"{', propia' if x['adc_source'] == 'propia' else ''}) · puntaje {x['score']}")
             out += [f"   - {t}" for t in x["reasons"]]
+    if draft is not None:
+        out += _md_draft(draft)
+    out += ["", "## Sobre las clasificaciones", "", CLASSIFICATION_NOTE]
     return "\n".join(out) + "\n"
 
 
-def render_summary(a: dict, ranking=None, lineup=None, notes=None, cola_text="todas las colas") -> str:
+def render_summary(a: dict, ranking=None, lineup=None, notes=None, cola_text="todas las colas",
+                   draft=None) -> str:
     """Concise terminal summary: top duos, matrix and recommendations for the common lineup."""
     mg = a["min_games"]
     out = [f"Composiciones ({cola_text}): {a['games']} partidas, {a['bottom_games']} como ADC, "
@@ -948,6 +1773,9 @@ def render_summary(a: dict, ranking=None, lineup=None, notes=None, cola_text="to
                            "".join(f"{(_rec(c) if c else '-'):<18}" for c in r["cells"]))
     else:
         out.append("  Sin datos.")
+    out += _summary_lines(a)
+    out += _summary_pairs(a)
+    out += _summary_plans(a)
     if ranking is not None:
         out += ["", "Alineación más común del clan: " + (_lineup_text([(p, r) for r, p in lineup.items()])
                                                          if lineup else "(ninguna)")]
@@ -958,4 +1786,6 @@ def render_summary(a: dict, ranking=None, lineup=None, notes=None, cola_text="to
         for i, x in enumerate(ranking[:4], 1):
             out.append(f"  {i}. {x['champion']} (puntaje {x['score']})")
             out += [f"     - {t}" for t in x["reasons"]]
+    if draft is not None:
+        out += ["", *_summary_draft(draft)]
     return "\n".join(out)

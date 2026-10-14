@@ -9,6 +9,10 @@
   {% if card.opp_champion %} · Rival de línea: <strong>{{ card.opp_champion }}</strong>{% endif %}
   · <code>{{ card.match_id }}</code>
 </p>
+{% if plans %}
+<p class="muted" id="plan-pelea">Plan de pelea: tu equipo <strong>{{ plans.own.label }}</strong> · rival <strong>{{ plans.enemy.label }}</strong>
+  <abbr class="tag" title="{% for r in plans.own.reasons %}Tu equipo: {{ r }} {% endfor %}{% for r in plans.enemy.reasons %}Rival: {{ r }} {% endfor %}Clasificación propia (guías), no datos de Riot.">?</abbr></p>
+{% endif %}
 {% if other_queue %}
 <p class="notice">Esta partida no es de {{ queue_labels[cola] }}; se compara con {{ pool_label }}.</p>
 {% endif %}
