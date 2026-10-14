@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Composiciones{% endblock %}
+{% block content %}
+{% set adc_labels = c.ADC_LABELS %}
+{% set sup_labels = c.SUPPORT_LABELS %}
+{% set duo = a.duo %}
+<h1>Composiciones <span class="sub">{{ queue_labels[cola] }}</span></h1>
+<p class="muted">Todo se calcula desde tu asiento (tus {{ a.games }} partidas de {{ cola_text }}; {{ a.bottom_games }} como ADC; {{ a.clan_games }} con algún otro miembro del clan en tu equipo). Un jugador es del clan si su nombre empieza con «{{ clan_prefix }}» o es una cuenta registrada; puedes cambiarlo en <a href="{{ u('config_page') }}">Configuración</a>.</p>
+
+<details class="card help-card">
+  <summary>El marco de los ADC (de un video de coaching de un soporte Challenger)</summary>
+  <ul>
+    <li><strong>Follow-up</strong>: necesitan engage en su equipo y prefieren soportes de engage; son malos first picks. En el video: Kai'Sa, Twitch, Tristana, Samira, Lucian, Draven.</li>
+    <li><strong>Kiting</strong>: brillan cuando los persiguen; prefieren soportes de peel o enchanter (Taric, Tahm Kench, Braum) y no un equipo de puro engage. En el video: Vayne, Zeri, Ezreal, Sivir.</li>
+    <li><strong>Flexibles / híbridos</strong>: funcionan con cualquier soporte y son first picks seguros. En el video: Ashe, Jinx, Aphelios, Senna, Varus, Caitlyn, Kog'Maw.</li>
+    <li><strong>Itemización</strong>: si un enemigo tiene más de 100 de armadura adicional, necesitas % de penetración de armadura. <strong>Hechizos</strong>: Purificar contra mucho CC.</li>
+  </ul>
+  <p>Las clasificaciones marcadas como <em>propia</em> (por ejemplo Jhin, Yunara, Miss Fortune, Xayah o los soportes que no son Taric, Tahm Kench y Braum) <strong>no son del video</strong>: las añadimos nosotros por analogía. Los ADC y soportes sin clasificar aparecen como «Sin clasificar».</p>
+  <p>Los winrates se ordenan con el winrate ajustado <code>(victorias + 5) / (partidas + 10)</code>, que evita que un 2-0 parezca mejor que un 20-8. El récord y las partidas siempre se muestran. Las filas con menos de {{ min_games }} partidas aparecen atenuadas y con <abbr class="tag" title="Muestra pequeña">*</abbr>.</p>
+</details>
+
+<section class="card" id="draft">
+  <h2>Armar draft</h2>
+  <p class="muted">Elige quién juega en cada rol de tu equipo (si no sabes, «Aleatorio») y, si ya lo escogieron, su campeón. La alineación viene rellenada con la más común del clan. Te sugerimos el ADC de tu pool que mejor encaja.</p>
+  <form method="get" action="{{ u('comps_page') }}" class="draft-form">
+    <input type="hidden" name="cola" value="{{ cola }}">
+    <input type="hidden" name="armar" value="1">
+    <div class="draft-grid">
+      {% for role in draft_roles %}
+      <div class="draft-slot">
+        <label class="field"><span>{{ role|role }}</span>
+          <select name="p_{{ role }}">
+            <option value="">Aleatorio</option>
+            {% for person in people %}<option value="{{ person }}"{% if form[role].person == person %} selected{% endif %}>{{ person }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="field"><span class="sr-only">Campeón de {{ role|role }}</span>
+          <input type="text" name="c_{{ role }}" value="{{ form[role].champion }}" placeholder="Campeón (opcional)" maxlength="30" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+      {% endfor %}
+      <div class="draft-slot">
+        <div class="field"><span>ADC (tú)</span><span class="muted help">Aquí salen las recomendaciones.</span></div>
+      </div>
+    </div>
+    <label class="field"><span>Campeones enemigos <span class="muted">(opcional, separados por coma)</span></span>
+      <input type="text" name="enemigos" value="{{ enemies }}" maxlength="120" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="check"><input type="checkbox" name="todos" value="1"{% if include_all %} checked{% endif %}> <span>Incluir todos los ADC clasificados <span class="muted">(no solo los que has jugado 3 veces o más)</span></span></label>
+    <div class="btn-row"><button type="submit" class="btn primary">Armar draft</button></div>
+  </form>
+
+  {% if submitted %}
+  <h3>Recomendación</h3>
+  {% if notes %}<ul class="muted">{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  {% if ranking %}
+  <ol class="rec-list">
+    {% for x in ranking[:8] %}
+    <li>
+      <div class="rec-head"><strong>{{ x.champion }}</strong>
+        <span class="badge main">{{ adc_labels[x.adc_type] }}{% if x.adc_source == 'propia' %} · clasificación propia{% endif %}</span>
+        <span class="muted">puntaje {{ x.score }}</span>
+        {% if not x.in_pool %}<span class="muted">· fuera de tu pool</span>{% endif %}</div>
+      <ul>{% for r in x.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">Ningún ADC tiene aún 3 partidas tuyas. Marca «Incluir todos los ADC clasificados» para ver sugerencias basadas solo en el marco.</p>
+  {% endif %}
+  {% endif %}
+</section>
+
+<section class="card flush">
+  <h2 class="pad">Pools del clan</h2>
+  <p class="note pad">Con qué roles y campeones aparece cada persona en tu equipo. El winrate es el de tu equipo en esas partidas.</p>
+  {% if a.pools %}
+  <div class="table-wrap">
+  <table class="sortable">
+    <thead><tr>
+      <th>Persona</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Winrate</th>
+      <th>Roles y campeones principales</th>
+    </tr></thead>
+    <tbody>
+    {% for p in a.pools %}
+    <tr class="{{ 'dim' if p.small else '' }}">
+      <td>{{ p.person }}{% if p.is_main %} <span class="muted">(tú)</span>{% endif %}</td>
+      <td class="num" data-v="{{ p.games }}">{{ p.games }}</td>
+      <td class="num" data-v="{{ p.winrate }}">{{ m.wr(p.winrate) }}{% if p.small %}<abbr class="tag" title="Muestra pequeña">*</abbr>{% endif %}</td>
+      <td class="wrap-cell">
+        {% for r in p.roles %}
+        <div><strong>{{ r.label }}</strong> <span class="muted">({{ r.games }})</span>:
+          {% for ch in r.champions %}{{ ch.champion }} <span class="muted">{{ ch.games }}p, {{ ch.winrate|pct }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+        </div>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="muted pad">Sin datos.</p>{% endif %}
+</section>
+
+<section class="card flush">
+  <h2 class="pad">Dúo bot <span class="sub muted">tú de ADC · {{ duo.games }} partidas con soporte identificado</span></h2>
+  <p class="note pad">Se ordena por winrate ajustado. «Dif. oro @14» es tu diferencia de oro contra tu rival de línea; «Muertes» es tu promedio.</p>
+  {% for title, rows, kind in (("Por soporte (persona)", duo.by_person, "p"), ("Por campeón de soporte", duo.by_champion, "c"), ("Por arquetipo de soporte", duo.by_archetype, "a")) %}
+  <h3 class="pad">{{ title }}</h3>
+  {% if rows %}
+  <div class="table-wrap">
+  <table class="sortable">
+    <thead><tr>
+      <th>{{ 'Arquetipo' if kind == 'a' else 'Soporte' }}</th>
+      <th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Récord</th>
+      <th class="num" data-type="num">WR ajustado</th>
+      <th class="num" data-type="num">Dif. oro @14</th><th class="num" data-type="num">Muertes</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr class="{{ 'dim' if r.small else '' }}">
+      <td>{% if kind == 'a' %}{{ sup_labels[r.key] }}{% elif kind == 'c' %}{{ r.key }} <span class="muted">({{ sup_labels[r.archetype]|lower }}{% if r.source == 'propia' %}, clasificación propia{% elif r.source == 'video' %}, del video{% endif %})</span>{% else %}{{ r.key }}{% endif %}</td>
+      <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
+      <td class="num" data-v="{{ r.winrate }}">{{ m.rec(r) }}</td>
+      <td class="num" data-v="{{ r.shrunk }}">{{ r.shrunk|pct }}</td>
+      <td class="num" data-v="{{ r.gold_diff_14 }}">{{ m.diff(r.gold_diff_14, 'gold_diff_14') }}</td>
+      <td class="num" data-v="{{ r.deaths }}">{{ r.deaths|num(1) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="muted pad">Sin partidas de ADC con soporte.</p>{% endif %}
+  {% endfor %}
+</section>
+
+<div class="grid-2">
+  <section class="card flush">
+    <h2 class="pad">Matriz: tu ADC × soporte</h2>
+    <p class="note pad">Arquetipo del ADC que jugaste (filas) contra el del soporte (columnas).</p>
+    {% if a.matrix.games %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>ADC \ soporte</th>{% for s in a.matrix.support_types %}<th>{{ sup_labels[s] }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in a.matrix.rows if row.games %}
+      <tr><th scope="row">{{ adc_labels[row.adc] }}</th>{% for cell in row.cells %}<td>{{ m.rec(cell) }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted pad">Sin datos.</p>{% endif %}
+  </section>
+
+  <section class="card flush">
+    <h2 class="pad">Tu ADC × engage duro del equipo</h2>
+    <p class="note pad">Campeones de engage duro en tu equipo (sin contarte): 0, 1, 2 o 3 o más.</p>
+    {% if a.engage.games %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>ADC \ engage</th>{% for b in a.engage.buckets %}<th>{{ b }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in a.engage.rows if row.games %}
+      <tr><th scope="row">{{ adc_labels[row.adc] }}</th>{% for cell in row.cells %}<td>{{ m.rec(cell) }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted pad">Sin datos.</p>{% endif %}
+  </section>
+</div>
+
+<section class="card flush">
+  <h2 class="pad">Alineaciones del clan</h2>
+  <p class="note pad">Partidas con 3 o más miembros del clan (contándote) en tu equipo.</p>
+  {% if a.lineups %}
+  <div class="table-wrap"><table class="sortable">
+    <thead><tr><th>Alineación</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Récord</th><th class="num" data-type="num">WR ajustado</th></tr></thead>
+    <tbody>
+    {% for r in a.lineups %}
+    <tr class="{{ 'dim' if r.small else '' }}">
+      <td class="wrap-cell">{% for person, role in r.lineup %}{{ person }} <span class="muted">({{ role|role }})</span>{% if not loop.last %} · {% endif %}{% endfor %}</td>
+      <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
+      <td class="num" data-v="{{ r.winrate }}">{{ m.rec(r) }}</td>
+      <td class="num" data-v="{{ r.shrunk }}">{{ r.shrunk|pct }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted pad">Todavía no hay partidas con 3 o más miembros del clan.</p>{% endif %}
+
+  <h3 class="pad">Parejas (persona + campeón) que coincidieron en tu equipo</h3>
+  <p class="note pad">Mínimo {{ min_games }} partidas juntos, ordenadas por winrate ajustado.</p>
+  {% if a.pairs.best %}
+  {% for title, rows in (("Las mejores", a.pairs.best), ("Las peores", a.pairs.worst)) if rows %}
+  <h3 class="pad {{ 'pos-title' if loop.first else 'neg-title' }}">{{ title }}</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Pareja</th><th class="num">Partidas</th><th class="num">Récord</th><th class="num">WR ajustado</th></tr></thead>
+    <tbody>
+    {% for x in rows %}
+    <tr><td>{{ x.a[0] }} <span class="muted">({{ x.a[1] }})</span> + {{ x.b[0] }} <span class="muted">({{ x.b[1] }})</span></td>
+      <td class="num">{{ x.games }}</td><td class="num">{{ m.rec(x) }}</td><td class="num">{{ x.shrunk|pct }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endfor %}
+  {% else %}<p class="muted pad">Ninguna pareja llega a {{ min_games }} partidas juntos.</p>{% endif %}
+</section>
+
+{% set pen = a.penetration %}
+<div class="grid-2">
+  <section class="card flush">
+    <h2 class="pad">Itemización: penetración de armadura</h2>
+    <p class="note pad">Partidas de 20 minutos o más con timeline: {{ pen.eligible }} (se descartan {{ pen.excluded }}). «Enemigo tanque» = algún rival con {{ c.TANKY_ARMOR }} o más de armadura total al final de la partida; es una aproximación a «más de 100 de armadura adicional», porque el timeline solo da la armadura total. «% pen.» = tenías penetración porcentual de armadura al final (la letalidad no cuenta{% if pen.tanky_only_lethality %}; en {{ pen.tanky_only_lethality }} partidas con tanque solo tenías letalidad{% endif %}).</p>
+    {% if pen.eligible %}
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>Con % pen.</th><th>Sin % pen.</th></tr></thead>
+      <tbody>
+      {% for r in pen.rows %}
+      <tr><th scope="row">{{ 'Enemigo tanque' if r.tanky else 'Sin enemigo tanque' }}</th><td>{{ m.rec(r.with_pen) }}</td><td>{{ m.rec(r.without_pen) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted pad">Sin partidas con timeline de 20 minutos o más.</p>{% endif %}
+  </section>
+
+  {% set cl = a.cleanse %}
+  <section class="card flush">
+    <h2 class="pad">Purificar contra el CC enemigo</h2>
+    <p class="note pad">Segundos de CC que aplicó el equipo rival, en terciles de tus partidas ({{ cl.games }} partidas, {{ cl.cleanse_games }} con Purificar).</p>
+    {% if cl.buckets %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Tercil</th><th>Rango de CC (s)</th><th class="num">Partidas</th><th>Con Purificar</th><th>Sin Purificar</th></tr></thead>
+      <tbody>
+      {% for b in cl.buckets %}
+      <tr><th scope="row">{{ b.name }}</th><td>{{ '%.0f'|format(b.min) }} a {{ '%.0f'|format(b.max) }}</td><td class="num">{{ b.games }}</td><td>{{ m.rec(b.with_cleanse) }}</td><td>{{ m.rec(b.without_cleanse) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted pad">Se necesitan al menos 3 partidas con datos de CC.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

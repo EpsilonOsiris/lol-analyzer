@@ -71,6 +71,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 .venv/Scripts/python -m lolan game <matchId | ultima> [--jugador "Nombre#TAG"]
 .venv/Scripts/python -m lolan campeon <Nombre> [--jugador "Nombre#TAG"]
 .venv/Scripts/python -m lolan jugadores [listar | agregar "Nombre#TAG" | quitar "Nombre#TAG"]
+.venv/Scripts/python -m lolan composiciones [--cola solo] [--todos-los-adc]
 .venv/Scripts/python -m lolan web [--puerto N] [--no-abrir]
 ```
 
@@ -83,6 +84,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 - `analyze` reconstruye `data/games.csv` y todos los reportes a partir de lo que ya está en la base de datos (no usa la red, así que puedes correrlo las veces que quieras). `--jugador` analiza a otro jugador registrado y `--clan` genera los reportes de todos.
 - `game <matchId>` imprime la boleta de una partida; `game ultima` usa la más reciente.
 - `campeon <Nombre>` imprime los promedios y lo que decide tus partidas con ese campeón (el nombre no distingue mayúsculas ni apóstrofes: `kaisa` funciona).
+- `composiciones` analiza tus partidas junto a tu clan (no usa la red): pools de cada amigo, dúo bot por soporte, matriz de arquetipos de ADC x soporte, alineaciones, itemización (penetración de armadura) y Purificar; imprime un resumen con las recomendaciones de ADC para la alineación más común y escribe `reports/composiciones.md`. Un jugador cuenta como del clan si su nombre empieza con `CLAN_PREFIX` (por defecto `Epsilon`) o es un jugador registrado; `CLAN_ALIASES` (`Cuenta=Persona;Otra=Persona`) junta varias cuentas de una misma persona. Ambos se editan en la página Configuración. La página **Composiciones** del panel muestra lo mismo y un formulario «Armar draft». Las clasificaciones de ADC y soportes salen de un video de coaching, salvo las marcadas como «propia».
 - `jugadores` muestra los jugadores registrados (con cuántas partidas hay guardadas de cada uno); `jugadores agregar "Nombre#TAG"` busca la cuenta con tu API key y la registra; `jugadores quitar "Nombre#TAG"` la saca de la lista (sus partidas se conservan). Los Riot ID no distinguen mayúsculas.
 
 ## Tu clan (varios jugadores)
@@ -116,6 +118,7 @@ Todas las páginas tienen un selector de cola (Todas / Solo/Dúo / Flex; por def
 | Partidas (`/partidas`) | Todas tus partidas, de la más reciente a la más antigua, de 50 en 50 |
 | Partida (`/partida/<matchId>`) | La boleta de esa partida: fortalezas, debilidades, comparación con tu rival de línea y con tu historial; y, si la partida tiene timeline, **Tus muertes**, **Peleas** y **Objetivos perdidos** |
 | Clan (`/clan`) | Tabla comparativa de todos los jugadores registrados en la cola elegida (partidas, winrate, KDA, muertes por 10 min, muertes en solitario y antes del minuto 14 por partida, CS/min, visión/min, rol y campeón más jugados; se ordena haciendo clic en el encabezado) y **Jugando juntos**: winrate de cada pareja cuando está en el mismo equipo, junto al winrate de cada uno (solo parejas con 3 partidas juntos o más) |
+| Composiciones (`/composiciones`) | Desde tu asiento y con el clan: pools por persona, dúo bot (por soporte, campeón y arquetipo, con dif. de oro @14 y muertes), matriz ADC x soporte, ADC x engage del equipo, alineaciones y parejas persona+campeón, penetración de armadura contra tanques y Purificar por terciles de CC enemigo; y el formulario «Armar draft» que recomienda ADC de tu pool |
 | Jugadores (`/jugadores`) | Jugadores registrados con las partidas guardadas de cada uno; formulario para agregar un Riot ID (se busca con tu API key) y botón para quitar a cualquiera menos a ti, con confirmación en la misma fila |
 | Sincronizar (`/sincronizar`) | Descarga partidas nuevas desde el navegador (jugador: tú, uno en particular o todo el clan; cola, máximo de partidas por jugador y timeline) con el progreso en vivo |
 | Configuración (`/configuracion`) | Riot ID, servidor (con nombres como LAN o EUW), key de Riot (con botón «Probar key de Riot») y key de Gemini opcional; instrucciones para conseguir cada key. Si falta la key o el Riot ID, todas las demás páginas redirigen aquí. Las keys guardadas solo se muestran como «termina en ••••abcd» y dejar un campo vacío la conserva |

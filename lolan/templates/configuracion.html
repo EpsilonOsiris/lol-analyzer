@@ -49,6 +49,16 @@
       <span class="muted help">La usará el análisis de video, que llegará pronto. Si no la tienes, no pasa nada.</span>
     </label>
 
+    <label class="field"><span>Prefijo del clan <span class="muted">(opcional)</span></span>
+      <input class="wide" type="text" name="clan_prefijo" spellcheck="false" maxlength="40" value="{{ st.clan_prefix }}">
+      <span class="muted help">Los jugadores cuyo nombre en el juego empieza con este texto (o que registraste en Jugadores) cuentan como del clan en la página Composiciones. Por defecto: <code>Epsilon</code>.</span>
+    </label>
+
+    <label class="field"><span>Cuentas de la misma persona <span class="muted">(opcional)</span></span>
+      <input class="wide" type="text" name="clan_alias" spellcheck="false" maxlength="400" placeholder="Cuenta Alterna=Jugador Principal" value="{{ st.clan_aliases }}">
+      <span class="muted help">Une varias cuentas en una sola persona: <code>Cuenta=Persona</code>, separadas por punto y coma (por ejemplo <code>Cuenta Alterna=Jugador Principal;Otra=Principal</code>).</span>
+    </label>
+
     <div class="btn-row"><button type="submit" class="btn primary" id="save-btn">Guardar</button></div>
   </form>
   <p id="save-error" class="notice error" role="alert" hidden></p>

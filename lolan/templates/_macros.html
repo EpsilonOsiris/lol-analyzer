@@ -102,3 +102,10 @@
   <span class="lg"><i class="lg-sw red"></i> Equipo rojo</span>
 </p>
 {% endmacro %}
+
+{# Record "9-4" + winrate for a comps stats dict; greyed out and starred below the min-games threshold. #}
+{% macro rec(s) %}
+{% if not s or not s.games %}<span class="muted">-</span>{% else %}
+<span class="{{ 'dim' if s.small else '' }}"{% if s.small %} title="Muestra pequeña: menos de {{ min_games }} partidas"{% endif %}>{{ s.wins }}-{{ s.losses }} <span class="{{ 'win-text' if s.winrate >= 0.5 else 'loss-text' }}">{{ s.winrate|pct }}</span>{% if s.small %}<abbr class="tag" title="Muestra pequeña: menos de {{ min_games }} partidas">*</abbr>{% endif %} <span class="muted">n={{ s.games }}</span></span>
+{% endif %}
+{% endmacro %}

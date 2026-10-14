@@ -16,6 +16,7 @@
       <a href="{{ u('index') }}"{% if endpoint == 'index' %} aria-current="page"{% endif %}>Resumen</a>
       <a href="{{ u('games_list') }}"{% if endpoint in ('games_list', 'match') %} aria-current="page"{% endif %}>Partidas</a>
       <a href="{{ u('clan_page') }}"{% if endpoint == 'clan_page' %} aria-current="page"{% endif %}>Clan</a>
+      <a href="{{ u('comps_page') }}"{% if endpoint == 'comps_page' %} aria-current="page"{% endif %}>Composiciones</a>
       <a href="{{ u('players_page') }}"{% if endpoint == 'players_page' %} aria-current="page"{% endif %}>Jugadores</a>
       <a href="{{ u('sync_page') }}"{% if endpoint == 'sync_page' %} aria-current="page"{% endif %}>Sincronizar</a>
       <a href="{{ u('config_page') }}"{% if endpoint == 'config_page' %} aria-current="page"{% endif %}>Configuración</a>

@@ -33,7 +33,9 @@
       plataforma: f.plataforma.value,
       riot_api_key: f.riot_api_key.value.trim(),
       gemini_api_key: f.gemini_api_key.value.trim(),
-      key_permanente: f.key_permanente.checked
+      key_permanente: f.key_permanente.checked,
+      clan_prefijo: f.clan_prefijo.value.trim(),
+      clan_alias: f.clan_alias.value.trim()
     };
   }
 

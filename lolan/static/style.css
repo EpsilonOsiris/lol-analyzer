@@ -357,3 +357,18 @@ details.death > summary:focus-visible, details.fight > summary:focus-visible { o
   .pat th, .pat td { padding: .45rem .5rem; }
   .pat th[scope=row] { min-width: 9rem; }
 }
+
+/* composiciones */
+.dim { opacity: .55; }
+abbr.tag { text-decoration: none; cursor: help; margin-left: .15rem; color: var(--muted); }
+td.wrap-cell { white-space: normal; min-width: 260px; }
+.card.flush > h3.pad { padding: 0 1.1rem; }
+.draft-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; margin: .8rem 0; }
+.draft-slot { display: grid; gap: .35rem; align-content: start; }
+.draft-form .field input, .draft-form .field select { max-width: 100%; width: 100%; }
+.draft-form > label.field { max-width: 640px; }
+.draft-form > * + * { margin-top: .6rem; }
+.rec-list { padding-left: 1.3rem; }
+.rec-list > li { margin: .7rem 0; }
+.rec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; }
+.rec-list ul { margin-top: .2rem; }

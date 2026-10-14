@@ -131,3 +131,41 @@ def no_ddragon_network(monkeypatch):
         raise ddragon.FetchError("red desactivada en las pruebas")
 
     monkeypatch.setattr(ddragon, "default_fetch", refuse)
+
+
+# ------------------------------------------------------------ composition helpers
+def make_comp_match(match_id="LA1_1", blue=None, red=None, win=True, queue=440, duration=1800,
+                    created=BASE_TIME_MS, main_role="BOTTOM", spells=(4, 14), enemy_cc=None):
+    """A match for the compositions feature.
+
+    `blue`: role -> (puuid, riotIdGameName, championName) for the main player's team (the main
+    player is ME_PUUID in `main_role`; give an entry for it to set name/champion). `red`: role ->
+    championName. `enemy_cc`: timeCCingOthers of red's TOP (the rest have 10).
+    """
+    blue = dict(blue or {})
+    my_pid = ROLES.index(main_role) + 1
+    match = make_match(match_id, my_pid=my_pid, win=win, duration=duration, queue=queue,
+                       created=created)
+    parts = match["info"]["participants"]
+    for role, (puuid, name, champion) in blue.items():
+        p = parts[ROLES.index(role)]
+        p.update({"puuid": puuid, "riotIdGameName": name, "championName": champion})
+    for i, role in enumerate(ROLES):
+        if parts[i]["puuid"] == ME_PUUID:
+            parts[i].setdefault("riotIdGameName", "Epsilon Me")
+            parts[i]["summoner1Id"], parts[i]["summoner2Id"] = spells
+    for role, champion in (red or {}).items():
+        parts[5 + ROLES.index(role)]["championName"] = champion
+    for p in parts[5:]:
+        p["timeCCingOthers"] = 10
+    if enemy_cc is not None:
+        parts[5]["timeCCingOthers"] = enemy_cc
+    match["metadata"]["participants"] = [p["puuid"] for p in parts]
+    return match
+
+
+def set_final_stats(timeline, pid, **stats):
+    """Put championStats on the last frame of a timeline for one participant."""
+    pf = timeline["info"]["frames"][-1]["participantFrames"][str(pid)]
+    pf.setdefault("championStats", {}).update(stats)
+    return timeline

@@ -15,6 +15,7 @@ from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
 from werkzeug.exceptions import NotFound
 
 from . import analyze as an
+from . import comps
 from . import deaths as dx
 from . import deathsview, mapview
 from .ddragon import DDragon, champion_display
@@ -71,6 +72,7 @@ class GamesCache:
         self._db_path = db_path
         self._lock = threading.Lock()
         self._entries: dict = {}     # puuid -> {"key": count, "all": [...], "by_queue": {...}, "analyses": {...}}
+        self._comps: dict = {}       # main puuid -> {"key": (...), "records": [...]}
 
     @staticmethod
     def _load(store, puuid):
@@ -94,10 +96,39 @@ class GamesCache:
     def invalidate(self) -> None:
         with self._lock:
             self._entries.clear()
+            self._comps.clear()
 
     def forget(self, puuid: str) -> None:
         with self._lock:
             self._entries.pop(puuid, None)
+            self._comps.pop(puuid, None)
+
+    def comps(self, puuid: str | None, prefix: str, aliases: str) -> list:
+        """Composition records (see comps.build_records) of the main player, all analyzable queues.
+
+        Rebuilt when the stored match count, the registered players or the clan settings change.
+        The returned list is shared: callers must not modify it.
+        """
+        if puuid is None:
+            return []
+        store = Store(self._db_path)
+        try:
+            count = store.count_matches(puuid)
+            tracked = {p.puuid: p.riot_id for p in store.list_players()}
+            key = (count, prefix, aliases, tuple(sorted(tracked)))
+            with self._lock:
+                entry = self._comps.get(puuid)
+                if entry is None or entry["key"] != key:
+                    records = []
+                    if count:
+                        records = comps.resolve_people(
+                            comps.build_records(store.iter_matches(puuid), puuid),
+                            comps.ClanConfig.build(prefix, aliases, tracked))
+                    entry = {"key": key, "records": records}
+                    self._comps[puuid] = entry
+                return entry["records"]
+        finally:
+            store.close()
 
     def get(self, puuid: str | None, queue: int | None = None) -> Data:
         if puuid is None:
@@ -350,7 +381,7 @@ def create_app(root=None, ddragon=None) -> Flask:
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
                 "jugador": current, "picker_action": picker_action,
                 "show_picker": bool(roster) and len(roster) > 1
-                and request.endpoint not in ("clan_page", "players_page"),
+                and request.endpoint not in ("clan_page", "players_page", "comps_page"),
                 "min_champion_games": an.MIN_CHAMPION_GAMES, "session_gap": an.SESSION_GAP_MIN}
 
     def data() -> Data:
@@ -533,6 +564,41 @@ def create_app(root=None, ddragon=None) -> Flask:
         return render_template("clan.html", rows=rows, pairs=pairs,
                                min_pair_games=an.MIN_PAIR_GAMES)
 
+    @app.get("/composiciones")
+    def comps_page():
+        main = g.roster.main            # the analysis is always from the main player's seat
+        total = cache.get(main.puuid, None) if main else Data([], 0)
+        if main is None or not total.games:
+            return render_template("vacio.html", reason="db" if total.total == 0 else "analizables")
+        st = g.settings
+        records = comps.filter_queue(cache.comps(main.puuid, st.clan_prefix, st.clan_aliases),
+                                     QUEUES[g.cola])
+        if not records:
+            return render_template("vacio.html", reason="cola" if g.cola != "todas" else "analizables")
+        analysis = comps.analyze_all(records)
+
+        # Draft form: ?armar=1 plus p_<ROL> (person), c_<ROL> (champion), enemigos, todos.
+        args = request.args
+        submitted = args.get("armar") == "1"
+        people = [p["person"] for p in analysis["pools"] if not p["is_main"]]
+        person_of = lambda role: (args.get(f"p_{role}", "") if submitted
+                                  else analysis["common_lineup"].get(role, ""))
+        form = {role: {"person": person_of(role), "champion": args.get(f"c_{role}", "").strip()[:30]}
+                for role in comps.ROLES if role != "BOTTOM"}
+        enemies = [e.strip()[:30] for e in re.split(r"[,;\n]", args.get("enemigos", "")) if e.strip()][:5]
+        include_all = args.get("todos") == "1"
+        ranking = notes = None
+        if submitted:
+            lineup = {role: (v["person"] or None, v["champion"] or None) for role, v in form.items()}
+            ranking = comps.recommend(lineup, records, enemies, include_all=include_all)
+            notes = comps.draft_notes(lineup, records, enemies)
+        return render_template(
+            "composiciones.html", a=analysis, form=form, people=people, submitted=submitted,
+            ranking=ranking, notes=notes, enemies=", ".join(enemies), include_all=include_all,
+            draft_roles=[r for r in comps.ROLES if r != "BOTTOM"], c=comps,
+            min_games=analysis["min_games"], clan_prefix=st.clan_prefix, cola_text="todas las colas" if g.cola == "todas"
+            else QUEUE_LABELS[g.cola])
+
     @app.get("/jugadores")
     def players_page():
         store = Store(db_path)
@@ -645,6 +711,18 @@ def create_app(root=None, ddragon=None) -> Flask:
             want["GEMINI_API_KEY"] = gemini_key
         if "key_permanente" in body:
             want["RIOT_API_KEY_PERMANENT"] = "1" if body["key_permanente"] is True else "0"
+        if "clan_prefijo" in body:
+            prefix = str(body["clan_prefijo"] or "").strip()
+            if len(prefix) > 40 or "\n" in prefix:
+                return jsonify(error="El prefijo del clan es demasiado largo."), 400
+            want["CLAN_PREFIX"] = prefix or comps.DEFAULT_CLAN_PREFIX
+        if "clan_alias" in body:
+            aliases = str(body["clan_alias"] or "").strip().replace("\r", "")
+            try:
+                comps.parse_aliases(aliases, strict=True)
+            except ValueError as exc:
+                return jsonify(error=str(exc)), 400
+            want["CLAN_ALIASES"] = aliases.replace("\n", ";")
         updates = {k: v for k, v in want.items() if st.raw.get(k, "") != v}
         try:
             if updates:

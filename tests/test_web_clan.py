@@ -127,7 +127,7 @@ def test_unknown_player_falls_back_to_main_and_queue_switcher_keeps_player(clien
     hrefs = re.findall(r'href="([^"]+)"', seg)
     assert len(hrefs) == 3 and all("jugador=amigo-fiel" in h for h in hrefs)
     nav = html.split('aria-label="Secciones"')[1].split("</nav>")[0]
-    assert nav.count("jugador=amigo-fiel") == 6                         # every nav link keeps it
+    assert nav.count("jugador=amigo-fiel") == 7                         # every nav link keeps it
     # Picker form posts to the same page and carries the queue.
     assert 'action="/partidas"' in html and 'name="cola" value="flex"' in html
 

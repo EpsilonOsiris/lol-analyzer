@@ -126,6 +126,13 @@ def build_parser() -> argparse.ArgumentParser:
     q = acts.add_parser("quitar", help="quita a un jugador del registro (sus partidas se conservan)")
     q.add_argument("riot_id", metavar="Nombre#TAG")
 
+    p = sub.add_parser("composiciones",
+                       help="analiza qué compones con tu clan y recomienda ADC (escribe reports/composiciones.md)")
+    p.add_argument("--cola", type=_parse_queue, metavar="COLA",
+                   help="solo esa cola: solo, flex, normal, blind, quickplay o un número (por defecto, todas)")
+    p.add_argument("--todos-los-adc", action="store_true",
+                   help="la recomendación incluye todos los ADC clasificados, no solo los de tu pool")
+
     p = sub.add_parser("web", help="abre el panel web local (solo escucha en 127.0.0.1)")
     p.add_argument("--puerto", type=_port, metavar="N", default=8765,
                    help="puerto del panel (por defecto 8765)")
@@ -391,6 +398,45 @@ def _jugadores_agregar(args, cfg) -> int:
     return 0
 
 
+def cmd_composiciones(args, cfg) -> int:
+    from . import comps
+    from .settings import read_settings
+
+    store = Store(cfg.db_path)
+    try:
+        if store.count_matches() == 0:
+            print(EMPTY_DB_MESSAGE)
+            return 0
+        roster = load_roster(store, cfg.riot_id)
+        if roster.main is None:
+            raise ValueError(NO_MAIN_MESSAGE.format(riot_id=cfg.riot_id or "sin configurar"))
+        main = roster.main
+        st = read_settings(cfg.root)
+        clan = comps.ClanConfig.build(st.clan_prefix, st.clan_aliases,
+                                      {p.puuid: p.riot_id for p in roster.players})
+        records = comps.resolve_people(
+            comps.build_records(store.iter_matches(main.puuid), main.puuid, queue=args.cola), clan)
+    finally:
+        store.close()
+    if not records:
+        print("No hay partidas analizables" + (f" de la cola {queue_slug(args.cola)}" if args.cola else "")
+              + ". Ejecuta primero: python -m lolan sync")
+        return 0
+    analysis = comps.analyze_all(records)
+    lineup = analysis["common_lineup"]
+    draft = {role: (person, None) for role, person in lineup.items() if role != "BOTTOM"}
+    ranking = comps.recommend(draft, records, include_all=args.todos_los_adc)
+    notes = comps.draft_notes(draft, records)
+    cola_text = f"cola {queue_slug(args.cola)}" if args.cola else "todas las colas"
+    print(comps.render_summary(analysis, ranking, lineup, notes, cola_text))
+    reports_dir = cfg.reports_dir / queue_slug(args.cola) if args.cola else cfg.reports_dir
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    path = reports_dir / "composiciones.md"
+    path.write_text(comps.render_markdown(analysis, ranking, lineup, cola_text, notes), encoding="utf-8")
+    print(f"\nReporte completo: {path}")
+    return 0
+
+
 def cmd_web(args, cfg) -> int:
     from .web import create_app  # Flask is only needed for this command
 
@@ -410,7 +456,7 @@ def cmd_web(args, cfg) -> int:
 
 
 COMMANDS = {"sync": cmd_sync, "analyze": cmd_analyze, "game": cmd_game, "campeon": cmd_campeon,
-            "jugadores": cmd_jugadores, "web": cmd_web}
+            "jugadores": cmd_jugadores, "composiciones": cmd_composiciones, "web": cmd_web}
 
 
 def main(argv=None) -> int:

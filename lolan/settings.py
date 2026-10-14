@@ -13,6 +13,8 @@ from dotenv import dotenv_values
 
 from .config import PLATFORM_REGIONS
 
+DEFAULT_CLAN_PREFIX = "Epsilon"      # CLAN_PREFIX default; comps.py imports it from here
+
 # (platform, label shown in the settings page); LAN first because it is the default.
 PLATFORM_CHOICES = [
     ("la1", "LAN (Latinoamérica Norte)"), ("la2", "LAS (Latinoamérica Sur)"),
@@ -41,6 +43,8 @@ class Settings:
     gemini_key: str = ""
     riot_key_saved_at: float | None = None
     riot_key_permanent: bool = False
+    clan_prefix: str = DEFAULT_CLAN_PREFIX  # game names starting with this belong to the clan
+    clan_aliases: str = ""          # "Cuenta=Persona;Otra=Persona": accounts of the same person
     raw: dict | None = None         # values as read, keyed by .env name
 
     @property
@@ -65,7 +69,7 @@ def read_settings(root) -> Settings:
     except ValueError:
         saved_at = None
     names = ("RIOT_ID", "PLATFORM", "REGION", "RIOT_API_KEY", "GEMINI_API_KEY",
-             "RIOT_API_KEY_SAVED_AT", "RIOT_API_KEY_PERMANENT")
+             "RIOT_API_KEY_SAVED_AT", "RIOT_API_KEY_PERMANENT", "CLAN_PREFIX", "CLAN_ALIASES")
     return Settings(
         riot_id=get("RIOT_ID"),
         platform=get("PLATFORM").lower() or DEFAULT_PLATFORM,
@@ -73,6 +77,8 @@ def read_settings(root) -> Settings:
         gemini_key=get("GEMINI_API_KEY"),
         riot_key_saved_at=saved_at,
         riot_key_permanent=get("RIOT_API_KEY_PERMANENT").lower() in ("1", "true", "si", "sí"),
+        clan_prefix=get("CLAN_PREFIX") or DEFAULT_CLAN_PREFIX,
+        clan_aliases=get("CLAN_ALIASES"),
         raw={n: get(n) for n in names},
     )
 
