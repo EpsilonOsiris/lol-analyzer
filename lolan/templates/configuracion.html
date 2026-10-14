@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Configuración{% endblock %}
+{% block content %}
+<h1>Configuración</h1>
+
+{% if welcome %}
+<section class="notice" id="welcome" role="status">
+  <strong>Bienvenido, configura tu cuenta para empezar.</strong>
+  Solo necesitas tu Riot ID (tu nombre en el juego) y una key de Riot, que es como una contraseña gratuita para que el programa pueda descargar tus partidas. Más abajo te explicamos cómo conseguirla paso a paso.
+</section>
+{% else %}
+<p class="muted">Tus datos de cuenta. Se guardan solo en este equipo y se usan al momento: no hace falta reiniciar nada.</p>
+{% endif %}
+
+<section class="card">
+  <form id="config-form" class="form wide" autocomplete="off">
+    <label class="field"><span>Tu Riot ID <span class="muted">(Nombre#TAG)</span></span>
+      <input class="wide" type="text" name="riot_id" required spellcheck="false" placeholder="Nombre#TAG" value="{{ st.riot_id }}">
+      <span class="muted help">Es tu nombre en el juego, con el # y lo que va después. Por ejemplo: <code>Jugador#LAN</code>.</span>
+    </label>
+
+    <label class="field"><span>Servidor</span>
+      <select class="wide" name="plataforma">
+        {% for value, label in platforms %}
+        <option value="{{ value }}"{% if value == st.platform %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="muted help">El servidor donde juegas (si juegas en Latinoamérica Norte, elige LAN).</span>
+    </label>
+
+    <label class="field"><span>Key de Riot
+      {% if riot_fin %}<span class="key-saved" id="riot-saved">· guardada, termina en {{ riot_fin }}{% if saved_age %} ({{ saved_age }}){% endif %}</span>{% else %}<span class="key-saved" id="riot-saved"></span>{% endif %}</span>
+      <input class="wide" type="password" name="riot_api_key" spellcheck="false" autocomplete="off" placeholder="{{ 'Déjalo vacío para conservar la actual' if riot_fin else 'RGAPI-…' }}">
+      <span class="muted help">Empieza con <code>RGAPI-</code>. Cópiala de developer.riotgames.com (mira «Cómo conseguir tu key de Riot» más abajo).</span>
+    </label>
+
+    <label class="check block"><input type="checkbox" name="key_permanente"{% if st.riot_key_permanent %} checked{% endif %}> <span>Mi key es una «Personal API Key» y no expira <span class="muted">(así no te avisamos cada día que la renueves)</span></span></label>
+
+    <div class="btn-row">
+      <button type="button" class="btn" id="test-btn">Probar key de Riot</button>
+      <span class="muted help">Hace una consulta pequeña a Riot para ver si la key sirve. No guarda nada.</span>
+    </div>
+    <p id="test-ok" class="notice ok" role="status" hidden></p>
+    <p id="test-error" class="notice error" role="alert" hidden></p>
+
+    <label class="field"><span>Key de Gemini <span class="muted">(opcional)</span>
+      {% if gemini_fin %}<span class="key-saved" id="gemini-saved">· guardada, termina en {{ gemini_fin }}</span>{% else %}<span class="key-saved" id="gemini-saved"></span>{% endif %}</span>
+      <input class="wide" type="password" name="gemini_api_key" spellcheck="false" autocomplete="off" placeholder="{{ 'Déjalo vacío para conservar la actual' if gemini_fin else 'Puedes dejarla vacía por ahora' }}">
+      <span class="muted help">La usará el análisis de video, que llegará pronto. Si no la tienes, no pasa nada.</span>
+    </label>
+
+    <div class="btn-row"><button type="submit" class="btn primary" id="save-btn">Guardar</button></div>
+  </form>
+  <p id="save-error" class="notice error" role="alert" hidden></p>
+  <p id="save-ok" class="notice ok" role="status" hidden></p>
+  <p id="save-next" hidden><a class="btn primary" href="{{ u('sync_page') }}">Siguiente: descargar mis partidas</a></p>
+  <noscript><p class="notice">Esta página necesita JavaScript para guardar la configuración.</p></noscript>
+  <p class="note">Tus keys son personales: no las compartas ni las publiques en capturas de pantalla. Se guardan en el archivo <code>.env</code> de la carpeta del programa y nunca se vuelven a mostrar completas.</p>
+</section>
+
+<details class="card help-card"{% if welcome %} open{% endif %}>
+  <summary>Cómo conseguir tu key de Riot</summary>
+  <ol>
+    <li>Entra a <a href="https://developer.riotgames.com" target="_blank" rel="noopener noreferrer">developer.riotgames.com</a> e inicia sesión con tu cuenta de Riot (la misma con la que juegas). Acepta los términos si te los pide.</li>
+    <li>En la página principal verás un recuadro llamado «Development API Key». Pulsa el botón de copiar, o selecciona el texto que empieza con <code>RGAPI-</code> y cópialo.</li>
+    <li>Vuelve aquí, pégala en «Key de Riot» y pulsa «Probar key de Riot».</li>
+    <li>Si dice que funciona, pulsa «Guardar».</li>
+  </ol>
+  <p><strong>Esta key dura 24 horas.</strong> Cuando expire, entra de nuevo a esa página, pulsa «Regenerate API Key», copia la nueva y pégala aquí. Lo que ya descargaste no se pierde.</p>
+</details>
+
+<details class="card help-card">
+  <summary>Una key que no expira (Personal API Key)</summary>
+  <ol>
+    <li>En <a href="https://developer.riotgames.com" target="_blank" rel="noopener noreferrer">developer.riotgames.com</a> busca «Register Product» y elige «Personal API Key». Los nombres de los botones pueden cambiar un poco.</li>
+    <li>Rellena el formulario contando que es una herramienta personal para analizar tus propias partidas. Es gratis.</li>
+    <li>Riot la revisa y puede tardar unos días. Mientras tanto, usa la Development API Key de arriba.</li>
+    <li>Cuando te la aprueben, pégala aquí, marca la casilla «Mi key es una Personal API Key» y pulsa «Guardar».</li>
+  </ol>
+</details>
+
+<details class="card help-card">
+  <summary>Cómo conseguir tu key de Gemini (opcional)</summary>
+  <ol>
+    <li>Entra a <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a> con tu cuenta de Google.</li>
+    <li>Pulsa «Create API key» (crear clave de API) y espera unos segundos.</li>
+    <li>Copia la key que aparece, pégala en «Key de Gemini» y pulsa «Guardar».</li>
+  </ol>
+  <p>Es para el análisis de video, que llegará más adelante. Hoy el programa funciona igual sin ella.</p>
+</details>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='configuracion.js') }}" defer></script>
+{% endblock %}

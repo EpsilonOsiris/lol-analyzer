@@ -7,7 +7,7 @@
   <p>Todavía no hay partidas guardadas de {{ jugador.riot_id }}. Ve a <a href="{{ u('sync_page') }}">Sincronizar</a> y elige a ese jugador (o «Todo el clan») para descargarlas.</p>
   {% elif reason == 'db' %}
   <h1>Aún no hay partidas</h1>
-  <p>La base de datos está vacía. Ve a <a href="{{ u('sync_page') }}">Sincronizar</a> para descargar tus partidas desde la API de Riot (necesitas <code>RIOT_API_KEY</code> y <code>RIOT_ID</code> en <code>.env</code>).</p>
+  <p>La base de datos está vacía. Ve a <a href="{{ u('sync_page') }}">Sincronizar</a> para descargar tus partidas desde Riot. Si la descarga falla, revisa tu key en <a href="{{ u('config_page') }}">Configuración</a>.</p>
   <p><a class="btn" href="{{ u('sync_page') }}">Ir a Sincronizar</a></p>
   {% elif reason == 'cola' %}
   <h1>No hay partidas en esta cola</h1>

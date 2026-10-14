@@ -26,15 +26,15 @@ def test_slugify_is_lowercase_ascii_and_filesystem_safe():
 
 
 def test_slugs_are_unique_and_safe(store):
-    store.add_player("p1", "Epsilon Osiris#LAN", is_main=True)
+    store.add_player("p1", "Jugador Uno#LAN", is_main=True)
     store.add_player("p2", "Pepe#LAN")
     store.add_player("p3", "Pepe#LA2")          # same game name, different tag
     store.add_player("p4", "Solo#LAN")           # would clash with the solo-queue CSV/folder
     store.add_player("p5", "日本語#JP")           # nothing ASCII left
     store.add_player("p6", "Nul#LAN")
-    r = load_roster(store, "Epsilon Osiris#LAN")
+    r = load_roster(store, "Jugador Uno#LAN")
     slugs = {p.riot_id: r.slug(p) for p in r.players}
-    assert slugs["Epsilon Osiris#LAN"] == "epsilon-osiris"
+    assert slugs["Jugador Uno#LAN"] == "jugador-uno"
     assert slugs["Pepe#LAN"] == "pepe-lan" and slugs["Pepe#LA2"] == "pepe-la2"
     assert slugs["Solo#LAN"] == "j-solo"
     assert slugs["日本語#JP"] == "jugador"

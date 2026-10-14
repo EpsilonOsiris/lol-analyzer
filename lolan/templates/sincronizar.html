@@ -2,7 +2,7 @@
 {% block title %}Sincronizar{% endblock %}
 {% block content %}
 <h1>Sincronizar</h1>
-<p class="muted">Descarga las partidas nuevas desde la API de Riot (usa <code>RIOT_API_KEY</code> y <code>RIOT_ID</code> de <code>.env</code>, una sola key para todos). Cada partida son unas 2 peticiones y una key de desarrollo permite unas 50 partidas cada 2 minutos; lo ya descargado nunca se repite (una partida que jugaron varios del clan se baja una sola vez) y puedes volver a pulsar el botón si se interrumpe.</p>
+<p class="muted">Descarga las partidas nuevas desde Riot (usa tu Riot ID y tu key de <a href="{{ u('config_page') }}">Configuración</a>; una sola key sirve para todo el clan). Cada partida son unas 2 peticiones y una key de desarrollo permite unas 50 partidas cada 2 minutos; lo ya descargado nunca se repite (una partida que jugaron varios del clan se baja una sola vez) y puedes volver a pulsar el botón si se interrumpe.</p>
 
 <section class="card">
   <form id="sync-form" class="form">

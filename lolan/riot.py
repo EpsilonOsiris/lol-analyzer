@@ -41,6 +41,10 @@ class NotFoundError(RiotError):
     pass
 
 
+class RiotConnectionError(RiotError):
+    """Riot could not be reached at all (no internet, firewall, antivirus...)."""
+
+
 class RateLimiter:
     """Sliding-window limiter. Blocks (via the injected sleep) until a request may go out."""
 
@@ -111,7 +115,7 @@ class RiotClient:
             except requests.RequestException as exc:
                 failures += 1
                 if failures >= self.max_retries:
-                    raise RiotError(
+                    raise RiotConnectionError(
                         "No se pudo conectar con la API de Riot "
                         f"({type(exc).__name__}). Revisa tu conexión."
                     ) from exc
@@ -172,6 +176,13 @@ class RiotClient:
             if limit is not None and len(ids) >= limit:
                 return ids[:limit]
         return ids
+
+    def get_platform_status(self) -> dict:
+        """lol-status-v4 platform data; a cheap call to check that the key works.
+
+        Lives on the platform host, so build the client with region=<platform> (e.g. "la1").
+        """
+        return self._get("/lol/status/v4/platform-data")
 
     def get_match(self, match_id: str) -> dict:
         return self._get(f"/lol/match/v5/matches/{quote(match_id, safe='')}")

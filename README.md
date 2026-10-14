@@ -1,5 +1,7 @@
 # lol-analyzer
 
+> **¿No programas? → [Guía de instalación](INSTALAR.md).** Descarga el programa [aquí (zip)](https://github.com/EpsilonOsiris/lol-analyzer/archive/refs/heads/main.zip), haz doble clic en `instalar.bat` y sigue la guía: no necesitas terminal ni editar archivos. Lo que sigue es la documentación técnica.
+
 Descarga **todas** tus partidas de League of Legends desde la API de Riot, las guarda en una base de datos local (SQLite) y analiza qué haces bien y qué haces mal, partida por partida y en general. También puedes agregar a los miembros de tu clan: cada uno tiene su propio análisis, hay una comparación entre todos y las partidas que jugaron juntos (ver [Tu clan](#tu-clan-varios-jugadores)).
 
 Qué produce:
@@ -16,15 +18,17 @@ Solo se analizan las colas de la Grieta del Invocador (400, 420, 430, 440 y 490)
 
 ## Instalación
 
-Requiere Python 3.10 o superior (probado con 3.13).
+Requiere Python 3.10 o superior (probado con 3.13). En Windows, `instalar.bat` hace todo esto solo (ver [INSTALAR.md](INSTALAR.md)); si programas, a mano:
 
 ```bash
+git clone https://github.com/EpsilonOsiris/lol-analyzer.git
+cd lol-analyzer
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt     # Windows
 # source .venv/bin/activate && pip install -r requirements.txt   # Linux / macOS
 ```
 
-Copia el archivo de configuración y llénalo:
+Configura tu cuenta. Lo más cómodo es abrir el panel (`python -m lolan web`): la primera vez te lleva a la página **Configuración**, donde escribes tu Riot ID, eliges el servidor y pegas tu key (con un botón para probarla). También puedes copiar y llenar el archivo a mano:
 
 ```bash
 cp .env.example .env
@@ -35,13 +39,16 @@ RIOT_API_KEY=RGAPI-...        # tu API key
 RIOT_ID=Nombre#TAG            # tu Riot ID completo
 PLATFORM=la1                  # tu servidor (ver tabla abajo)
 REGION=americas               # región de enrutamiento (ver tabla abajo)
+GEMINI_API_KEY=               # opcional: para el análisis de video (próximamente)
 ```
+
+La página Configuración escribe este mismo `.env` (de forma atómica y sin tocar las líneas que no conoce) y además guarda `RIOT_API_KEY_SAVED_AT` (cuándo se guardó la key de Riot, para avisarte cuando una key de desarrollo probablemente ya expiró) y `RIOT_API_KEY_PERMANENT=1` si marcas que tu key no expira (una Personal API Key). Los cambios se aplican sin reiniciar el panel.
 
 ### Cómo obtener la API key
 
 1. Entra a <https://developer.riotgames.com> con tu cuenta de Riot.
 2. Copia la **Development API Key** que aparece en el panel.
-3. Pégala en `.env`. **Las keys de desarrollo expiran cada 24 horas**: si recibes el error "la API key es inválida o expiró", genera una nueva (botón "Regenerate API Key"), actualiza `.env` y vuelve a ejecutar el comando. Nada de lo ya descargado se pierde.
+3. Pégala en la página Configuración del panel o en `.env`. **Las keys de desarrollo expiran cada 24 horas**: si recibes el error "la API key es inválida o expiró", genera una nueva (botón "Regenerate API Key"), actualízala y vuelve a ejecutar el comando. Nada de lo ya descargado se pierde. Para no renovarla a diario puedes pedir en el mismo sitio una *Personal API Key* (gratis, no expira, Riot tarda unos días en aprobarla).
 
 La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 
@@ -111,8 +118,9 @@ Todas las páginas tienen un selector de cola (Todas / Solo/Dúo / Flex; por def
 | Clan (`/clan`) | Tabla comparativa de todos los jugadores registrados en la cola elegida (partidas, winrate, KDA, muertes por 10 min, muertes en solitario y antes del minuto 14 por partida, CS/min, visión/min, rol y campeón más jugados; se ordena haciendo clic en el encabezado) y **Jugando juntos**: winrate de cada pareja cuando está en el mismo equipo, junto al winrate de cada uno (solo parejas con 3 partidas juntos o más) |
 | Jugadores (`/jugadores`) | Jugadores registrados con las partidas guardadas de cada uno; formulario para agregar un Riot ID (se busca con tu API key) y botón para quitar a cualquiera menos a ti, con confirmación en la misma fila |
 | Sincronizar (`/sincronizar`) | Descarga partidas nuevas desde el navegador (jugador: tú, uno en particular o todo el clan; cola, máximo de partidas por jugador y timeline) con el progreso en vivo |
+| Configuración (`/configuracion`) | Riot ID, servidor (con nombres como LAN o EUW), key de Riot (con botón «Probar key de Riot») y key de Gemini opcional; instrucciones para conseguir cada key. Si falta la key o el Riot ID, todas las demás páginas redirigen aquí. Las keys guardadas solo se muestran como «termina en ••••abcd» y dejar un campo vacío la conserva |
 
-Sincronizar usa la `RIOT_API_KEY` y el `RIOT_ID` de `.env` y lo vuelve a leer en cada sincronización: si tu key expira, regenera una en developer.riotgames.com, actualiza `.env` y pulsa **Sincronizar** de nuevo, sin reiniciar el panel. Solo se puede ejecutar una sincronización a la vez. Al terminar, los análisis se actualizan solos. Si no hay partidas todavía, el panel te lleva a esa página.
+Sincronizar usa la `RIOT_API_KEY` y el `RIOT_ID` de `.env` y lo vuelve a leer en cada sincronización: si tu key expira, regenera una en developer.riotgames.com, pégala en **Configuración** (o actualiza `.env`) y pulsa **Sincronizar** de nuevo, sin reiniciar el panel. Todas las páginas muestran un aviso si la key se guardó hace más de 23 horas o si Riot la rechazó en el último intento de este servidor (no se hace ninguna petición solo para mostrar la página). Solo se puede ejecutar una sincronización a la vez. Al terminar, los análisis se actualizan solos. Si no hay partidas todavía, el panel te lleva a esa página.
 
 ## Dónde queda todo
 
@@ -137,6 +145,16 @@ Sincronizar usa la `RIOT_API_KEY` y el `RIOT_ID` de `.env` y lo vuelve a leer en
 - **Muerte en la mitad enemiga**: el equipo azul (100) es dueño de la esquina inferior izquierda; una posición es "mitad enemiga" para azul si `x + y > 15000` y para rojo si `x + y < 15000`.
 - **Debilidades marcadas** en la boleta: percentil propio de 25 o menos, 2 o más muertes antes del minuto 14, 2 o más muertes en solitario, muchas muertes en la mitad enemiga, diferencia de oro al minuto 14 menor a -500, entre otras. **Fortalezas**: percentil propio de 75 o más o ventaja clara sobre el rival.
 
+## Scripts de Windows
+
+| Archivo | Para qué |
+|---|---|
+| `instalar.bat` | Doble clic. Busca Python 3.10+ (si falta, lo instala con `winget`), crea `.venv`, instala `requirements.txt`, instala ffmpeg si falta (para el análisis de video; si falla no pasa nada), crea el acceso directo «LoL Analyzer» en el escritorio y abre el panel. Se puede repetir sin problema. Opciones: `/sin-acceso-directo`, `/sin-abrir` |
+| `abrir-panel.bat` | Abre el panel (`python -m lolan web`); acepta las mismas opciones, por ejemplo `--no-abrir` |
+| `actualizar.bat` | Descarga la última versión de `main`, copia los archivos nuevos sin borrar nada y sin tocar `.env`, `data\`, `reports\` ni `.venv\`, y revisa las librerías. Se copia a `%TEMP%` antes de actualizar porque `cmd` lee los `.bat` poco a poco y se reemplaza a sí mismo; se niega a correr si el panel está abierto o si la carpeta es un repositorio git. Para pruebas, `LOLAN_ZIP_URL` apunta a otro zip (dirección o ruta local) y `LOLAN_PUERTO` al puerto que revisa |
+
+Los `.bat` usan solo caracteres ASCII (cmd se confunde con acentos en algunos Windows) y terminan en CRLF (ver `.gitattributes`).
+
 ## Pruebas
 
 ```bash
@@ -148,3 +166,11 @@ Las pruebas usan partidas y timelines sintéticos; no necesitan red ni API key.
 ## Notas sobre la base de datos
 
 Cada partida se guarda una sola vez, junto con la lista de los 10 jugadores que participaron (tabla `match_players`); así, una partida que jugaron dos del clan cuenta para ambos y cada análisis solo lee las partidas de su jugador. La tabla `account` es el registro de jugadores. Si tienes una base de datos creada con una versión anterior (un solo jugador), se actualiza sola la primera vez que se abre (tarda menos de un segundo para cientos de partidas) y tu cuenta queda como jugador principal.
+
+## Aviso legal
+
+lol-analyzer isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+
+## Licencia
+
+[MIT](LICENSE). Copyright (c) 2026 EpsilonOsiris.

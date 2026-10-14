@@ -211,3 +211,19 @@ progress { width: 100%; height: 14px; }
 .row-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; align-items: center; white-space: normal; }
 .confirm-q { font-size: .85rem; }
 #sync-player { margin: 0 0 .5rem; }
+
+/* configuration, key banner, footer */
+:root { --warn: #b7791f; --warn-bg: #fff4d6; }
+@media (prefers-color-scheme: dark) { :root { --warn: #e0a640; --warn-bg: #33290f; } }
+.banner { background: var(--warn-bg); border: 1px solid var(--warn); border-left-width: 4px; border-radius: 8px; padding: .7rem .9rem; margin: 1rem 0 0; }
+.foot p { margin: 0 0 .5rem; }
+.legal { font-size: .75rem; }
+.form.wide { max-width: 640px; }
+.field input.wide, .field select.wide { max-width: 100%; width: 100%; }
+.field select.wide { max-width: 100%; }
+.help-card summary { cursor: pointer; font-weight: 600; }
+.help-card ol { margin: .6rem 0; padding-left: 1.3rem; }
+.help-card p { margin-top: .6rem; }
+.btn-row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+.key-saved { font-weight: 400; font-size: .85rem; color: var(--muted); }
+.check.block { align-items: flex-start; }

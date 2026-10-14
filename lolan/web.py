@@ -3,20 +3,23 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 import traceback
 from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from flask import Flask, abort, g, jsonify, render_template, request, url_for
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, url_for
 from werkzeug.exceptions import NotFound
 
 from . import analyze as an
 from .__main__ import QUEUE_ALIASES
 from .config import ConfigError, load_config, project_root
 from .players import load_roster, normalize_riot_id
-from .riot import (MISSING_KEY_MESSAGE, InvalidApiKeyError, MissingApiKeyError, NotFoundError,
-                   RateLimiter, RiotClient, RiotError)
+from .riot import (InvalidApiKeyError, MissingApiKeyError, NotFoundError, RateLimiter,
+                   RiotClient, RiotConnectionError, RiotError)
+from .settings import (PLATFORM_CHOICES, KeyHealth, age_text, key_warning, mask_key, platform_region,
+                       read_settings, update_env_file, valid_key)
 from .store import Store
 from .sync import sync_players
 
@@ -31,8 +34,13 @@ MAX_LOG_LINES = 200
 PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)\]")
 TOTAL_RE = re.compile(r"Por descargar: (\d+)")
 HEADER_RE = re.compile(r"^=== (.+) \((\d+)/(\d+)\) ===$")   # printed by sync_players per player
-KEY_HINT = " Cuando la tengas, vuelve a pulsar Sincronizar; no hace falta reiniciar el servidor."
-KEY_HINT_ADD = " Cuando la tengas, vuelve a intentarlo; no hace falta reiniciar el servidor."
+MISSING_KEY_MESSAGE = ("Falta tu key de Riot. Pégala en la página Configuración y vuelve a "
+                       "intentarlo; no hace falta reiniciar el panel.")
+INVALID_KEY_MESSAGE = ("Tu key de Riot es inválida o expiró (las keys de desarrollo duran 24 horas). "
+                       "Consigue una nueva en developer.riotgames.com, pégala en la página "
+                       "Configuración y vuelve a {again}; no hace falta reiniciar el panel.")
+# Pages that stay reachable before the first setup (API calls are never redirected).
+SETUP_ENDPOINTS = ("static", "config_page", "api_config_save", "api_config_test")
 
 
 # ------------------------------------------------------------------- cache
@@ -93,9 +101,10 @@ class GamesCache:
 class SyncJob:
     """One background sync at a time; state is read by GET /api/sync."""
 
-    def __init__(self, root, cache: GamesCache):
+    def __init__(self, root, cache: GamesCache, health: KeyHealth | None = None):
         self._root = root
         self._cache = cache
+        self.health = health or KeyHealth()
         self._lock = threading.Lock()
         # Shared by every sync this server runs: the key's 100 req / 2 min budget spans runs
         # (and the Riot ID lookups done when adding players).
@@ -154,10 +163,12 @@ class SyncJob:
 
     def _run(self, queue, max_matches, with_timeline, target) -> None:
         result = error = None
+        key_used = ""
         try:
             # override=True: the dev API key is regenerated every 24 h and .env gets edited
             # while the server runs.
             cfg = load_config(self._root, override=True)
+            key_used = cfg.api_key
             if not cfg.api_key:
                 raise MissingApiKeyError(MISSING_KEY_MESSAGE)
             client = RiotClient(cfg.api_key, region=cfg.region, limiter=self.limiter)
@@ -170,11 +181,12 @@ class SyncJob:
                     riot_ids += [p.riot_id for p in load_roster(store, cfg.riot_id).players
                                  if p.riot_id.casefold() not in seen]
                     if not riot_ids:
-                        raise ConfigError("No hay jugadores que sincronizar: configura RIOT_ID en "
-                                          ".env o agrega jugadores en la página Jugadores.")
+                        raise ConfigError("No hay jugadores que sincronizar: escribe tu Riot ID en "
+                                          "Configuración o agrega jugadores en la página Jugadores.")
                 elif target == "yo":
                     if not cfg.riot_id:
-                        raise ConfigError("Falta RIOT_ID en el archivo .env (formato Nombre#TAG).")
+                        raise ConfigError("Falta tu Riot ID (formato Nombre#TAG): escríbelo en la "
+                                          "página Configuración.")
                     riot_ids = [cfg.riot_id]
                 else:
                     riot_ids = [target]
@@ -184,8 +196,12 @@ class SyncJob:
             finally:
                 store.close()
             result = _sync_result(outcomes)
-        except (InvalidApiKeyError, MissingApiKeyError) as exc:
-            error = str(exc) + KEY_HINT
+            self.health.mark_ok(cfg.api_key)
+        except MissingApiKeyError:
+            error = MISSING_KEY_MESSAGE
+        except InvalidApiKeyError:
+            self.health.mark_invalid(key_used)
+            error = INVALID_KEY_MESSAGE.format(again="pulsar Sincronizar")
         except (ConfigError, RiotError, ValueError) as exc:
             error = str(exc)
         except Exception as exc:  # keep the thread's failure visible in the UI
@@ -227,8 +243,9 @@ def create_app(root=None) -> Flask:
     # Same location as Config.db_path.
     db_path = root / "data" / "lol.db"
     cache = GamesCache(db_path)
-    job = SyncJob(root, cache)
-    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root}
+    health = KeyHealth()
+    job = SyncJob(root, cache, health)
+    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root, "health": health}
 
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
@@ -260,6 +277,11 @@ def create_app(root=None) -> Flask:
             return "Host no permitido.", 400
         if request.endpoint == "static":
             return None
+        # .env is re-read on every request (it changes when the user saves Configuración).
+        g.settings = read_settings(root)
+        if (not g.settings.ready and request.endpoint not in SETUP_ENDPOINTS
+                and not request.path.startswith("/api/")):
+            return redirect(url_for("config_page"))
         cola = (request.args.get("cola") or DEFAULT_COLA).lower()
         g.cola = cola if cola in QUEUES else DEFAULT_COLA
         g.roster = open_roster()
@@ -291,7 +313,11 @@ def create_app(root=None) -> Flask:
         # The player picker is a GET form to the current page (a match page has no equivalent
         # for another player, so it goes to the games list).
         picker_action = (url_for("games_list") if request.endpoint == "match" else request.path)
+        st = g.get("settings")
+        banner = key_warning(st, health) if st else None
         return {"cola": g.get("cola", DEFAULT_COLA), "queue_labels": QUEUE_LABELS, "u": u,
+                "key_banner": banner,
+                "key_age": age_text(st.riot_key_saved_at) if banner == "vieja" else "",
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
                 "jugador": current, "picker_action": picker_action,
                 "show_picker": bool(roster) and len(roster) > 1
@@ -425,6 +451,16 @@ def create_app(root=None) -> Flask:
     def sync_page():
         return render_template("sincronizar.html", riot_id=main_riot_id())
 
+    @app.get("/configuracion")
+    def config_page():
+        st = g.settings
+        choices = list(PLATFORM_CHOICES)
+        if st.platform not in dict(choices):         # a server typed by hand in .env
+            choices.append((st.platform, st.platform))
+        return render_template("configuracion.html", st=st, platforms=choices,
+                               riot_fin=mask_key(st.riot_key), gemini_fin=mask_key(st.gemini_key),
+                               saved_age=age_text(st.riot_key_saved_at), welcome=not st.ready)
+
     # -------------------------------------------------------------- API
     def api_guard():
         """An error response unless the X-Lolan header is present; None when the call may go on."""
@@ -474,6 +510,94 @@ def create_app(root=None) -> Flask:
             return jsonify(error="Ya hay una sincronización en curso."), 409
         return jsonify(job.snapshot()), 202
 
+    def _key_field(body, name):
+        """(key, error) for an optional key field: blank means "keep the saved one"."""
+        value = body.get(name)
+        key = "" if value is None else str(value).strip()
+        if key and not valid_key(key):
+            return "", ("La key tiene caracteres que no son válidos (espacios, acentos o símbolos). "
+                        "Cópiala de nuevo, completa y sin espacios.")
+        return key, None
+
+    @app.post("/api/configuracion")
+    def api_config_save():
+        if (denied := api_guard()) is not None:
+            return denied
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error="El cuerpo debe ser JSON."), 400
+        st = read_settings(root)
+        try:
+            name, tag = normalize_riot_id(body.get("riot_id"))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        platform = str(body.get("plataforma") or st.platform).strip().lower()
+        region = platform_region(platform)
+        if region is None:
+            return jsonify(error="Elige un servidor de la lista."), 400
+        riot_key, error = _key_field(body, "riot_api_key")
+        gemini_key, error2 = _key_field(body, "gemini_api_key")
+        if error or error2:
+            return jsonify(error=error or error2), 400
+
+        want = {"RIOT_ID": f"{name}#{tag}", "PLATFORM": platform, "REGION": region}
+        if riot_key and riot_key != st.riot_key:
+            want["RIOT_API_KEY"] = riot_key
+            want["RIOT_API_KEY_SAVED_AT"] = str(int(time.time()))
+        if gemini_key and gemini_key != st.gemini_key:
+            want["GEMINI_API_KEY"] = gemini_key
+        if "key_permanente" in body:
+            want["RIOT_API_KEY_PERMANENT"] = "1" if body["key_permanente"] is True else "0"
+        updates = {k: v for k, v in want.items() if st.raw.get(k, "") != v}
+        try:
+            if updates:
+                update_env_file(root / ".env", updates)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except OSError:
+            return jsonify(error="No se pudo guardar el archivo .env. Revisa que la carpeta del "
+                                 "programa no sea de solo lectura y que ningún otro programa lo "
+                                 "tenga abierto."), 500
+        new = read_settings(root)
+        return jsonify(ok=True, listo=new.ready, riot_id=new.riot_id,
+                       riot_key_fin=mask_key(new.riot_key), gemini_key_fin=mask_key(new.gemini_key),
+                       mensaje="Listo, se guardó tu configuración.")
+
+    @app.post("/api/configuracion/probar")
+    def api_config_test():
+        """One cheap request to Riot with the typed key (or the saved one); saves nothing."""
+        if (denied := api_guard()) is not None:
+            return denied
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error="El cuerpo debe ser JSON."), 400
+        st = read_settings(root)
+        key, error = _key_field(body, "riot_api_key")
+        if error:
+            return jsonify(error=error), 400
+        key = key or st.riot_key
+        if not key:
+            return jsonify(error="Primero pega tu key de Riot en el cuadro de arriba."), 400
+        platform = str(body.get("plataforma") or st.platform).strip().lower()
+        if platform_region(platform) is None:
+            return jsonify(error="Elige un servidor de la lista."), 400
+        try:
+            RiotClient(key, region=platform, limiter=job.limiter, max_retries=1,
+                       timeout=10).get_platform_status()
+        except InvalidApiKeyError:
+            health.mark_invalid(key)
+            return jsonify(ok=False, estado="invalida",
+                           mensaje="Riot no aceptó esa key: es inválida o ya expiró. Consigue una "
+                                   "nueva en developer.riotgames.com y pégala aquí.")
+        except RiotConnectionError:
+            return jsonify(ok=False, estado="sin_conexion",
+                           mensaje="Sin conexión: no se pudo llegar a Riot. Revisa tu internet "
+                                   "(o tu antivirus) e inténtalo otra vez.")
+        except RiotError as exc:
+            return jsonify(ok=False, estado="error", mensaje=f"Riot respondió con un problema: {exc}")
+        health.mark_ok(key)
+        return jsonify(ok=True, estado="ok", mensaje="¡Tu key funciona! Riot la aceptó.")
+
     @app.post("/api/jugadores")
     def api_players_add():
         if (denied := api_guard()) is not None:
@@ -486,13 +610,18 @@ def create_app(root=None) -> Flask:
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
         riot_id = f"{name}#{tag}"
+        key_used = ""
         try:
             cfg = load_config(root, override=True)
+            key_used = cfg.api_key
             if not cfg.api_key:
                 raise MissingApiKeyError(MISSING_KEY_MESSAGE)
             puuid = RiotClient(cfg.api_key, region=cfg.region, limiter=job.limiter).get_puuid(name, tag)
-        except (InvalidApiKeyError, MissingApiKeyError) as exc:
-            return jsonify(error=str(exc) + KEY_HINT_ADD), 401
+        except MissingApiKeyError:
+            return jsonify(error=MISSING_KEY_MESSAGE), 401
+        except InvalidApiKeyError:
+            health.mark_invalid(key_used)
+            return jsonify(error=INVALID_KEY_MESSAGE.format(again="intentarlo")), 401
         except NotFoundError:
             return jsonify(error=f"No se encontró la cuenta {riot_id}. Revisa el nombre y el TAG."), 404
         except ConfigError as exc:
@@ -524,7 +653,7 @@ def create_app(root=None) -> Flask:
         if player is None:
             return jsonify(error="Ese jugador no está registrado."), 404
         if player.is_main:
-            return jsonify(error="No se puede quitar al jugador principal (el RIOT_ID de .env)."), 400
+            return jsonify(error="No se puede quitar al jugador principal (el Riot ID de Configuración)."), 400
         store = Store(db_path)
         try:
             store.remove_player(puuid)

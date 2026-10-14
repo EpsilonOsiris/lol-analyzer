@@ -37,6 +37,8 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv("LOLAN_HOME", str(tmp_path))
     for var in ("RIOT_API_KEY", "RIOT_ID", "PLATFORM", "REGION"):
         monkeypatch.delenv(var, raising=False)
+    # A configured install: without key and Riot ID every page redirects to /configuracion.
+    (tmp_path / ".env").write_text("RIOT_API_KEY=RGAPI-test\nRIOT_ID=Yo#LAN\n", encoding="utf-8")
     return tmp_path
 
 
@@ -299,9 +301,10 @@ def test_sync_error_then_retry_rereads_env(root, monkeypatch):
 
 
 def test_sync_without_key_is_friendly(root):
+    (root / ".env").write_text("RIOT_ID=Yo#LAN\n", encoding="utf-8")
     app = web.create_app(root)
     app.test_client().post("/api/sync", json={"cola": "solo"}, headers=HEADERS)
-    assert "RIOT_API_KEY" in wait_sync(app)["error"]
+    assert "Configuración" in wait_sync(app)["error"]
 
 
 def test_sync_conflict_while_running(root, monkeypatch):

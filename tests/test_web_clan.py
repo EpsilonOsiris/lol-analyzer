@@ -54,6 +54,8 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv("LOLAN_HOME", str(tmp_path))
     for var in ("RIOT_API_KEY", "RIOT_ID", "PLATFORM", "REGION"):
         monkeypatch.delenv(var, raising=False)
+    # A configured install: without key and Riot ID every page redirects to /configuracion.
+    (tmp_path / ".env").write_text("RIOT_API_KEY=RGAPI-test\nRIOT_ID=Yo#LAN\n", encoding="utf-8")
     return tmp_path
 
 
@@ -125,7 +127,7 @@ def test_unknown_player_falls_back_to_main_and_queue_switcher_keeps_player(clien
     hrefs = re.findall(r'href="([^"]+)"', seg)
     assert len(hrefs) == 3 and all("jugador=amigo-fiel" in h for h in hrefs)
     nav = html.split('aria-label="Secciones"')[1].split("</nav>")[0]
-    assert nav.count("jugador=amigo-fiel") == 5                         # every nav link keeps it
+    assert nav.count("jugador=amigo-fiel") == 6                         # every nav link keeps it
     # Picker form posts to the same page and carries the queue.
     assert 'action="/partidas"' in html and 'name="cola" value="flex"' in html
 
@@ -204,6 +206,7 @@ def test_clan_other_queue_and_single_player(client, root):
     assert "0" in html and "Ninguna pareja tiene todavía 3 partidas juntos" in html
     other = root / "other"
     other.mkdir()
+    (other / ".env").write_text((root / ".env").read_text())
     store = Store(other / "data" / "lol.db")
     store.add_player(ME_PUUID, "Yo#LAN", is_main=True)
     store.close()
@@ -328,9 +331,10 @@ def test_add_player_flow_and_errors(client, root, fake_api):
     assert "developer.riotgames.com" in resp.get_json()["error"] and "reiniciar" in resp.get_json()["error"]
 
 
-def test_add_player_without_key_is_friendly(client):
+def test_add_player_without_key_is_friendly(client, root):
+    (root / ".env").write_text("RIOT_ID=Yo#LAN\n", encoding="utf-8")
     resp = client.post("/api/jugadores", json={"riot_id": "Nuevo Amigo#LAN"}, headers=HEADERS)
-    assert resp.status_code == 401 and "RIOT_API_KEY" in resp.get_json()["error"]
+    assert resp.status_code == 401 and "Configuración" in resp.get_json()["error"]
 
 
 def test_remove_player(client, root):
