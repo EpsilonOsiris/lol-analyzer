@@ -1150,6 +1150,7 @@ DRAFT_ROLES = ("TOP", "JUNGLE", "MIDDLE", "UTILITY")     # the other four lines;
 MIN_DATA_GAMES = 10
 PERSON_CHAMPION_K = 5          # weight 2n/(n+5) of the person's record on a champion
 UNCOMFORTABLE_WR = 0.45        # shrunk WR below this adds a caution reason
+UNCOMFORTABLE_PENALTY = 0.2    # and subtracts this from the final signal (scale -1..1)
 TYPE_K = 20
 PAIR_K = 20
 MAX_PICKS = 3
@@ -1325,10 +1326,12 @@ def _score_candidate(role, kind, champion, slots, tables, base_members, adc, sta
     num, den = RULE_WEIGHT * rule, RULE_WEIGHT
 
     n = stat["games"] if stat else 0
+    penalty = 0.0
     if n:
         w, sig = 2 * n / (n + PERSON_CHAMPION_K), _wr_signal(stat["shrunk"])
         num, den = num + w * sig, den + w
         if n >= min_games and stat["shrunk"] < UNCOMFORTABLE_WR:
+            penalty = UNCOMFORTABLE_PENALTY
             cands.append((abs(sig) * w + 0.5,
                           f"{person or 'Esta persona'} va {stat['wins']}-{stat['losses']} con {champion}; "
                           "poco cómodo."))
@@ -1361,7 +1364,7 @@ def _score_candidate(role, kind, champion, slots, tables, base_members, adc, sta
                           f"{type_label(ra, pa)} + {type_label(rb, pb)}: {st['wins']}-{st['losses']} "
                           f"({st['winrate'] * 100:.0f}%, {st['games']} partidas)."))
     cands.sort(key=lambda c: -c[0])
-    return num / den, [t for _m, t in cands], plan
+    return _clamp(num / den - penalty), [t for _m, t in cands], plan
 
 
 def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
