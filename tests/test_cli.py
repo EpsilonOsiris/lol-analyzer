@@ -48,7 +48,7 @@ def test_analyze_with_queue_writes_its_own_folder(isolated, capsys):
 
     from lolan.store import Store
     store = Store(isolated / "data" / "lol.db")
-    store.save_account(ME_PUUID, "A#B")
+    store.add_player(ME_PUUID, "A#B", is_main=True)
     store.save_match("LA1_1", make_match("LA1_1", queue=420), make_timeline())
     store.save_match("LA1_2", make_match("LA1_2", queue=440, created=1_700_000_000_000), None)
     store.close()

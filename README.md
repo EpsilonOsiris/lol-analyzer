@@ -1,6 +1,6 @@
 # lol-analyzer
 
-Descarga **todas** tus partidas de League of Legends desde la API de Riot, las guarda en una base de datos local (SQLite) y analiza qué haces bien y qué haces mal, partida por partida y en general.
+Descarga **todas** tus partidas de League of Legends desde la API de Riot, las guarda en una base de datos local (SQLite) y analiza qué haces bien y qué haces mal, partida por partida y en general. También puedes agregar a los miembros de tu clan: cada uno tiene su propio análisis, hay una comparación entre todos y las partidas que jugaron juntos (ver [Tu clan](#tu-clan-varios-jugadores)).
 
 Qué produce:
 
@@ -8,8 +8,11 @@ Qué produce:
 - Por campeón (con 5 partidas o más): qué métricas separan más tus victorias de tus derrotas (tamaño del efecto = diferencia de promedios / desviación estándar combinada).
 - Un resumen general: winrate por cola, rol y campeón, y tendencias por mes, por día de la semana y por número de partida dentro de una sesión (una sesión es una racha de partidas con menos de 45 minutos de separación).
 - Un CSV con una fila por partida y todas las métricas, para que lo explores con tu herramienta favorita.
+- Con varios jugadores: una tabla comparativa del clan (winrate, KDA, muertes, CS/min, visión, rol y campeón más jugados) y cuánto ganan cuando juegan en el mismo equipo.
 
 Solo se analizan las colas de la Grieta del Invocador (400, 420, 430, 440 y 490) y se excluyen los remakes (menos de 5 minutos o rendición temprana). Las demás partidas se guardan en la base de datos, pero se omiten del análisis (puedes incluirlas con `--todas-las-colas`). Para analizar una sola cola, pasa `--cola` a `analyze`, `game` o `campeon` (por ejemplo, `analyze --cola solo`).
+
+**Tú** eres el jugador del `RIOT_ID` de `.env`: si no indicas otro, todos los comandos y páginas trabajan con tus partidas.
 
 ## Instalación
 
@@ -56,10 +59,12 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 ## Uso
 
 ```bash
-.venv/Scripts/python -m lolan sync [--max N] [--since AAAA-MM-DD] [--cola solo] [--no-timeline]
-.venv/Scripts/python -m lolan analyze [--cola solo]
-.venv/Scripts/python -m lolan game <matchId | ultima>
-.venv/Scripts/python -m lolan campeon <Nombre>
+.venv/Scripts/python -m lolan sync [--jugador "Nombre#TAG" | --clan] [--max N] [--since AAAA-MM-DD] [--cola solo] [--no-timeline]
+.venv/Scripts/python -m lolan analyze [--jugador "Nombre#TAG" | --clan] [--cola solo]
+.venv/Scripts/python -m lolan game <matchId | ultima> [--jugador "Nombre#TAG"]
+.venv/Scripts/python -m lolan campeon <Nombre> [--jugador "Nombre#TAG"]
+.venv/Scripts/python -m lolan jugadores [listar | agregar "Nombre#TAG" | quitar "Nombre#TAG"]
+.venv/Scripts/python -m lolan web [--puerto N] [--no-abrir]
 ```
 
 - `sync` descarga las partidas nuevas (la partida y su timeline; cada partida son unas 2 peticiones). Respeta los límites de una key de desarrollo (20 peticiones por segundo y 100 cada 2 minutos), así que rinde unas 50 partidas cada 2 minutos. **Una sincronización completa de ~1000 partidas tarda alrededor de 40 minutos.** Guarda cada partida apenas la descarga: si se interrumpe (Ctrl+C, falla la red, expira la key), vuelve a ejecutar el mismo comando y continúa donde se quedó, sin repetir lo ya guardado.
@@ -67,9 +72,47 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
   - `--since AAAA-MM-DD`: solo partidas desde esa fecha.
   - `--cola COLA`: solo partidas de esa cola: `solo` (clasificatoria solo/dúo, 420), `flex` (440), `normal` (400), `blind` (430), `quickplay` (490) o el número de cola.
   - `--no-timeline`: no descarga el timeline. Es el doble de rápido, pero se pierden las métricas por minuto (diferencias a los minutos 7/14/21/28, muertes por fase, objetivos, etc.).
-- `analyze` reconstruye `data/games.csv` y todos los reportes a partir de lo que ya está en la base de datos (no usa la red, así que puedes correrlo las veces que quieras).
+  - Sin más opciones descarga solo **tus** partidas. `--jugador "Nombre#TAG"` descarga las de ese jugador registrado y `--clan` las de todos los registrados, uno tras otro. `--max`, `--since`, `--cola` y `--no-timeline` se aplican a cada jugador.
+- `analyze` reconstruye `data/games.csv` y todos los reportes a partir de lo que ya está en la base de datos (no usa la red, así que puedes correrlo las veces que quieras). `--jugador` analiza a otro jugador registrado y `--clan` genera los reportes de todos.
 - `game <matchId>` imprime la boleta de una partida; `game ultima` usa la más reciente.
 - `campeon <Nombre>` imprime los promedios y lo que decide tus partidas con ese campeón (el nombre no distingue mayúsculas ni apóstrofes: `kaisa` funciona).
+- `jugadores` muestra los jugadores registrados (con cuántas partidas hay guardadas de cada uno); `jugadores agregar "Nombre#TAG"` busca la cuenta con tu API key y la registra; `jugadores quitar "Nombre#TAG"` la saca de la lista (sus partidas se conservan). Los Riot ID no distinguen mayúsculas.
+
+## Tu clan (varios jugadores)
+
+Puedes registrar a los miembros de tu clan y analizarlos igual que a ti:
+
+```bash
+.venv/Scripts/python -m lolan jugadores agregar "Compañero#LAN"   # una vez por jugador
+.venv/Scripts/python -m lolan sync --clan                          # descarga a todos (tú primero)
+.venv/Scripts/python -m lolan analyze --clan                       # un reporte por jugador
+```
+
+- **Una sola API key para todos: la tuya.** Una key de desarrollo puede consultar a cualquier Riot ID, así que no hace falta pedirle su key a nadie ni su contraseña. Compartir keys o usar varias para saltarse los límites va contra las políticas de Riot: no lo hagas.
+- **Cuánto tarda.** Cada partida nueva son unas 2 peticiones (la partida y su timeline), y la key permite unas 50 partidas cada 2 minutos (~100 peticiones / 2 min) **en total**, no por jugador: ~1000 partidas nuevas son unos 40 minutos, vengan de un jugador o de varios. Las partidas que jugaron juntos se descargan **una sola vez** y cuentan para todos los que estaban en ellas (aunque todavía no los hayas agregado: al registrarlos ya aparecen sus partidas guardadas).
+- Con `sync --clan`, si la cuenta de un jugador no se encuentra (por ejemplo, cambió de nombre) se omite y se sigue con los demás; al final se imprime un resumen por jugador. Si la key expira, se detiene todo (lo ya descargado queda guardado). Cada vez que sincronizas se vuelve a buscar el Riot ID de cada jugador, así que un cambio de nombre se actualiza si usas el nombre nuevo (`jugadores agregar "NombreNuevo#TAG"` si hace falta).
+- **Dónde quedan los reportes.** Los tuyos siguen en `reports/` y `data/games*.csv`. Los de los demás van a `reports/jugadores/<nombre>/` (con `<cola>/` dentro si usas `--cola`) y `data/games-<nombre>[-<cola>].csv`, donde `<nombre>` es el nombre de juego en minúsculas y sin acentos (y con el TAG si hay dos jugadores con el mismo nombre).
+- **Panel.** Hay un selector de jugador junto al de cola, la página **Clan** compara a todos y muestra qué tan bien juegan juntos, y la página **Jugadores** permite agregar y quitar jugadores desde el navegador.
+
+```bash
+.venv/Scripts/python -m lolan web
+```
+
+Levanta un panel local en <http://127.0.0.1:8765> y abre el navegador (`--puerto N` cambia el puerto, `--no-abrir` no abre el navegador). Solo escucha en `127.0.0.1`: no es accesible desde otros equipos ni desde tu red. Para detenerlo, presiona Ctrl+C en la terminal. Funciona sin conexión (no carga nada de internet) y lee la misma base de datos `data/lol.db`.
+
+Todas las páginas tienen un selector de cola (Todas / Solo/Dúo / Flex; por defecto Solo/Dúo) y, si hay más de un jugador registrado, un selector de jugador (por defecto, tú). Ambos se conservan al navegar (`?cola=` y `?jugador=` en la dirección).
+
+| Página | Qué muestra |
+|---|---|
+| Resumen (`/`) | Partidas, winrate, KDA, CS/min, muertes por 10 min y período; winrate por mes, por rol y por campeón (las tablas se ordenan haciendo clic en el encabezado); por día de la semana y por número de partida en la sesión; winrate después de una victoria y de una derrota; y lo que decide tus partidas con cada campeón de 5 partidas o más |
+| Campeón (`/campeon/<Nombre>`) | Promedios, qué es más alto en tus victorias y en tus derrotas, y la lista de tus partidas con ese campeón |
+| Partidas (`/partidas`) | Todas tus partidas, de la más reciente a la más antigua, de 50 en 50 |
+| Partida (`/partida/<matchId>`) | La boleta de esa partida: fortalezas, debilidades, comparación con tu rival de línea y con tu historial |
+| Clan (`/clan`) | Tabla comparativa de todos los jugadores registrados en la cola elegida (partidas, winrate, KDA, muertes por 10 min, muertes en solitario y antes del minuto 14 por partida, CS/min, visión/min, rol y campeón más jugados; se ordena haciendo clic en el encabezado) y **Jugando juntos**: winrate de cada pareja cuando está en el mismo equipo, junto al winrate de cada uno (solo parejas con 3 partidas juntos o más) |
+| Jugadores (`/jugadores`) | Jugadores registrados con las partidas guardadas de cada uno; formulario para agregar un Riot ID (se busca con tu API key) y botón para quitar a cualquiera menos a ti, con confirmación en la misma fila |
+| Sincronizar (`/sincronizar`) | Descarga partidas nuevas desde el navegador (jugador: tú, uno en particular o todo el clan; cola, máximo de partidas por jugador y timeline) con el progreso en vivo |
+
+Sincronizar usa la `RIOT_API_KEY` y el `RIOT_ID` de `.env` y lo vuelve a leer en cada sincronización: si tu key expira, regenera una en developer.riotgames.com, actualiza `.env` y pulsa **Sincronizar** de nuevo, sin reiniciar el panel. Solo se puede ejecutar una sincronización a la vez. Al terminar, los análisis se actualizan solos. Si no hay partidas todavía, el panel te lleva a esa página.
 
 ## Dónde queda todo
 
@@ -81,6 +124,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 | `reports/campeones/<Campeón>.md` | Promedios y qué separa tus victorias de tus derrotas con ese campeón |
 | `reports/partidas/<matchId>.md` | Boleta de cada una de tus últimas 30 partidas |
 | `reports/<cola>/…` y `data/games-<cola>.csv` | Lo mismo, pero solo de una cola (`analyze --cola solo` → `reports/solo/`, `data/games-solo.csv`) |
+| `reports/jugadores/<nombre>/…` y `data/games-<nombre>[-<cola>].csv` | Lo mismo para cada jugador del clan (`analyze --jugador "Nombre#TAG"` o `analyze --clan`); `<nombre>/<cola>/` si usas `--cola` |
 
 `data/` y `reports/` están en `.gitignore`.
 
@@ -100,3 +144,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 ```
 
 Las pruebas usan partidas y timelines sintéticos; no necesitan red ni API key.
+
+## Notas sobre la base de datos
+
+Cada partida se guarda una sola vez, junto con la lista de los 10 jugadores que participaron (tabla `match_players`); así, una partida que jugaron dos del clan cuenta para ambos y cada análisis solo lee las partidas de su jugador. La tabla `account` es el registro de jugadores. Si tienes una base de datos creada con una versión anterior (un solo jugador), se actualiza sola la primera vez que se abre (tarda menos de un segundo para cientos de partidas) y tu cuenta queda como jugador principal.

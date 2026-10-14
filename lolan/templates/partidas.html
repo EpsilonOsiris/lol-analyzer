@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Partidas{% endblock %}
+{% block content %}
+<h1>Partidas <span class="sub">{% if show_picker and jugador %}{{ jugador.riot_id }} · {% endif %}{{ queue_labels[cola] }}</span></h1>
+<p class="muted">Mostrando {{ start }}–{{ end }} de {{ total }}, de la más reciente a la más antigua.</p>
+<section class="card flush">
+  {{ m.games_table(games) }}
+</section>
+{% if pages > 1 %}
+<nav class="pager" aria-label="Páginas">
+  {% if page > 1 %}<a class="btn" href="{{ u('games_list', pagina=page - 1) }}">← Más recientes</a>{% else %}<span></span>{% endif %}
+  <span class="muted">Página {{ page }} de {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="{{ u('games_list', pagina=page + 1) }}">Más antiguas →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

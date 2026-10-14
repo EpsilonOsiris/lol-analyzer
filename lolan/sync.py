@@ -48,13 +48,40 @@ def since_to_epoch(since: date | None) -> int | None:
     return int(datetime(since.year, since.month, since.day).timestamp())
 
 
+@dataclass
+class PlayerOutcome:
+    """Result of syncing one player in a multi-player run (`error` set when it was skipped)."""
+    riot_id: str
+    result: SyncResult | None = None
+    error: str | None = None
+
+
 def sync(client, store, riot_id: str, max_matches: int | None = None, since: date | None = None,
          with_timeline: bool = True, queue: int | None = None, out=print,
-         clock=time.monotonic) -> SyncResult:
+         clock=time.monotonic, main: bool = False) -> SyncResult:
     name, tag = parse_riot_id(riot_id)
     out(f"Buscando la cuenta {name}#{tag} ...")
-    puuid = client.get_puuid(name, tag)
-    store.save_account(puuid, f"{name}#{tag}")
+    known = store.get_player(riot_id=f"{name}#{tag}")
+    if known is not None and not main:
+        # Registered clan member: follow the account by puuid so a rename doesn't break sync.
+        # (The main player is whoever .env's RIOT_ID names, so that one is looked up by name.)
+        try:
+            current = client.get_riot_id(known.puuid)
+        except NotFoundError:
+            raise NotFoundError(f"No se encontró la cuenta {name}#{tag} en Riot (puede haberse "
+                                "eliminado).") from None
+        if current.casefold() != f"{name}#{tag}".casefold():
+            out(f"{name}#{tag} ahora se llama {current}; se actualiza el registro.")
+        puuid, (name, tag) = known.puuid, parse_riot_id(current)
+    else:
+        try:
+            puuid = client.get_puuid(name, tag)
+        except NotFoundError:
+            raise NotFoundError(
+                f"No se encontró la cuenta {name}#{tag}. Revisa el nombre y el TAG "
+                "(la cuenta pudo haber cambiado de nombre).") from None
+    # Re-registering every time keeps the Riot ID current when someone renames their account.
+    store.add_player(puuid, f"{name}#{tag}", is_main=main)
 
     out("Listando las partidas de la cuenta ...")
     ids = client.list_match_ids(puuid, start_time=since_to_epoch(since), queue=queue)
@@ -122,3 +149,50 @@ def _champion_of(match: dict, puuid: str) -> str:
         if p.get("puuid") == puuid:
             return str(p.get("championName", "?"))
     return "?"
+
+
+def summary_lines(outcomes: list[PlayerOutcome]) -> list[str]:
+    lines = ["Resumen por jugador:"]
+    for o in outcomes:
+        if o.error:
+            lines.append(f"  - {o.riot_id}: NO SINCRONIZADO ({o.error})")
+            continue
+        r = o.result
+        lines.append(
+            f"  - {o.riot_id}: {r.downloaded} descargadas, {r.already_stored} ya guardadas"
+            + (f", {r.missing_timelines} sin timeline" if r.missing_timelines else "")
+            + (f", {r.failed} con error" if r.failed else ""))
+    return lines
+
+
+def sync_players(client, store, riot_ids: list[str], main_riot_id: str = "", out=print,
+                 **kwargs) -> list[PlayerOutcome]:
+    """Sync several players one after another with the same client (one shared rate limiter).
+
+    A player whose account can't be found (e.g. renamed) is skipped and the rest continue; an
+    invalid/expired key, or any other API failure that is not about one account, aborts the run
+    (what was already downloaded stays saved). `kwargs` go to `sync` for every player.
+    """
+    outcomes: list[PlayerOutcome] = []
+    main = (main_riot_id or "").strip().casefold()
+    total = len(riot_ids)
+    try:
+        for i, riot_id in enumerate(riot_ids, 1):
+            out(f"=== {riot_id} ({i}/{total}) ===")
+            try:
+                result = sync(client, store, riot_id, out=out,
+                              main=bool(main) and riot_id.strip().casefold() == main, **kwargs)
+            except NotFoundError as exc:
+                out(f"No se pudo sincronizar a {riot_id}: {exc}")
+                outcomes.append(PlayerOutcome(riot_id, error=str(exc)))
+            else:
+                outcomes.append(PlayerOutcome(riot_id, result))
+    except RiotError:
+        if outcomes:
+            for line in summary_lines(outcomes):
+                out(line)
+        raise
+    if total > 1:
+        for line in summary_lines(outcomes):
+            out(line)
+    return outcomes

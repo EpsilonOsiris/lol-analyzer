@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Jugadores{% endblock %}
+{% block content %}
+<h1>Jugadores</h1>
+<p class="muted">Tú (el <code>RIOT_ID</code> de <code>.env</code>) y los miembros de tu clan. Todos se consultan con tu misma API key: no hace falta la key de nadie más. Las partidas que jugaron juntos se descargan una sola vez y cuentan para todos.</p>
+
+<section class="card flush" id="lista" aria-live="polite">
+  <h2 class="pad">Registrados</h2>
+  {% if rows %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Riot ID</th><th class="num">Partidas guardadas</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr data-puuid="{{ r.player.puuid }}" data-riot-id="{{ r.player.riot_id }}">
+      <td><a href="{{ u('index', jugador=r.slug) }}">{{ r.player.riot_id }}</a>{% if r.player.is_main %} <span class="badge main">Tú</span>{% endif %}</td>
+      <td class="num">{{ r.stored }}</td>
+      <td class="num">
+        {% if not r.player.is_main %}
+        <span class="row-actions">
+          <button type="button" class="btn small" data-action="ask">Quitar</button>
+        </span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted pad">Aún no hay jugadores registrados. Tú te registras en la primera sincronización; agrega a tu clan abajo.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Agregar un jugador</h2>
+  <form id="add-form" class="form">
+    <label class="field"><span>Riot ID <span class="muted">(Nombre#TAG)</span></span>
+    <input type="text" name="riot_id" required autocomplete="off" spellcheck="false" placeholder="Nombre#TAG"></label>
+    <div><button type="submit" class="btn primary" id="add-btn">Agregar</button></div>
+  </form>
+  <p id="add-error" class="notice error" role="alert" hidden></p>
+  <p id="add-ok" class="notice ok" role="status" hidden></p>
+  <p class="note">Al agregarlo se busca su cuenta con tu API key. Para descargar sus partidas ve a <a href="{{ u('sync_page') }}">Sincronizar</a> y elige a ese jugador o «Todo el clan». Quitar a alguien solo lo saca de la lista: sus partidas se conservan porque otros jugadores pueden compartirlas.</p>
+  <noscript><p class="notice">Esta página necesita JavaScript para agregar y quitar jugadores.</p></noscript>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='jugadores.js') }}" defer></script>
+{% endblock %}

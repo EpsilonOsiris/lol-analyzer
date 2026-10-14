@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Clan{% endblock %}
+{% block content %}
+{% set cola_text = 'todas las colas' if cola == 'todas' else queue_labels[cola] %}
+<h1>Clan <span class="sub">{{ queue_labels[cola] }}</span></h1>
+
+{% if not rows %}
+<section class="empty card">
+  <h2>Aún no hay jugadores</h2>
+  <p>Agrega a los miembros de tu clan en <a href="{{ u('players_page') }}">Jugadores</a> y descarga sus partidas en <a href="{{ u('sync_page') }}">Sincronizar</a>.</p>
+</section>
+{% else %}
+<section class="card flush">
+  <h2 class="pad">Comparación</h2>
+  <div class="table-wrap">
+  <table class="sortable">
+    <thead><tr>
+      <th>Jugador</th>
+      <th class="num" data-type="num">Partidas</th>
+      <th class="num" data-type="num">Winrate</th>
+      <th class="num" data-type="num">KDA</th>
+      <th class="num" data-type="num">Muertes/10 min</th>
+      <th class="num" data-type="num">Muertes en solitario/partida</th>
+      <th class="num" data-type="num">Muertes antes del min 14/partida</th>
+      <th class="num" data-type="num">CS/min</th>
+      <th class="num" data-type="num">Visión/min</th>
+      <th>Rol más jugado</th>
+      <th>Campeón más jugado</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    {% set o = r.ov %}
+    <tr>
+      <td><a href="{{ u('index', jugador=r.slug) }}">{{ r.player.riot_id }}</a>{% if r.player.is_main %} <span class="muted">(tú)</span>{% endif %}</td>
+      <td class="num" data-v="{{ o.games }}">{{ o.games }}</td>
+      <td class="num" data-v="{{ o.winrate }}">{{ m.wr(o.winrate) }}</td>
+      <td class="num" data-v="{{ o.kda }}">{{ o.kda|num }}</td>
+      <td class="num" data-v="{{ o.deaths_per_10 }}">{{ o.deaths_per_10|num }}</td>
+      <td class="num" data-v="{{ o.solo_deaths_pg }}">{{ o.solo_deaths_pg|num }}</td>
+      <td class="num" data-v="{{ o.early_deaths_pg }}">{{ o.early_deaths_pg|num }}</td>
+      <td class="num" data-v="{{ o.cs_per_min }}">{{ o.cs_per_min|num }}</td>
+      <td class="num" data-v="{{ o.vision_per_min }}">{{ o.vision_per_min|num }}</td>
+      <td>{{ o.top_role or '-' }}{% if o.top_role %} <span class="muted">({{ o.top_role_games }})</span>{% endif %}</td>
+      <td>{% if o.top_champion %}<a href="{{ u('champion', nombre=o.top_champion, jugador=r.slug) }}">{{ o.top_champion }}</a> <span class="muted">({{ o.top_champion_games }})</span>{% else %}-{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note pad">Haz clic en el encabezado de una columna para ordenar. Cada jugador se mide con sus propias partidas de {{ cola_text }}{% if rows|selectattr('stored', 'equalto', 0)|list %}; quien aparece sin partidas aún no tiene nada descargado (Sincronizar → Todo el clan){% endif %}.</p>
+</section>
+
+<section class="card flush">
+  <h2 class="pad">Jugando juntos</h2>
+  <p class="note pad">Partidas de {{ cola_text }} en las que dos jugadores registrados estuvieron en el <strong>mismo equipo</strong>. Solo se muestran las parejas con al menos {{ min_pair_games }} partidas juntos.</p>
+  {% if pairs %}
+  <div class="table-wrap">
+  <table class="sortable">
+    <thead><tr>
+      <th>Pareja</th>
+      <th class="num" data-type="num">Partidas juntos</th>
+      <th class="num" data-type="num">Winrate juntos</th>
+      <th>Winrate de cada uno en total</th>
+    </tr></thead>
+    <tbody>
+    {% for p in pairs %}
+    <tr>
+      <td><a href="{{ u('index', jugador=roster.slug(p.a)) }}">{{ p.a.riot_id }}</a> + <a href="{{ u('index', jugador=roster.slug(p.b)) }}">{{ p.b.riot_id }}</a></td>
+      <td class="num" data-v="{{ p.games }}">{{ p.games }}</td>
+      <td class="num" data-v="{{ p.winrate }}">{{ m.wr(p.winrate) }}</td>
+      <td>{{ p.a.riot_id.split('#')[0] }} {{ p.winrate_a|pct }} · {{ p.b.riot_id.split('#')[0] }} {{ p.winrate_b|pct }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% elif rows|length < 2 %}
+  <p class="muted pad">Agrega al menos otro jugador en <a href="{{ u('players_page') }}">Jugadores</a> para ver sus partidas juntos.</p>
+  {% else %}
+  <p class="muted pad">Ninguna pareja tiene todavía {{ min_pair_games }} partidas juntos en {{ cola_text }}.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

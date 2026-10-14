@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import re
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from .metrics import extract_game_metrics
 
@@ -198,14 +198,16 @@ def add_session_info(games) -> None:
             prev_end = start + (g.get("duration_s") or 0) * 1000
 
 
-def load_games(store, include_all_queues: bool = False, puuid: str | None = None,
-               queue: int | None = None):
-    """Flat metric rows for every analyzable game stored, oldest first (optionally one queue)."""
-    puuid = puuid or store.get_puuid()
-    if puuid is None:
+def load_games(store, puuid: str, include_all_queues: bool = False, queue: int | None = None):
+    """Flat metric rows for every analyzable game of `puuid`, oldest first (optionally one queue).
+
+    The player is always explicit: nothing here guesses whose games to analyze. Only that
+    player's matches are read from the store.
+    """
+    if not puuid:
         return []
     games = []
-    for _match_id, match, timeline in store.iter_matches():
+    for _match_id, match, timeline in store.iter_matches(puuid):
         row = extract_game_metrics(match, timeline, puuid)
         if row is None or row["remake"]:
             continue
@@ -487,3 +489,57 @@ def trend_by_session_game(games) -> dict:
         "after_loss": group_stats(after_loss) if after_loss else None,
         "sessions": len({g["session_id"] for g in capped}),
     }
+
+
+# -------------------------------------------------------------------- clan
+MIN_PAIR_GAMES = 3
+
+
+def _most_common(values):
+    """(value, count) of the most frequent non-empty value; ties go to the alphabetically first."""
+    counts = Counter(v for v in values if v)
+    if not counts:
+        return None, 0
+    value, n = min(counts.items(), key=lambda kv: (-kv[1], str(kv[0])))
+    return value, n
+
+
+def player_overview(games) -> dict:
+    """One row of the clan comparison table for a player's games (in one queue)."""
+    row = group_stats(games)
+    row["solo_deaths_pg"] = mean(g.get("solo_deaths") for g in games)
+    row["early_deaths_pg"] = mean(g.get("early_deaths") for g in games)
+    role, role_games = _most_common(g.get("role") for g in games)
+    champ, champ_games = _most_common(g.get("champion") for g in games)
+    row.update({
+        "top_role": role_name(role) if role else None, "top_role_games": role_games,
+        "top_champion": champ, "top_champion_games": champ_games,
+    })
+    return row
+
+
+def pair_stats(games_by_player: dict, min_games: int = MIN_PAIR_GAMES) -> list[dict]:
+    """Games where two players were on the SAME team, for every pair with `min_games` or more.
+
+    `games_by_player` maps a player key to that player's analyzable games (same queue filter for
+    everyone). Rows carry match_id, team_id and win, so no match JSON is needed. Each pair row has
+    `a`, `b` (the keys), `games`, `wins`, `winrate` together, and each player's overall winrate.
+    """
+    index = {k: {g["match_id"]: g for g in gs if g.get("match_id") is not None}
+             for k, gs in games_by_player.items()}
+    overall = {k: group_stats(gs)["winrate"] for k, gs in games_by_player.items()}
+    keys = list(games_by_player)
+    pairs = []
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            together = [index[a][m] for m in index[a].keys() & index[b].keys()
+                        if index[a][m].get("team_id") is not None
+                        and index[a][m].get("team_id") == index[b][m].get("team_id")]
+            if len(together) < min_games:
+                continue
+            wins = sum(g["win"] for g in together)
+            pairs.append({"a": a, "b": b, "games": len(together), "wins": wins,
+                          "winrate": wins / len(together),
+                          "winrate_a": overall[a], "winrate_b": overall[b]})
+    pairs.sort(key=lambda r: (-r["games"], str(r["a"]), str(r["b"])))
+    return pairs

@@ -148,22 +148,22 @@ def test_summarize_groups():
 
 def test_load_games_excludes_remakes_and_other_queues(tmp_path):
     store = Store(tmp_path / "lol.db")
-    store.save_account(ME_PUUID, "A#B")
+    store.add_player(ME_PUUID, "A#B", is_main=True)
     store.save_match("LA1_1", make_match("LA1_1", created=BASE_TIME_MS), make_timeline())
     store.save_match("LA1_2", make_match("LA1_2", duration=180, created=BASE_TIME_MS + 1), None)
     store.save_match("LA1_3", make_match("LA1_3", queue=450, created=BASE_TIME_MS + 2), None)
-    assert [g["match_id"] for g in an.load_games(store)] == ["LA1_1"]
-    assert {g["match_id"] for g in an.load_games(store, include_all_queues=True)} == {"LA1_1", "LA1_3"}
+    assert [g["match_id"] for g in an.load_games(store, ME_PUUID)] == ["LA1_1"]
+    assert {g["match_id"] for g in an.load_games(store, ME_PUUID, include_all_queues=True)} == {"LA1_1", "LA1_3"}
     store.close()
 
 
 def test_load_games_single_queue(tmp_path):
     store = Store(tmp_path / "lol.db")
-    store.save_account(ME_PUUID, "A#B")
+    store.add_player(ME_PUUID, "A#B", is_main=True)
     store.save_match("LA1_1", make_match("LA1_1", queue=420, created=BASE_TIME_MS), None)
     store.save_match("LA1_2", make_match("LA1_2", queue=440, created=BASE_TIME_MS + 1), None)
-    assert [g["match_id"] for g in an.load_games(store, queue=420)] == ["LA1_1"]
-    assert [g["match_id"] for g in an.load_games(store, queue=440)] == ["LA1_2"]
+    assert [g["match_id"] for g in an.load_games(store, ME_PUUID, queue=420)] == ["LA1_1"]
+    assert [g["match_id"] for g in an.load_games(store, ME_PUUID, queue=440)] == ["LA1_2"]
     store.close()
 
 
@@ -194,3 +194,64 @@ def test_pct_text_reports_the_side_it_names():
     bad = {"label": "KDA", "fmt": "0.78", "scope": "campeón", "goodness": 0.0}
     assert "mejor que el 86% de tus partidas con este campeón" in an._pct_text(good)
     assert "peor que el 100% de tus partidas con este campeón" in an._pct_text(bad)
+
+
+def test_load_games_needs_a_player_and_reads_only_their_matches(tmp_path):
+    store = Store(tmp_path / "lol.db")
+    store.save_match("LA1_1", make_match("LA1_1", created=BASE_TIME_MS), None)
+    other = make_match("LA1_2", created=BASE_TIME_MS + 1)
+    other["metadata"]["participants"] = ["a", "b"]           # a match the player is not in
+    store.save_match("LA1_2", other, None)
+    assert an.load_games(store, "") == []
+    assert [g["match_id"] for g in an.load_games(store, ME_PUUID)] == ["LA1_1"]
+    # The teammate sees the very same stored match from their own side.
+    mate = an.load_games(store, "puuid-4")
+    assert [g["match_id"] for g in mate] == ["LA1_1"] and mate[0]["champion"] == "Champ4"
+    assert mate[0]["team_id"] == an.load_games(store, ME_PUUID)[0]["team_id"] == 100
+    store.close()
+
+
+def row(match_id, team, win, **extra):
+    return {"match_id": match_id, "team_id": team, "win": win, "kills": 1, "deaths": 2,
+            "assists": 3, **extra}
+
+
+def test_pair_stats_counts_only_same_team_games_with_minimum():
+    a = [row(f"M{i}", 100, 1) for i in range(1, 5)] + [row("M5", 100, 0), row("M6", 100, 0)]
+    # b: same team in M1-M3 (+1 more win), opposite team in M4-M6, one extra solo game.
+    b = [row("M1", 100, 1), row("M2", 100, 1), row("M3", 100, 1),
+         row("M4", 200, 0), row("M5", 200, 1), row("M6", 200, 1), row("M7", 100, 0)]
+    pairs = an.pair_stats({"a": a, "b": b})
+    assert len(pairs) == 1
+    p = pairs[0]
+    assert (p["a"], p["b"], p["games"], p["wins"]) == ("a", "b", 3, 3) and p["winrate"] == 1.0
+    assert p["winrate_a"] == 4 / 6 and p["winrate_b"] == 5 / 7
+    # Games on opposite teams don't count, and 2 together is below the minimum.
+    assert an.pair_stats({"a": a, "b": b[:2] + b[3:]}) == []
+    assert an.pair_stats({"a": a, "b": b[:2] + b[3:]}, min_games=2)[0]["games"] == 2
+    assert an.pair_stats({"a": a}) == []
+
+
+def test_pair_stats_three_players_sorted_by_games():
+    mk = lambda ids, team=100: [row(i, team, 1) for i in ids]          # noqa: E731
+    games = {"a": mk(["1", "2", "3", "4"]), "b": mk(["1", "2", "3", "4"]), "c": mk(["2", "3", "4"])}
+    pairs = an.pair_stats(games)
+    assert [(p["a"], p["b"], p["games"]) for p in pairs] == [("a", "b", 4), ("a", "c", 3), ("b", "c", 3)]
+
+
+def test_player_overview_picks_most_played_role_and_champion():
+    gs = [
+        {"win": 1, "kills": 4, "deaths": 2, "assists": 2, "role": "MIDDLE", "champion": "Ahri",
+         "solo_deaths": 1, "early_deaths": 0, "deaths_per_10": 1.0},
+        {"win": 0, "kills": 0, "deaths": 4, "assists": 2, "role": "MIDDLE", "champion": "Zed",
+         "solo_deaths": 3, "early_deaths": 2, "deaths_per_10": 3.0},
+        {"win": 1, "kills": 2, "deaths": 0, "assists": 0, "role": "JUNGLE", "champion": "Ahri",
+         "solo_deaths": None, "early_deaths": None, "deaths_per_10": 2.0},
+    ]
+    o = an.player_overview(gs)
+    assert o["games"] == 3 and abs(o["winrate"] - 2 / 3) < 1e-9
+    assert o["solo_deaths_pg"] == 2.0 and o["early_deaths_pg"] == 1.0     # missing values ignored
+    assert (o["top_role"], o["top_role_games"]) == ("Mid", 2)
+    assert (o["top_champion"], o["top_champion_games"]) == ("Ahri", 2)
+    empty = an.player_overview([])
+    assert empty["games"] == 0 and empty["winrate"] is None and empty["top_champion"] is None

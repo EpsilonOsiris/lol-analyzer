@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Partida {{ card.match_id }}{% endblock %}
+{% block content %}
+<p class="crumb"><a href="{{ u('games_list') }}">← Partidas</a></p>
+<h1>{{ card.champion }} <span class="sub">{{ card.role|role }}</span> {{ m.result(card.win) }}</h1>
+<p class="muted">
+  {{ card.date|when }} · {{ card.queue_id|queue }} · {{ card.duration_min|minutes }} · KDA {{ card.kda_text }}
+  {% if card.opp_champion %} · Rival de línea: <strong>{{ card.opp_champion }}</strong>{% endif %}
+  · <code>{{ card.match_id }}</code>
+</p>
+{% if other_queue %}
+<p class="notice">Esta partida no es de {{ queue_labels[cola] }}; se compara con {{ pool_label }}.</p>
+{% endif %}
+{% if not card.has_timeline %}
+<p class="notice">Esta partida no tiene timeline; faltan métricas por minuto y por fase.</p>
+{% endif %}
+<p class="note">Comparada con tu propio historial en {{ pool_label }} ({{ pool_size }} partidas): primero con el mismo campeón, luego con el mismo rol y, si faltan datos, con todas.</p>
+
+<div class="grid-2">
+  <section class="card good">
+    <h2>Fortalezas</h2>
+    {% if card.strengths %}<ul>{% for s in card.strengths %}<li>{{ s.text }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">Ninguna destacada.</p>{% endif %}
+  </section>
+  <section class="card bad">
+    <h2>Debilidades</h2>
+    {% if card.weaknesses %}<ul>{% for w in card.weaknesses %}<li>{{ w.text }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">Ninguna destacada.</p>{% endif %}
+  </section>
+</div>
+
+<section class="card flush">
+  <h2 class="pad">Detalle</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Métrica</th><th class="num">Tú</th><th class="num">Rival de línea</th><th>Percentil propio (mayor = mejor)</th><th>Veredicto</th></tr></thead>
+    <tbody>
+    {% for r in card.rows %}
+    <tr>
+      <td>{{ r.label }}</td>
+      <td class="num">{{ r.fmt }}</td>
+      <td class="num">{{ r.opp_fmt }}</td>
+      <td>{% if r.goodness is none %}<span class="muted">-</span>{% else %}
+        <span class="meter {{ r.verdict }}"><i style="width: {{ r.goodness|round|int }}%"></i></span>
+        {{ r.goodness|round|int }} <span class="muted">({{ r.scope }}, n={{ r.n }})</span>{% endif %}</td>
+      <td>{% if r.verdict == 'fortaleza' %}<span class="win-text">Fortaleza</span>{% elif r.verdict == 'debilidad' %}<span class="loss-text">Debilidad</span>{% elif r.verdict %}Normal{% else %}-{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

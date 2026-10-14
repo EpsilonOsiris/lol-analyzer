@@ -148,6 +148,11 @@ class RiotClient:
         data = self._get(path)
         return data["puuid"]
 
+    def get_riot_id(self, puuid: str) -> str:
+        """Current "Name#TAG" of an account (follows renames, unlike get_puuid)."""
+        data = self._get(f"/riot/account/v1/accounts/by-puuid/{quote(puuid, safe='')}")
+        return f"{data['gameName']}#{data['tagLine']}"
+
     def list_match_ids(self, puuid: str, start_time: int | None = None, queue: int | None = None,
                        limit: int | None = None) -> list[str]:
         """All match ids (newest first), paginating until an empty page."""

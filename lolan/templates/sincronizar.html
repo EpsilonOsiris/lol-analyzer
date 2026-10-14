@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Sincronizar{% endblock %}
+{% block content %}
+<h1>Sincronizar</h1>
+<p class="muted">Descarga las partidas nuevas desde la API de Riot (usa <code>RIOT_API_KEY</code> y <code>RIOT_ID</code> de <code>.env</code>, una sola key para todos). Cada partida son unas 2 peticiones y una key de desarrollo permite unas 50 partidas cada 2 minutos; lo ya descargado nunca se repite (una partida que jugaron varios del clan se baja una sola vez) y puedes volver a pulsar el botón si se interrumpe.</p>
+
+<section class="card">
+  <form id="sync-form" class="form">
+    <label class="field"><span>Jugador</span>
+      <select name="jugador" id="sync-target">
+        <option value="yo"{% if not jugador or jugador.is_main %} selected{% endif %}>Yo{% if riot_id %} ({{ riot_id }}){% endif %}</option>
+        {% for p in roster.players if not p.is_main %}
+        <option value="{{ roster.slug(p) }}" data-slug="{{ roster.slug(p) }}"{% if jugador and jugador.puuid == p.puuid %} selected{% endif %}>{{ p.riot_id }}</option>
+        {% endfor %}
+        {% if roster and roster.players|length > 1 %}<option value="clan">Todo el clan ({{ roster.players|length }} jugadores)</option>{% endif %}
+      </select>
+    </label>
+    <fieldset>
+      <legend>Cola</legend>
+      <label class="radio"><input type="radio" name="cola" value="solo"{% if cola == 'solo' %} checked{% endif %}> Solo/Dúo</label>
+      <label class="radio"><input type="radio" name="cola" value="flex"{% if cola == 'flex' %} checked{% endif %}> Flex</label>
+      <label class="radio"><input type="radio" name="cola" value="todas"{% if cola == 'todas' %} checked{% endif %}> Todas</label>
+    </fieldset>
+    <label class="field"><span>Máximo de partidas <span class="muted">(opcional)</span></span>
+      <input type="number" name="max" min="1" step="1" inputmode="numeric" placeholder="Sin límite">
+      <span class="muted help">Con «Todo el clan» el máximo se aplica a cada jugador.</span>
+    </label>
+    <label class="check"><input type="checkbox" name="timeline" checked> <span>Descargar el timeline <span class="muted">(el doble de lento, pero necesario para las métricas por minuto)</span></span></label>
+    <div><button type="submit" class="btn primary" id="sync-btn">Sincronizar</button></div>
+  </form>
+  <noscript><p class="notice">Esta página necesita JavaScript para iniciar la sincronización y mostrar el progreso.</p></noscript>
+</section>
+
+<section class="card" id="sync-panel" hidden aria-live="polite">
+  <h2 id="sync-state">Preparando…</h2>
+  <p id="sync-player" class="muted" hidden></p>
+  <progress id="sync-progress" max="100" value="0" hidden></progress>
+  <p id="sync-progress-text" class="muted" hidden></p>
+  <p id="sync-error" class="notice error" role="alert" hidden></p>
+  <p id="sync-done" class="notice ok" hidden></p>
+  <pre id="sync-log" class="log" tabindex="0" aria-label="Registro de la sincronización"></pre>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='sync.js') }}" defer></script>
+{% endblock %}

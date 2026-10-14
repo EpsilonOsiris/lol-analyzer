@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Sin partidas{% endblock %}
+{% block content %}
+<section class="empty card">
+  {% if reason == 'db' and jugador and not jugador.is_main %}
+  <h1>Aún no hay partidas</h1>
+  <p>Todavía no hay partidas guardadas de {{ jugador.riot_id }}. Ve a <a href="{{ u('sync_page') }}">Sincronizar</a> y elige a ese jugador (o «Todo el clan») para descargarlas.</p>
+  {% elif reason == 'db' %}
+  <h1>Aún no hay partidas</h1>
+  <p>La base de datos está vacía. Ve a <a href="{{ u('sync_page') }}">Sincronizar</a> para descargar tus partidas desde la API de Riot (necesitas <code>RIOT_API_KEY</code> y <code>RIOT_ID</code> en <code>.env</code>).</p>
+  <p><a class="btn" href="{{ u('sync_page') }}">Ir a Sincronizar</a></p>
+  {% elif reason == 'cola' %}
+  <h1>No hay partidas en esta cola</h1>
+  <p>Hay partidas guardadas, pero ninguna de {{ queue_labels[cola] }}. Prueba con <a href="{{ switch('todas') }}">Todas las colas</a> o descarga más partidas en <a href="{{ u('sync_page') }}">Sincronizar</a>.</p>
+  {% else %}
+  <h1>Ninguna partida es analizable</h1>
+  <p>Hay partidas guardadas, pero son remakes o de colas que no son de la Grieta del Invocador.</p>
+  {% endif %}
+</section>
+{% endblock %}

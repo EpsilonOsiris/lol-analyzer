@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}No encontrado{% endblock %}
+{% block content %}
+<section class="empty card">
+  <h1>No encontrado</h1>
+  <p>{{ message }}</p>
+  <p><a class="btn" href="{{ u('index') }}">Volver al resumen</a></p>
+</section>
+{% endblock %}

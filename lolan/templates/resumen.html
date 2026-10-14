@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Resumen{% endblock %}
+{% block content %}
+<h1>Resumen <span class="sub">{% if show_picker and jugador %}{{ jugador.riot_id }} · {% endif %}{{ queue_labels[cola] }}</span></h1>
+
+<section class="stats" aria-label="Indicadores">
+  {{ m.stat("Partidas", o.games, o.wins ~ " victorias · " ~ (o.games - o.wins) ~ " derrotas") }}
+  {{ m.stat("Winrate", o.winrate|pct, tone=('win' if o.winrate >= 0.5 else 'loss')) }}
+  {{ m.stat("KDA", o.kda|num) }}
+  {{ m.stat("CS/min", o.cs_per_min|num) }}
+  {{ m.stat("Muertes/10 min", o.deaths_per_10|num) }}
+  {{ m.stat("Período", first[:10] ~ " a " ~ last[:10], tone="small") }}
+</section>
+
+<section class="card">
+  <h2>Winrate por mes</h2>
+  <div class="scroll-x">{{ m.bars(months) }}</div>
+  <p class="note">Altura de la barra = winrate del mes; la línea fina marca el 50 %. Debajo, la cantidad de partidas.</p>
+</section>
+
+{% if cola == 'todas' and s.by_queue|length > 1 %}
+<section class="card">
+  <h2>Por cola</h2>
+  {{ m.group_table(s.by_queue, "Cola") }}
+</section>
+{% endif %}
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Por rol</h2>
+    {{ m.group_table(s.by_role, "Rol") }}
+  </section>
+  <section class="card">
+    <h2>Después de una victoria o una derrota</h2>
+    {% if sess.after_win and sess.after_loss %}
+    <div class="duo">
+      {{ m.stat("Después de una victoria", sess.after_win.winrate|pct, sess.after_win.games ~ " partidas", tone=('win' if sess.after_win.winrate >= 0.5 else 'loss')) }}
+      {{ m.stat("Después de una derrota", sess.after_loss.winrate|pct, sess.after_loss.games ~ " partidas", tone=('win' if sess.after_loss.winrate >= 0.5 else 'loss')) }}
+    </div>
+    {% else %}
+    <p class="muted">Aún no hay suficientes partidas seguidas para comparar.</p>
+    {% endif %}
+    <p class="note">Una sesión es una racha de partidas con menos de {{ session_gap }} minutos de separación. Sesiones detectadas: {{ sess.sessions }}.</p>
+  </section>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Por día de la semana</h2>
+    <div class="scroll-x">{{ m.bars(weekdays) }}</div>
+  </section>
+  <section class="card">
+    <h2>Por número de partida en la sesión</h2>
+    <div class="scroll-x">{{ m.bars(positions) }}</div>
+    <p class="note">«5+» agrupa la quinta partida seguida y las siguientes.</p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Por campeón</h2>
+  {{ m.group_table(s.by_champion, "Campeón", champion_links=True) }}
+  <p class="note">Haz clic en el encabezado de una columna para ordenar.</p>
+</section>
+
+<section class="card">
+  <h2>Lo que decide tus partidas</h2>
+  <p class="note">Campeones con al menos {{ min_champion_games }} partidas. Es correlación, no causalidad.</p>
+  {% if insights %}
+  <ul class="insights">
+    {% for i in insights %}
+    <li>
+      <a href="{{ u('champion', nombre=i.row.key) }}"><strong>{{ i.row.key }}</strong></a>
+      <span class="muted">({{ i.row.games }} partidas, {{ i.row.winrate|pct }} winrate)</span><br>
+      <span class="win-text">Más alto al ganar:</span> {{ i.ins.higher_in_wins[:3]|map(attribute='label')|join(', ') or '-' }}.<br>
+      <span class="loss-text">Más alto al perder:</span> {{ i.ins.higher_in_losses[:3]|map(attribute='label')|join(', ') or '-' }}.
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Aún no hay campeones con suficientes partidas.</p>
+  {% endif %}
+</section>
+{% endblock %}

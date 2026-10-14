@@ -1,0 +1,91 @@
+{% macro stat(label, value, sub=None, tone=None) %}
+<div class="stat">
+  <div class="stat-label">{{ label }}</div>
+  <div class="stat-value{% if tone %} {{ tone }}{% endif %}">{{ value }}</div>
+  {% if sub %}<div class="stat-sub">{{ sub }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# Winrate as text with a mini bar; green from 50% up, red below. #}
+{% macro wr(value) %}
+{% if value is none %}-{% else %}
+<span class="wr {{ 'win' if value >= 0.5 else 'loss' }}"><span class="wr-bar"><i style="width: {{ (value * 100)|round|int }}%"></i></span>{{ value|pct }}</span>
+{% endif %}
+{% endmacro %}
+
+{# Vertical bars of winrate; each bar has its games count underneath. #}
+{% macro bars(rows) %}
+{% if rows %}
+<div class="bars" role="list">
+  {% for r in rows %}
+  <div class="bar-col" role="listitem" title="{{ r.title }}">
+    <div class="bar-val">{{ r.winrate|pct }}</div>
+    <div class="bar-plot"><div class="bar {{ 'win' if r.winrate >= 0.5 else 'loss' }}" style="height: {{ [(r.winrate * 100)|round|int, 2]|max }}%"></div></div>
+    <div class="bar-label">{{ r.label }}</div>
+    <div class="bar-n">n={{ r.games }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Sin datos suficientes.</p>
+{% endif %}
+{% endmacro %}
+
+{% macro result(win) %}
+<span class="badge {{ 'win' if win else 'loss' }}">{{ 'Victoria' if win else 'Derrota' }}</span>
+{% endmacro %}
+
+{% macro diff(value, key) %}
+<span class="{{ 'pos' if value is not none and value > 0 else 'neg' if value is not none and value < 0 else '' }}">{{ value|val(key) }}</span>
+{% endmacro %}
+
+{% macro games_table(games) %}
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th>Fecha</th><th>Campeón</th><th>Rol</th><th>Cola</th><th>Resultado</th>
+    <th class="num">KDA</th><th class="num">CS/min</th><th class="num">Dif. oro @14</th><th class="num">Duración</th>
+  </tr></thead>
+  <tbody>
+  {% for x in games %}
+  <tr>
+    <td><a href="{{ u('match', match_id=x.match_id) }}">{{ x.date|when }}</a></td>
+    <td><a href="{{ u('champion', nombre=x.champion) }}">{{ x.champion }}</a></td>
+    <td>{{ x.role|role }}</td>
+    <td>{{ x.queue_id|queue }}</td>
+    <td>{{ result(x.win) }}</td>
+    <td class="num">{{ x.kills }}/{{ x.deaths }}/{{ x.assists }} <span class="muted">({{ x.kda|num }})</span></td>
+    <td class="num">{{ x.cs_per_min|num }}</td>
+    <td class="num">{{ diff(x.gold_diff_14, 'gold_diff_14') }}</td>
+    <td class="num">{{ x.duration_min|minutes }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}
+
+{% macro group_table(rows, header, champion_links=False) %}
+<div class="table-wrap">
+<table class="sortable">
+  <thead><tr>
+    <th>{{ header }}</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Winrate</th>
+    <th class="num" data-type="num">KDA</th><th class="num" data-type="num">CS/min</th>
+    <th class="num" data-type="num">Muertes/10 min</th><th class="num" data-type="num">Dif. oro @14</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td>{% if champion_links %}<a href="{{ u('champion', nombre=r.key) }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</td>
+    <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
+    <td class="num" data-v="{{ r.winrate }}">{{ wr(r.winrate) }}</td>
+    <td class="num" data-v="{{ r.kda }}">{{ r.kda|num }}</td>
+    <td class="num" data-v="{{ r.cs_per_min }}">{{ r.cs_per_min|num }}</td>
+    <td class="num" data-v="{{ r.deaths_per_10 }}">{{ r.deaths_per_10|num }}</td>
+    <td class="num" data-v="{{ r.gold_diff_14 }}">{{ diff(r.gold_diff_14, 'gold_diff_14') }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}

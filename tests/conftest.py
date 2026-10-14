@@ -52,7 +52,7 @@ def make_match(match_id="LA1_1", my_pid=ME_PID, win=True, duration=1000, queue=4
             if p["participantId"] == OPP_PID:
                 p["teamPosition"] = ""
     return {
-        "metadata": {"matchId": match_id},
+        "metadata": {"matchId": match_id, "participants": [p["puuid"] for p in participants]},
         "info": {
             "gameCreation": created, "gameDuration": duration, "queueId": queue,
             "gameVersion": "14.5.123.456", "participants": participants,

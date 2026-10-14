@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 # Platform (game server) -> regional routing value used by account-v1 / match-v5.
 PLATFORM_REGIONS = {
@@ -50,11 +50,21 @@ def project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def load_config(root: Path | None = None) -> Config:
+def load_config(root: Path | None = None, override: bool = False) -> Config:
+    """Read .env under `root`. With override=True the file wins over variables already set
+    in the process and nothing is written to os.environ, so a long-running process (the web
+    panel) picks up an edited .env, e.g. a freshly regenerated API key."""
     root = Path(root) if root else project_root()
-    load_dotenv(root / ".env")
-    platform = (os.environ.get("PLATFORM") or "la1").strip().lower()
-    region = (os.environ.get("REGION") or "").strip().lower()
+    if override:
+        file_values = {k: v for k, v in dotenv_values(root / ".env").items() if v is not None}
+
+        def get(name):
+            return file_values.get(name, os.environ.get(name))
+    else:
+        load_dotenv(root / ".env")
+        get = os.environ.get
+    platform = (get("PLATFORM") or "la1").strip().lower()
+    region = (get("REGION") or "").strip().lower()
     if not region:
         region = PLATFORM_REGIONS.get(platform, "americas")
     if region not in VALID_REGIONS:
@@ -62,8 +72,8 @@ def load_config(root: Path | None = None) -> Config:
             f"REGION '{region}' no es válida. Usa una de: {', '.join(sorted(VALID_REGIONS))}."
         )
     return Config(
-        api_key=(os.environ.get("RIOT_API_KEY") or "").strip(),
-        riot_id=(os.environ.get("RIOT_ID") or "").strip(),
+        api_key=(get("RIOT_API_KEY") or "").strip(),
+        riot_id=(get("RIOT_ID") or "").strip(),
         platform=platform,
         region=region,
         root=root,
