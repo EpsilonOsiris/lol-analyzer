@@ -1,0 +1,144 @@
+{# Sections of the match page built from the timeline: deaths, fights, lost objectives. `dv` comes from deathsview.build_view. #}
+{% import "_macros.html" as m with context %}
+
+<section class="card" id="muertes">
+  <h2>Tus muertes</h2>
+  <p class="muted">
+    Tú: <strong>{{ dv.my_champion }}</strong> ({{ dv.role }}).
+    {% if dv.lane_opponent %}Rival de línea: <strong>{{ dv.lane_opponent }}</strong>. {% endif %}
+    {% if dv.enemy_jungler %}Jungla enemiga: <strong>{{ dv.enemy_jungler }}</strong>. {% endif %}
+    {% if dv.enemy_bot %}Dúo de bot enemigo: <strong>{{ dv.enemy_bot|join(' + ') }}</strong>.{% endif %}
+  </p>
+  {% if dv.assets_missing %}
+  <p class="notice">
+    {% if dv.offline %}Sin conexión con Riot (Data Dragon): se usan un mapa esquemático e iniciales en vez de los íconos, y los nombres de habilidades pueden salir solo como Q/W/E/R.
+    {% elif dv.busy %}Se están descargando los íconos y el mapa (una sola vez); <a href="">recarga la página</a> en unos segundos.
+    {% else %}Todavía no están descargados los íconos y el mapa de Riot (Data Dragon); se usan un mapa esquemático e iniciales. <a href="">Recarga la página</a> si tienes conexión.{% endif %}
+  </p>
+  {% endif %}
+
+  {% if not dv.deaths %}
+  <p>No moriste en esta partida.</p>
+  {% else %}
+  <div class="dtl" aria-label="Línea de tiempo de tus muertes">
+    <div class="dtl-line"></div>
+    {% for d in dv.deaths %}
+    <a class="dtl-dot" style="left: {{ d.at }}%" href="#muerte-{{ d.n }}" data-open title="Muerte {{ d.n }} a las {{ d.clock }}"><span class="sr-only">Muerte {{ d.n }} a las {{ d.clock }}</span></a>
+    {% endfor %}
+  </div>
+  <p class="note dtl-note">De izquierda a derecha, de 0:00 al final de la partida. Toca un punto o una muerte de la lista para ver el detalle.</p>
+
+  {% for d in dv.deaths %}
+  <details class="death" id="muerte-{{ d.n }}">
+    <summary>
+      <span class="d-time">{{ d.clock }}</span>
+      <span class="d-who">{{ d.who }}</span>
+      <span class="d-place muted">{{ d.place }}</span>
+      {% for b in d.badges %}<span class="chip">{{ b }}</span>{% endfor %}
+    </summary>
+    <div class="death-body">
+      <div class="death-text">
+        <h3>Qué pasó</h3>
+        <ul class="facts">
+          {% for f in d.facts %}<li>{{ f }}</li>{% endfor %}
+        </ul>
+        {% if d.fight %}<p><a href="#pelea-{{ d.fight }}" data-open>Ver esta pelea paso a paso</a></p>{% endif %}
+        <h3>Daño que recibiste</h3>
+        {% if d.chart %}
+        <div class="dmg">
+          {% for r in d.chart %}
+          <div class="dmg-row">
+            <div class="dmg-who">
+              <span class="ic {{ 'team-blue' if r.team == 100 else 'team-red' if r.team == 200 else 'neutral' }}">{% if r.icon %}<img src="{{ r.icon }}" alt="" width="22" height="22" loading="lazy">{% else %}{{ r.initials }}{% endif %}</span>
+              <span>{{ r.name }}{% if r.side %} <span class="muted">({{ r.side }})</span>{% endif %}</span>
+              <span class="dmg-total">{{ r.total }}</span>
+            </div>
+            <div class="dmg-bar" style="width: {{ r.width }}%" role="img" aria-label="{{ r.name }}: {{ r.total }} de daño. {{ r.caption }}">
+              {% for sg in r.segments %}<span class="seg t-{{ sg.type }}" style="flex: {{ sg.total }} 1 0" title="{{ sg.label }}: {{ sg.total }} ({{ sg.type_label }})">{{ sg.label }}</span>{% endfor %}
+            </div>
+            <div class="dmg-cap muted">{{ r.caption }}</div>
+          </div>
+          {% endfor %}
+          <p class="dmg-legend"><span class="lg"><i class="lg-sw t-fisico"></i> Daño físico</span> <span class="lg"><i class="lg-sw t-magico"></i> Daño mágico</span> <span class="lg"><i class="lg-sw t-verdadero"></i> Daño verdadero</span></p>
+        </div>
+        {% else %}
+        <p class="muted">Riot no guardó el detalle del daño de esta muerte.</p>
+        {% endif %}
+      </div>
+      <figure class="death-map">
+        {{ d.svg }}
+        <figcaption>
+          {{ m.map_legend() }}
+          {% if d.pos_clock %}<p class="note">Los rivales se ubican con el registro por minuto más cercano (min {{ d.pos_clock }}): aproximado, y si están muy juntos se separan un poco para verlos. El nivel y el oro vienen del registro del min {{ d.frame_clock }}, el último antes de tu muerte.</p>{% endif %}
+        </figcaption>
+      </figure>
+    </div>
+  </details>
+  {% endfor %}
+  {% endif %}
+</section>
+
+<section class="card" id="peleas">
+  <h2>Peleas</h2>
+  <p class="note first">Una pelea es una racha de 3 o más muertes de campeones (de cualquier equipo) con menos de 15 s entre una y otra y cerca unas de otras, o de 2 muertes en las que participaste. Las posiciones de los jugadores son aproximadas salvo los puntos donde murió alguien.</p>
+  {% if not dv.fights %}
+  <p class="muted">No se detectaron peleas en esta partida.</p>
+  {% endif %}
+  {% for f in dv.fights %}
+  <details class="fight" id="pelea-{{ f.id }}">
+    <summary>
+      <span class="d-time">{{ f.clock }}</span>
+      <span class="d-who">{{ 'Ganaste' if f.result == 'ganada' else 'Perdieron' if f.result == 'perdida' else 'Empate' }} {{ f.score }}</span>
+      <span class="d-place muted">{{ f.place }}</span>
+      {% if f.player_died %}<span class="chip bad">Moriste</span>{% elif f.player_involved %}<span class="chip">Participaste</span>{% endif %}
+    </summary>
+    <div class="fight-body" data-fight>
+      <div class="fight-stage">
+        {{ f.svg }}
+        <div class="fight-controls" hidden>
+          <button type="button" class="btn small" data-act="prev">◀ Anterior</button>
+          <button type="button" class="btn small" data-act="play" aria-pressed="false">▶ Reproducir</button>
+          <button type="button" class="btn small" data-act="next">Siguiente ▶</button>
+        </div>
+        <p class="step-caption" aria-live="polite"></p>
+        {{ m.map_legend() }}
+        {% if f.frame_clock %}<p class="note">Las posiciones de quienes no han muerto son del registro del min {{ f.frame_clock }}: aproximadas.</p>{% endif %}
+      </div>
+      <div class="fight-side">
+        <p>{{ f.summary }}</p>
+        <ol class="seq" data-total="{{ f.kills|length }}">
+          <li data-step="0"><span>Antes de la pelea ({{ f.clock }}, posiciones aproximadas)</span></li>
+          {% for k in f.kills %}
+          <li data-step="{{ loop.index }}"{% if k.mine %} class="mine"{% endif %}><span><span class="d-time">{{ k.clock }}</span> {{ k.text }}</span></li>
+          {% endfor %}
+        </ol>
+        {% if f.first %}<p class="note">Tu primera acción: {{ f.first }}.{% if f.last and f.last != f.first %} Tu última: {{ f.last }}.{% endif %}</p>{% endif %}
+        <h3>Consecuencia</h3>
+        {% if f.aftermath %}<ul>{% for a in f.aftermath %}<li>{{ a }}</li>{% endfor %}</ul>
+        {% else %}<p class="muted">Nadie tomó un objetivo en el minuto siguiente.</p>{% endif %}
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+</section>
+
+<section class="card flush" id="objetivos">
+  <h2 class="pad">Objetivos perdidos</h2>
+  <p class="note pad">Dragones, barones y heraldos que tomó el equipo enemigo. «Muerto» usa un tiempo de reaparición aproximado según tu nivel; «lejos» es estar a más de 4000 unidades del foso, según tu posición del último registro por minuto (aproximado).</p>
+  {% if dv.lost %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Hora</th><th>Objetivo</th><th>Dónde estabas</th><th class="num">Aliados muertos</th></tr></thead>
+    <tbody>
+    {% for o in dv.lost %}
+    <tr>
+      <td>{{ o.clock }}</td><td>{{ o.label }}</td>
+      <td><span class="chip {{ 'bad' if o.status in ('muerto', 'lejos') else '' }}">{{ o.status|capitalize }}</span> {{ o.where }}</td>
+      <td class="num">{{ o.allies_dead }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="pad muted">El equipo enemigo no tomó dragones, barones ni heraldos.</p>
+  {% endif %}
+</section>

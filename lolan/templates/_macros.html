@@ -89,3 +89,16 @@
 </table>
 </div>
 {% endmacro %}
+
+{# A rate from deaths.aggregate: "45% (557/1227)". #}
+{% macro rate(r) %}{% if r.pct is none %}-{% else %}{{ r.pct|pct }} <span class="muted">({{ r.n }}/{{ r.of }})</span>{% endif %}{% endmacro %}
+
+{# Legend under every minimap. #}
+{% macro map_legend() %}
+<p class="map-legend">
+  <span class="lg"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" class="lg-ring"/></svg> Contorno continuo: posición exacta</span>
+  <span class="lg"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" class="lg-ring dashed"/></svg> Contorno discontinuo: posición aproximada (Riot solo registra la posición de todos una vez por minuto)</span>
+  <span class="lg"><i class="lg-sw blue"></i> Equipo azul</span>
+  <span class="lg"><i class="lg-sw red"></i> Equipo rojo</span>
+</p>
+{% endmacro %}

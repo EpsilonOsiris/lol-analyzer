@@ -4,6 +4,8 @@
 {% block content %}
 <h1>Resumen <span class="sub">{% if show_picker and jugador %}{{ jugador.riot_id }} · {% endif %}{{ queue_labels[cola] }}</span></h1>
 
+{% if pat %}<p class="jump">Ir a: <a href="#patrones">Patrones de tus muertes</a> · <a href="#mapa-calor">Mapa de calor</a> · <a href="#plan">Plan de mejora</a></p>{% endif %}
+
 <section class="stats" aria-label="Indicadores">
   {{ m.stat("Partidas", o.games, o.wins ~ " victorias · " ~ (o.games - o.wins) ~ " derrotas") }}
   {{ m.stat("Winrate", o.winrate|pct, tone=('win' if o.winrate >= 0.5 else 'loss')) }}
@@ -81,4 +83,8 @@
   <p class="muted">Aún no hay campeones con suficientes partidas.</p>
   {% endif %}
 </section>
+
+{% if pat %}
+{% include "_patrones.html" %}
+{% endif %}
 {% endblock %}

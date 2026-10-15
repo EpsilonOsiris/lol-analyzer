@@ -105,16 +105,16 @@ Puedes registrar a los miembros de tu clan y analizarlos igual que a ti:
 .venv/Scripts/python -m lolan web
 ```
 
-Levanta un panel local en <http://127.0.0.1:8765> y abre el navegador (`--puerto N` cambia el puerto, `--no-abrir` no abre el navegador). Solo escucha en `127.0.0.1`: no es accesible desde otros equipos ni desde tu red. Para detenerlo, presiona Ctrl+C en la terminal. Funciona sin conexión (no carga nada de internet) y lee la misma base de datos `data/lol.db`.
+Levanta un panel local en <http://127.0.0.1:8765> y abre el navegador (`--puerto N` cambia el puerto, `--no-abrir` no abre el navegador). Solo escucha en `127.0.0.1`: no es accesible desde otros equipos ni desde tu red. Para detenerlo, presiona Ctrl+C en la terminal. Lee la misma base de datos `data/lol.db` y funciona sin conexión: lo único que baja de internet son el mapa y los íconos de campeones de Riot (Data Dragon, ver [Muertes y peleas](#muertes-y-peleas-con-el-timeline)), una vez, y si no hay conexión usa un mapa esquemático e iniciales.
 
 Todas las páginas tienen un selector de cola (Todas / Solo/Dúo / Flex; por defecto Solo/Dúo) y, si hay más de un jugador registrado, un selector de jugador (por defecto, tú). Ambos se conservan al navegar (`?cola=` y `?jugador=` en la dirección).
 
 | Página | Qué muestra |
 |---|---|
-| Resumen (`/`) | Partidas, winrate, KDA, CS/min, muertes por 10 min y período; winrate por mes, por rol y por campeón (las tablas se ordenan haciendo clic en el encabezado); por día de la semana y por número de partida en la sesión; winrate después de una victoria y de una derrota; y lo que decide tus partidas con cada campeón de 5 partidas o más |
+| Resumen (`/`) | Partidas, winrate, KDA, CS/min, muertes por 10 min y período; winrate por mes, por rol y por campeón (las tablas se ordenan haciendo clic en el encabezado); por día de la semana y por número de partida en la sesión; winrate después de una victoria y de una derrota; lo que decide tus partidas con cada campeón de 5 partidas o más; y **Patrones de tus muertes**, mapa de calor, tablas contra qué junglas y dúos de bot, y **Plan de mejora** |
 | Campeón (`/campeon/<Nombre>`) | Promedios, qué es más alto en tus victorias y en tus derrotas, y la lista de tus partidas con ese campeón |
 | Partidas (`/partidas`) | Todas tus partidas, de la más reciente a la más antigua, de 50 en 50 |
-| Partida (`/partida/<matchId>`) | La boleta de esa partida: fortalezas, debilidades, comparación con tu rival de línea y con tu historial |
+| Partida (`/partida/<matchId>`) | La boleta de esa partida: fortalezas, debilidades, comparación con tu rival de línea y con tu historial; y, si la partida tiene timeline, **Tus muertes**, **Peleas** y **Objetivos perdidos** |
 | Clan (`/clan`) | Tabla comparativa de todos los jugadores registrados en la cola elegida (partidas, winrate, KDA, muertes por 10 min, muertes en solitario y antes del minuto 14 por partida, CS/min, visión/min, rol y campeón más jugados; se ordena haciendo clic en el encabezado) y **Jugando juntos**: winrate de cada pareja cuando está en el mismo equipo, junto al winrate de cada uno (solo parejas con 3 partidas juntos o más) |
 | Jugadores (`/jugadores`) | Jugadores registrados con las partidas guardadas de cada uno; formulario para agregar un Riot ID (se busca con tu API key) y botón para quitar a cualquiera menos a ti, con confirmación en la misma fila |
 | Sincronizar (`/sincronizar`) | Descarga partidas nuevas desde el navegador (jugador: tú, uno en particular o todo el clan; cola, máximo de partidas por jugador y timeline) con el progreso en vivo |
@@ -122,11 +122,25 @@ Todas las páginas tienen un selector de cola (Todas / Solo/Dúo / Flex; por def
 
 Sincronizar usa la `RIOT_API_KEY` y el `RIOT_ID` de `.env` y lo vuelve a leer en cada sincronización: si tu key expira, regenera una en developer.riotgames.com, pégala en **Configuración** (o actualiza `.env`) y pulsa **Sincronizar** de nuevo, sin reiniciar el panel. Todas las páginas muestran un aviso si la key se guardó hace más de 23 horas o si Riot la rechazó en el último intento de este servidor (no se hace ninguna petición solo para mostrar la página). Solo se puede ejecutar una sincronización a la vez. Al terminar, los análisis se actualizan solos. Si no hay partidas todavía, el panel te lleva a esa página.
 
+## Muertes y peleas (con el timeline)
+
+Para las partidas con timeline (las que no se descargaron con `--no-timeline`) el panel analiza cada una de tus muertes y de las peleas. Todo se calcula en el momento a partir de `data/lol.db`; no usa la API de Riot.
+
+- **Tus muertes** (página de la partida): una línea de tiempo y, por cada muerte, quién te mató (campeón y rol) y quién ayudó, si participó el jungla enemigo, cuántos rivales intervinieron, tu nivel y tu oro sin gastar frente al de quien te mató, si habías matado a alguien en los 60 s anteriores, el objetivo (dragón, barón, torre...) que cayó 45 s antes o después, cuántos wards puso tu equipo en los 90 s previos y si compraste un ward de control en los últimos 3 minutos, un gráfico del daño que recibiste (por campeón y habilidad, con nombres en español, más minions y torres), el daño que hiciste antes de morir y un minimapa con el punto exacto de tu muerte.
+- **Peleas**: una pelea es una racha de 3 o más muertes de campeones (de cualquier equipo) con 15 s o menos entre una y otra y a menos de 3500 unidades del centro de la pelea, o de 2 muertes en las que participaste. Cada pelea se reconstruye paso a paso en el minimapa (botones ◀ ▶ y reproducción automática), con el resultado, quién cayó primero y qué objetivo se tomó en el minuto siguiente.
+- **Objetivos perdidos**: dragones, barones y heraldos del equipo enemigo, con si estabas muerto, lejos (a más de 4000 unidades del foso) o cerca cuando cayeron.
+- **Resumen**: «Patrones de tus muertes» (porcentajes en todas tus partidas, en victorias y en derrotas), mapa de calor (filtros por fase y resultado), «Contra qué junglas» y «Contra qué dúos de bot» (solo con 3 partidas o más) y el **Plan de mejora**: tus 3 prioridades. Para cada patrón candidato se calcula cuánto separa tus derrotas de tus victorias (tamaño del efecto, debe ser mayor a 0.1) y se multiplica por el porcentaje de partidas en las que no cumples su meta (al menos 20 %); se muestran los 3 mayores, con una fila ✓/✗ de tus últimas 10 partidas. Hacen falta 8 partidas con timeline, con 2 victorias y 2 derrotas.
+
+**Qué es aproximado.** Riot solo guarda la posición de todos los jugadores una vez por minuto y no da la posición de los wards. Por eso: las posiciones de rivales y aliados entre kills salen del registro por minuto más cercano (contorno discontinuo en los mapas; el punto donde muere alguien sí es exacto), el nivel y el oro sin gastar son los del último registro antes de morir, «estabas muerto» usa un tiempo de reaparición calculado a partir de tu nivel y los minutos de partida, y los wards solo se cuentan por equipo. Las zonas (línea de top/mid/bot, río, jungla, base) son franjas del mapa, no una medición exacta.
+
+**Mapa e íconos.** La primera vez que abres una partida con timeline, el panel descarga una sola vez, de Data Dragon (el CDN público de Riot, sin enviar nada tuyo), el mapa, los íconos de los campeones de esa partida y sus nombres de habilidades en español (es_MX), y los guarda en `data/ddragon/`. Usa la versión del parche de la partida cuando existe. La descarga corre en segundo plano y una página nunca espera más de unos segundos: sin conexión (o mientras baja) se ve un mapa esquemático y las iniciales de cada campeón, y se reintenta más tarde.
+
 ## Dónde queda todo
 
 | Ruta | Contenido |
 |---|---|
 | `data/lol.db` | Base de datos SQLite con el JSON crudo de cada partida y timeline |
+| `data/ddragon/` | Mapa, íconos y nombres de habilidades en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |
 | `reports/campeones/<Campeón>.md` | Promedios y qué separa tus victorias de tus derrotas con ese campeón |

@@ -1,0 +1,144 @@
+{# "Patrones de tus muertes" and "Plan de mejora" on the summary page. `pat` comes from web.death_patterns. #}
+{% import "_macros.html" as m with context %}
+{% set a = pat.agg %}
+{% macro row(label, r) %}<tr><th scope="row">{{ label }}</th><td class="num">{{ m.rate(r.all) }}</td><td class="num">{{ m.rate(r.win) }}</td><td class="num">{{ m.rate(r.loss) }}</td></tr>{% endmacro %}
+<section class="card" id="patrones">
+  <h2>Patrones de tus muertes</h2>
+  <p class="muted">
+    {{ a.deaths }} muertes en {{ pat.n_games }} partidas con timeline{% if pat.n_games < pat.n_total %} (de {{ pat.n_total }}; las demás no tienen timeline){% endif %}.
+    Por partida: {{ a.deaths_pg.all|num(1) }} en total, {{ a.deaths_pg.win|num(1) }} cuando ganas y {{ a.deaths_pg.loss|num(1) }} cuando pierdes.
+  </p>
+  <div class="table-wrap pat">
+  <table>
+    <thead><tr><th>De todas tus muertes…</th><th class="num">Todas</th><th class="num">En victorias</th><th class="num">En derrotas</th></tr></thead>
+    <tbody>
+    {{ row("…antes del minuto 14, participó el jungla enemigo", a.jungler_early) }}
+    {{ row("…después del minuto 14, participó el jungla enemigo", a.jungler_late) }}
+    {{ row("…participó el jungla enemigo (toda la partida)", a.jungler_all) }}
+    {{ row("…te mató 1 solo rival (1v1)", a.enemies_1) }}
+    {{ row("…participaron 2 rivales", a.enemies_2) }}
+    {{ row("…participaron 3 o más rivales", a.enemies_3p) }}
+    {{ row("…tenías menos nivel que quien te mató", a.lower_level) }}
+    {{ row("…tenías 1000 de oro o más sin gastar", a.unspent_1000) }}
+    {{ row("…fueron menos de 60 s después de una kill tuya", a.after_kill) }}
+    {{ row("…fueron en el lado enemigo del mapa", a.enemy_side) }}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">«Participó» = fue quien mató o dio asistencia. Nivel y oro salen del último registro por minuto antes de morir (aproximado). Los porcentajes de cada columna usan solo las muertes de esa columna.</p>
+
+  {% set ob = a.objectives %}
+  {% if ob.total %}
+  <h3>Dragones y barones del equipo enemigo</h3>
+  <div class="table-wrap pat">
+  <table>
+    <thead><tr><th>Cuando cayeron, tú…</th><th class="num">Todas</th><th class="num">En victorias</th><th class="num">En derrotas</th></tr></thead>
+    <tbody>
+    {{ row("…estabas muerto (según un tiempo de reaparición aproximado)", ob.dead) }}
+    {{ row("…estabas vivo pero a más de 4000 unidades del foso", ob.far) }}
+    {{ row("…estabas muerto o lejos", ob.dead_or_far) }}
+    {{ row("…habías muerto en los 45 s anteriores (aunque ya hubieras reaparecido)", ob.died_recently) }}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">«Lejos» usa tu posición del último registro por minuto (aproximado); el foso del dragón está en el cuadrante inferior derecho del mapa y el del barón y el heraldo, en el superior izquierdo.</p>
+  {% endif %}
+
+  <h3>Dónde mueres</h3>
+  <div class="table-wrap pat">
+  <table>
+    <thead><tr><th>Zona</th><th class="num">Todas</th><th class="num">En victorias</th><th class="num">En derrotas</th></tr></thead>
+    <tbody>
+    {% for z in a.zones[:8] %}
+    {{ row(z.label, z) }}
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">«Tu lado» es la mitad del mapa donde está tu base. Las zonas son aproximadas: carriles = franjas junto a los bordes del mapa, río y mid = franjas diagonales, el resto es jungla.</p>
+</section>
+
+<section class="card" id="mapa-calor">
+  <h2>Mapa de calor de tus muertes</h2>
+  <div class="heat-filters">
+    <div class="seg" role="group" aria-label="Fase de la partida">
+      {% for k, v in pat.phases.items() %}<a href="{{ u('index', fase=k, res=pat.result) }}#mapa-calor"{% if k == pat.phase %} aria-current="true"{% endif %}>{{ v }}</a>{% endfor %}
+    </div>
+    <div class="seg" role="group" aria-label="Resultado de la partida">
+      {% for k, v in pat.results.items() %}<a href="{{ u('index', fase=pat.phase, res=k) }}#mapa-calor"{% if k == pat.result %} aria-current="true"{% endif %}>{{ v }}</a>{% endfor %}
+    </div>
+  </div>
+  <div class="heat-wrap">
+    {{ pat.heat }}
+  </div>
+  <p class="note">{{ pat.heat_points }} muertes. Más rojo = más muertes en ese punto. Esquina inferior izquierda = base azul; esquina superior derecha = base roja. La versión en texto de este mapa es la tabla «Dónde mueres».</p>
+  {% if not pat.real_map %}<p class="note">Se muestra un mapa esquemático porque aún no se descarga el mapa real de Riot (Data Dragon); se descarga solo, una vez, si hay conexión.</p>{% endif %}
+</section>
+
+<div class="grid-2">
+  <section class="card" id="junglas">
+    <h2>Contra qué junglas</h2>
+    {% if a.junglers %}
+    <div class="table-wrap">
+    <table class="sortable">
+      <thead><tr><th>Jungla enemiga</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Muertes por partida</th><th class="num" data-type="num">Winrate</th></tr></thead>
+      <tbody>
+      {% for r in a.junglers %}
+      <tr><td>{{ r.key }}</td><td class="num" data-v="{{ r.games }}">{{ r.games }}</td><td class="num" data-v="{{ r.deaths_pg }}">{{ r.deaths_pg|num(1) }}</td><td class="num" data-v="{{ r.winrate }}">{{ m.wr(r.winrate) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Solo junglas con 3 partidas o más. Haz clic en un encabezado para ordenar.</p>
+    {% else %}
+    <p class="muted">Aún no hay una jungla enemiga con 3 partidas o más.</p>
+    {% endif %}
+  </section>
+  <section class="card" id="duos">
+    <h2>Contra qué dúos de bot</h2>
+    {% if a.bot_duos %}
+    <div class="table-wrap">
+    <table class="sortable">
+      <thead><tr><th>Dúo enemigo (ADC + soporte)</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Muertes por partida</th><th class="num" data-type="num">Winrate</th></tr></thead>
+      <tbody>
+      {% for r in a.bot_duos %}
+      <tr><td>{{ r.key }}</td><td class="num" data-v="{{ r.games }}">{{ r.games }}</td><td class="num" data-v="{{ r.deaths_pg }}">{{ r.deaths_pg|num(1) }}</td><td class="num" data-v="{{ r.winrate }}">{{ m.wr(r.winrate) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Solo dúos con 3 partidas o más. «Muertes por partida» cuenta todas tus muertes de esas partidas, no solo las de la línea.</p>
+    {% else %}
+    <p class="muted">Aún no hay un dúo enemigo con 3 partidas o más.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card" id="plan">
+  <h2>Plan de mejora</h2>
+  {% set plan = pat.plan %}
+  {% if not plan.enough %}
+  <p class="muted">Se necesitan al menos {{ plan.min_games }} partidas con timeline, con al menos 2 victorias y 2 derrotas, para proponer un plan (hay {{ plan.games }}).</p>
+  {% elif not plan.priorities %}
+  <p class="muted">Ninguno de los patrones medidos separa claramente tus victorias de tus derrotas en esta cola. Sigue acumulando partidas.</p>
+  {% else %}
+  <p class="muted">Tus {{ plan.priorities|length }} prioridades: los patrones que más distinguen tus derrotas de tus victorias y que más te cuesta cumplir. Cada casilla es una de tus últimas {{ plan.priorities[0].last|length }} partidas (de la más antigua a la más reciente): ✓ cumpliste la meta, ✗ no la cumpliste.</p>
+  <ol class="plan">
+    {% for p in plan.priorities %}
+    <li>
+      <h3>{{ p.goal_text }}</h3>
+      <p class="muted">
+        Lo cumples en {{ p.met_rate.pct|pct }} de tus partidas ({{ p.met_rate.n }}/{{ p.met_rate.of }}). Promedio: {{ p.avg|num(1) }} por partida ({{ p.label|lower }}).
+        {% if p.winrate_met is not none and p.winrate_not_met is not none %}Cuando lo cumples ganas el {{ p.winrate_met|pct }}; cuando no, el {{ p.winrate_not_met|pct }}.{% endif %}
+      </p>
+      <div class="checks" role="list">
+        {% for c in p.last %}
+        <a role="listitem" class="chk {{ 'ok' if c.ok else 'no' }}" href="{{ u('match', match_id=c.match_id) }}#muertes" title="{{ c.champion }} · {{ 'Victoria' if c.win else 'Derrota' }} · {{ c.value }} ({{ 'cumplida' if c.ok else 'no cumplida' }})"><span aria-hidden="true">{{ '✓' if c.ok else '✗' }}</span><span class="sr-only">{{ c.champion }}, {{ 'victoria' if c.win else 'derrota' }}: {{ 'meta cumplida' if c.ok else 'meta no cumplida' }} ({{ c.value }})</span></a>
+        {% endfor %}
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="note">Cómo se eligen: para cada patrón se compara cuántas veces ocurre por partida en tus derrotas frente a tus victorias (tamaño del efecto; debe ser mayor a 0.1) y se multiplica por el porcentaje de partidas donde no cumples la meta (debe ser al menos 20 %). Se muestran los 3 mayores. Es correlación, no causalidad.</p>
+  {% endif %}
+</section>

@@ -89,8 +89,11 @@ DEFAULT_EVENTS = [
 ]
 
 
-def make_timeline(minutes=16, events=None, my_pid=ME_PID, opp_pid=OPP_PID):
-    """Frames 0..minutes. Me: gold 500+400m, cs 8m, xp 280m. Opp: gold 500+300m, cs 6m, xp 250m."""
+def make_timeline(minutes=16, events=None, my_pid=ME_PID, opp_pid=OPP_PID, tweak=None):
+    """Frames 0..minutes. Me: gold 500+400m, cs 8m, xp 280m. Opp: gold 500+300m, cs 6m, xp 250m.
+
+    `tweak(pfs, minute)` may edit the participantFrames of each minute (position, level, gold...).
+    """
     events = copy.deepcopy(DEFAULT_EVENTS if events is None else events)
     frames = []
     for m in range(minutes + 1):
@@ -105,10 +108,26 @@ def make_timeline(minutes=16, events=None, my_pid=ME_PID, opp_pid=OPP_PID):
             pfs[str(pid)] = {
                 "totalGold": gold, "xp": xp, "level": 1 + m // 2,
                 "minionsKilled": cs, "jungleMinionsKilled": 0,
-                "position": {"x": 7000, "y": 7000},
+                "position": {"x": 7000, "y": 7000}, "currentGold": 300,
             }
+        if tweak:
+            tweak(pfs, m)
         frames.append({
             "timestamp": m * 60_000, "participantFrames": pfs,
             "events": [e for e in events if e["timestamp"] // 60_000 == m],
         })
     return {"info": {"frames": frames}}
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def no_ddragon_network(monkeypatch):
+    """Tests never reach Riot's CDN: the default fetcher always fails (inject a fake to test downloads)."""
+    from lolan import ddragon
+
+    def refuse(url):
+        raise ddragon.FetchError("red desactivada en las pruebas")
+
+    monkeypatch.setattr(ddragon, "default_fetch", refuse)

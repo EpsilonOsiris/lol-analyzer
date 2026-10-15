@@ -227,3 +227,132 @@ progress { width: 100%; height: 14px; }
 .btn-row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .key-saved { font-weight: 400; font-size: .85rem; color: var(--muted); }
 .check.block { align-items: flex-start; }
+
+/* deaths, fights, minimaps, heatmap, improvement plan */
+:root {
+  --team-blue: #3b6fd8; --team-red: #d2443d; --me: #d69a0f;
+  --map-bg: #e6ebf1; --map-river: #bcd5ec; --map-lane: #cdd5de; --heat: #e0392f;
+  --dmg-phys: #b45f12; --dmg-mag: #4f5fd0; --dmg-true: #66707c; --dmg-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --team-blue: #6c9bff; --team-red: #ff7d75; --me: #ffd166;
+    --map-bg: #1b222b; --map-river: #21384f; --map-lane: #313d4a; --heat: #ff5a4f;
+    --dmg-phys: #e39a52; --dmg-mag: #8f9cf5; --dmg-true: #b9c2cf; --dmg-ink: #10151c;
+  }
+  .map-img { filter: brightness(.82) saturate(.9); }
+}
+.jump { margin: 0 0 1rem; font-size: .9rem; color: var(--muted); }
+.note.first { margin-top: 0; margin-bottom: .8rem; }
+
+.minimap { display: block; width: 100%; height: auto; max-width: 560px; border-radius: 8px; background: var(--map-bg); border: 1px solid var(--border); }
+.sm-bg { fill: var(--map-bg); }
+.sm-river { stroke: var(--map-river); fill: none; }
+.sm-lane { stroke: var(--map-lane); stroke-width: 30; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.sm-base { opacity: .45; }
+.sm-base-blue { fill: var(--team-blue); }
+.sm-base-red { fill: var(--team-red); }
+.mk { --c: var(--team-blue); }
+.mk.team-red { --c: var(--team-red); }
+.mk-bg { fill: var(--surface); }
+.mk-ring { fill: none; stroke: var(--c); stroke-width: 6; }
+.mk.approx .mk-ring { stroke-dasharray: 8 6; }
+.mk.approx { opacity: .88; }
+.mk-txt { text-anchor: middle; font: 700 21px var(--font); fill: var(--text); pointer-events: none; }
+.mk.me .mk-ring { stroke: var(--me); stroke-width: 8; }
+.mk.dead .mk-bg { fill: var(--surface-2); }
+.mk.dead image { opacity: .5; }
+.mk.dead .mk-txt { opacity: .6; }
+.mk-x { stroke: var(--loss); stroke-width: 8; stroke-linecap: round; fill: none; }
+.mk-pulse { fill: none; stroke: var(--loss); stroke-width: 5; opacity: .75; }
+@media (prefers-reduced-motion: no-preference) {
+  .mk.cur .mk-pulse { animation: pulse 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+}
+@keyframes pulse { from { transform: scale(.8); opacity: .9; } to { transform: scale(1.25); opacity: 0; } }
+.heat-cell { fill: var(--heat); }
+.heat-wrap { max-width: 560px; }
+.heat-filters { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; margin-bottom: .8rem; }
+.heat-filters .seg { flex-wrap: wrap; }
+
+.map-legend { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .78rem; color: var(--muted); margin: .6rem 0 0; }
+.lg { display: inline-flex; align-items: center; gap: .3rem; }
+.lg svg { width: 18px; height: 18px; flex: none; }
+.lg-ring { fill: none; stroke: var(--muted); stroke-width: 2.5; }
+.lg-ring.dashed { stroke-dasharray: 3 2.5; }
+.lg-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.lg-sw.blue { background: var(--team-blue); }
+.lg-sw.red { background: var(--team-red); }
+.lg-sw.t-fisico { background: var(--dmg-phys); }
+.lg-sw.t-magico { background: var(--dmg-mag); }
+.lg-sw.t-verdadero { background: var(--dmg-true); }
+
+details.death, details.fight { border: 1px solid var(--border); border-radius: 8px; margin: .6rem 0; background: var(--surface); }
+details.death[open], details.fight[open] { border-color: var(--muted); }
+details.death > summary, details.fight > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .7rem; padding: .6rem .8rem; cursor: pointer; }
+details.death > summary:focus-visible, details.fight > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.d-time { font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+.d-who { font-weight: 600; }
+.chip { display: inline-block; padding: 0 .5rem; border-radius: 999px; background: var(--surface-2); font-size: .75rem; line-height: 1.6; border: 1px solid var(--border); }
+.chip.bad { background: var(--loss-bg); color: var(--loss); border-color: transparent; font-weight: 600; }
+.death-body, .fight-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 1rem 1.5rem; padding: .2rem .8rem .9rem; }
+.fight-body { grid-template-columns: minmax(0, 560px) minmax(0, 1fr); }
+.death-body > *, .fight-body > * { min-width: 0; }
+.death-map { margin: 0; }
+.facts { padding-left: 1.1rem; }
+.dtl { position: relative; height: 26px; margin: .6rem 10px .2rem; }
+.dtl-line { position: absolute; left: 0; right: 0; top: 12px; height: 2px; background: var(--border); }
+.dtl-dot { position: absolute; top: 3px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: var(--loss-bar); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--loss-bar); }
+.dtl-dot:hover { text-decoration: none; filter: brightness(1.15); }
+.dtl-note { margin-top: .2rem; margin-bottom: .6rem; }
+
+.dmg-row { margin: .7rem 0; }
+.dmg-who { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+.dmg-total { margin-left: auto; font-variant-numeric: tabular-nums; }
+.ic { --c: var(--muted); display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--c); font-size: .6rem; font-weight: 700; overflow: hidden; background: var(--surface-2); }
+.ic.team-blue { --c: var(--team-blue); }
+.ic.team-red { --c: var(--team-red); }
+.ic img { width: 100%; height: 100%; display: block; }
+.dmg-bar { display: flex; gap: 1px; height: 22px; margin-top: .25rem; border-radius: 4px; overflow: hidden; min-width: 6px; max-width: 100%; }
+.seg { min-width: 2px; padding: 0 .35rem; font-size: .72rem; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dmg-ink); }
+.seg.t-fisico { background: var(--dmg-phys); }
+.seg.t-magico { background: var(--dmg-mag); }
+.seg.t-verdadero { background: var(--dmg-true); }
+.dmg-cap { font-size: .78rem; margin-top: .15rem; overflow-wrap: anywhere; }
+.dmg-legend { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .78rem; color: var(--muted); margin: .6rem 0 0; }
+
+.fight-controls { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+.fight-controls .btn { min-height: 36px; }
+.step-caption { min-height: 2.8em; margin: .5rem 0 0; font-weight: 600; font-size: .9rem; }
+.seq { list-style: none; padding: 0; margin: 0 0 .8rem; }
+.seq li { margin: .15rem 0; }
+.seq li > span, .seq-btn { display: block; padding: .35rem .5rem; border-radius: 6px; border: 1px solid transparent; }
+.seq-btn { width: 100%; text-align: left; background: none; color: inherit; font: inherit; cursor: pointer; }
+.seq-btn:hover { background: var(--surface-2); }
+.seq li[aria-current=step] > .seq-btn { background: var(--surface-2); border-color: var(--accent); }
+.seq li.mine > span, .seq li.mine > .seq-btn { border-left: 3px solid var(--me); }
+
+.checks { display: flex; flex-wrap: wrap; gap: .35rem; }
+.chk { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; font-weight: 700; border: 1px solid; }
+.chk:hover { text-decoration: none; filter: brightness(1.08); }
+.chk.ok { background: var(--win-bg); color: var(--win); border-color: var(--win-bar); }
+.chk.no { background: var(--loss-bg); color: var(--loss); border-color: var(--loss-bar); }
+.plan { padding-left: 1.3rem; }
+.plan > li { margin: 0 0 1.1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.plan > li:last-child { border-bottom: 0; padding-bottom: 0; }
+.plan h3 { margin-top: 0; }
+
+@media (max-width: 800px) {
+  .death-body, .fight-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  details.death > summary, details.fight > summary { padding: .55rem .6rem; }
+  .death-body, .fight-body { padding: .2rem .6rem .8rem; }
+}
+
+.pat th[scope=row] { white-space: normal; min-width: 11rem; font-weight: 400; }
+.pat td.num { vertical-align: top; }
+@media (max-width: 560px) {
+  .pat td.num .muted { display: block; font-size: .72rem; }
+  .pat th, .pat td { padding: .45rem .5rem; }
+  .pat th[scope=row] { min-width: 9rem; }
+}

@@ -195,6 +195,15 @@ class Store:
                     (match_id, json.dumps(timeline, separators=(",", ":"))),
                 )
 
+    def get_match(self, match_id: str):
+        """(match_dict, timeline_dict_or_None) of one stored match, or None if it is not stored."""
+        row = self.conn.execute(
+            "SELECT m.json, t.json FROM matches m LEFT JOIN timelines t ON t.match_id = m.match_id "
+            "WHERE m.match_id = ?", (match_id,)).fetchone()
+        if row is None:
+            return None
+        return json.loads(row[0]), (json.loads(row[1]) if row[1] else None)
+
     def iter_matches(self, puuid: str | None = None):
         """Yield (match_id, match_dict, timeline_dict_or_None) ordered by game_creation.
 

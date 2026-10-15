@@ -6,13 +6,18 @@ import threading
 import time
 import traceback
 from collections import deque
-from dataclasses import asdict, dataclass
+import sys
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from flask import Flask, abort, g, jsonify, redirect, render_template, request, url_for
+from flask import (Flask, abort, g, jsonify, redirect, render_template, request, send_file,
+                   url_for)
 from werkzeug.exceptions import NotFound
 
 from . import analyze as an
+from . import deaths as dx
+from . import deathsview, mapview
+from .ddragon import DDragon, champion_display
 from .__main__ import QUEUE_ALIASES
 from .config import ConfigError, load_config, project_root
 from .players import load_roster, normalize_riot_id
@@ -30,6 +35,9 @@ DEFAULT_COLA = "solo"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 PAGE_SIZE = 50
 MAX_LOG_LINES = 200
+DDRAGON_WAIT_S = 3.0        # longest a page waits for Data Dragon downloads; it never waits more
+HEAT_PHASES = {"todas": "Toda la partida", "antes14": "Antes del minuto 14", "despues14": "Del minuto 14 en adelante"}
+HEAT_RESULTS = {"todas": "Victorias y derrotas", "victorias": "Solo victorias", "derrotas": "Solo derrotas"}
 
 PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)\]")
 TOTAL_RE = re.compile(r"Por descargar: (\d+)")
@@ -48,6 +56,7 @@ SETUP_ENDPOINTS = ("static", "config_page", "api_config_save", "api_config_test"
 class Data:
     games: list
     total: int          # matches stored for this player, analyzable or not
+    analyses: dict = field(default_factory=dict)    # match_id -> light death analysis (games with a timeline)
 
 
 class GamesCache:
@@ -61,7 +70,26 @@ class GamesCache:
     def __init__(self, db_path):
         self._db_path = db_path
         self._lock = threading.Lock()
-        self._entries: dict = {}     # puuid -> {"key": count, "all": [...], "by_queue": {...}}
+        self._entries: dict = {}     # puuid -> {"key": count, "all": [...], "by_queue": {...}, "analyses": {...}}
+
+    @staticmethod
+    def _load(store, puuid):
+        """Games plus the light death analysis of each, from a single parse of every match."""
+        analyses: dict = {}
+
+        def on_match(row, match, timeline):
+            if not timeline:
+                return
+            try:
+                result = dx.analyze_game(match, timeline, puuid, detail=False)
+            except Exception as exc:    # a odd timeline must not take the whole panel down
+                print(f"Aviso: no se pudo analizar las muertes de {row.get('match_id')}: {exc!r}",
+                      file=sys.stderr)
+                return
+            if result is not None:
+                analyses[row["match_id"]] = result
+
+        return an.load_games(store, puuid, on_match=on_match), analyses
 
     def invalidate(self) -> None:
         with self._lock:
@@ -81,8 +109,8 @@ class GamesCache:
             with self._lock:
                 entry = self._entries.get(puuid)
                 if entry is None or entry["key"] != count:
-                    games = an.load_games(store, puuid) if count else []
-                    entry = {"key": count, "all": games, "by_queue": {}}
+                    games, analyses = self._load(store, puuid) if count else ([], {})
+                    entry = {"key": count, "all": games, "by_queue": {}, "analyses": analyses}
                     self._entries[puuid] = entry
                 if queue is None:
                     games = entry["all"]
@@ -92,7 +120,7 @@ class GamesCache:
                         games = [dict(x) for x in entry["all"] if x["queue_id"] == queue]
                         an.add_session_info(games)
                         entry["by_queue"][queue] = games
-                return Data(games, count)
+                return Data(games, count, entry["analyses"])
         finally:
             store.close()
 
@@ -237,7 +265,7 @@ def _bar_rows(rows, short=None, title=None):
              "winrate": r["winrate"], "games": r["games"]} for r in rows]
 
 
-def create_app(root=None) -> Flask:
+def create_app(root=None, ddragon=None) -> Flask:
     root = Path(root) if root else project_root()
     app = Flask(__name__)
     # Same location as Config.db_path.
@@ -245,7 +273,8 @@ def create_app(root=None) -> Flask:
     cache = GamesCache(db_path)
     health = KeyHealth()
     job = SyncJob(root, cache, health)
-    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root, "health": health}
+    dd = ddragon or DDragon(root / "data" / "ddragon")
+    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root, "health": health, "ddragon": dd}
 
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
@@ -275,7 +304,7 @@ def create_app(root=None) -> Flask:
         host = host[:host.index("]") + 1] if host.startswith("[") else host.rsplit(":", 1)[0]
         if host.lower() not in LOCAL_HOSTS:
             return "Host no permitido.", 400
-        if request.endpoint == "static":
+        if request.endpoint in ("static", "ddragon_file"):
             return None
         # .env is re-read on every request (it changes when the user saves Configuración).
         g.settings = read_settings(root)
@@ -339,6 +368,65 @@ def create_app(root=None) -> Flask:
             reason = "analizables"
         return render_template("vacio.html", reason=reason)
 
+    # ------------------------------------------------- Data Dragon helpers
+    def asset_url(rel):
+        return url_for("ddragon_file", rel=rel) if rel else None
+
+    def death_patterns(d: Data):
+        """Context of the "Patrones de tus muertes" section; None when no game has a timeline."""
+        chrono = [d.analyses[x["match_id"]] for x in d.games if x["match_id"] in d.analyses]
+        if not chrono:
+            return None
+        chrono.sort(key=lambda a: (a["created"] or 0, str(a["match_id"])))
+        phase = request.args.get("fase", "todas")
+        result = request.args.get("res", "todas")
+        phase = phase if phase in HEAT_PHASES else "todas"
+        result = result if result in HEAT_RESULTS else "todas"
+        if dd.minimap_rel() is None:
+            dd.prepare((None,), (), wait=DDRAGON_WAIT_S / 2)
+        points = dx.heat_points(chrono, phase, result)
+        map_rel = dd.minimap_rel()
+        return {
+            "agg": dx.aggregate(chrono), "plan": dx.improvement_plan(chrono),
+            "heat": mapview.heatmap(points, asset_url(map_rel), "heat"), "heat_points": len(points),
+            "phase": phase, "result": result, "phases": HEAT_PHASES, "results": HEAT_RESULTS,
+            "n_games": len(chrono), "n_total": len(d.games), "real_map": bool(map_rel),
+        }
+
+    def match_deaths(game):
+        """View model of the deaths / fights / objectives sections, or None without a timeline."""
+        if not game.get("has_timeline"):
+            return None
+        store = Store(db_path)
+        try:
+            stored = store.get_match(game["match_id"])
+        finally:
+            store.close()
+        if stored is None or stored[1] is None:
+            return None
+        match, timeline = stored
+        info = match.get("info") or {}
+        game_version = info.get("gameVersion")
+        champions = [p.get("championName") for p in info.get("participants") or []]
+        dd.prepare((game_version,), champions, wait=DDRAGON_WAIT_S)
+        version = dd.version_for(game_version)
+
+        def label_for(champion):
+            return dd.champion_name(version, champion) if champion else ""
+
+        def icon_for(champion):
+            return asset_url(dd.icon_rel(version, champion)) if champion else None
+
+        analysis = dx.analyze_game(match, timeline, g.player.puuid, detail=True, names=dd.names(version))
+        if analysis is None:
+            return None
+        map_rel = dd.minimap_rel()
+        view = deathsview.build_view(analysis, label_for, icon_for, asset_url(map_rel))
+        view["assets_missing"] = not (map_rel and all(icon_for(c) for c in champions))
+        view["offline"] = dd.offline
+        view["busy"] = dd.busy
+        return view
+
     # ------------------------------------------------------------ pages
     @app.get("/")
     def index():
@@ -362,7 +450,7 @@ def create_app(root=None) -> Flask:
             positions=_bar_rows(sess["by_position"],
                                 short=lambda r: "5+" if r["key"] >= 5 else str(r["key"]),
                                 title=lambda r: r["label"]),
-            sess=sess, insights=insights)
+            sess=sess, insights=insights, pat=death_patterns(d))
 
     @app.get("/partidas")
     def games_list():
@@ -419,7 +507,16 @@ def create_app(root=None) -> Flask:
         card = an.game_report_card(game, pool)
         return render_template("partida.html", card=card, pool_size=len(pool),
                                pool_label="todas las colas" if other_queue or g.cola == "todas"
-                               else QUEUE_LABELS[g.cola], other_queue=other_queue)
+                               else QUEUE_LABELS[g.cola], other_queue=other_queue,
+                               dv=match_deaths(game))
+
+    @app.get("/ddragon/<path:rel>")
+    def ddragon_file(rel):
+        """Cached Data Dragon pictures (nothing is fetched here)."""
+        path = dd.resolve_path(rel)
+        if path is None:
+            return "No encontrado", 404
+        return send_file(path, mimetype="image/png", max_age=86400)
 
     @app.get("/clan")
     def clan_page():

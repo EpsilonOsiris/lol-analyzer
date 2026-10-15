@@ -198,11 +198,13 @@ def add_session_info(games) -> None:
             prev_end = start + (g.get("duration_s") or 0) * 1000
 
 
-def load_games(store, puuid: str, include_all_queues: bool = False, queue: int | None = None):
+def load_games(store, puuid: str, include_all_queues: bool = False, queue: int | None = None,
+               on_match=None):
     """Flat metric rows for every analyzable game of `puuid`, oldest first (optionally one queue).
 
     The player is always explicit: nothing here guesses whose games to analyze. Only that
-    player's matches are read from the store.
+    player's matches are read from the store. `on_match(row, match, timeline)`, if given, is called
+    for every kept game while its JSON is already parsed (so extra analyses need no second parse).
     """
     if not puuid:
         return []
@@ -215,6 +217,8 @@ def load_games(store, puuid: str, include_all_queues: bool = False, queue: int |
             continue
         if queue is not None and row["queue_id"] != queue:
             continue
+        if on_match is not None:
+            on_match(row, match, timeline)
         games.append(row)
     games.sort(key=lambda g: (g.get("game_creation") or 0, str(g.get("match_id"))))
     add_session_info(games)
