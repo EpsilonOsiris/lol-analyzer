@@ -71,7 +71,7 @@
   <div class="heat-wrap">
     {{ pat.heat }}
   </div>
-  <p class="note">{{ pat.heat_points }} muertes. Más rojo = más muertes en ese punto. Esquina inferior izquierda = base azul; esquina superior derecha = base roja. La versión en texto de este mapa es la tabla «Dónde mueres».</p>
+  <p class="note">{{ pat.heat_points }} muertes. Más rojo = más muertes en ese punto. Tu base siempre está abajo a la izquierda: las partidas del lado rojo se reflejan para que se lean igual. La versión en texto de este mapa es la tabla «Dónde mueres».</p>
   {% if not pat.real_map %}<p class="note">Se muestra un mapa esquemático porque aún no se descarga el mapa real de Riot (Data Dragon); se descarga solo, una vez, si hay conexión.</p>{% endif %}
 </section>
 

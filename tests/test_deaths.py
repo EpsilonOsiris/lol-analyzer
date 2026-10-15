@@ -406,6 +406,13 @@ def test_heat_points_filters():
     assert dx.heat_points([win, loss], "antes14", "victorias") == [(1, 1)]
 
 
+def test_heat_points_mirror_red_side_so_own_base_is_bottom_left():
+    blue = game("g1", True, [{"early": True, "pos": (1000, 2000)}])
+    red = game("g2", True, [{"early": True, "pos": (1000, 2000)}])
+    blue["team"], red["team"] = 100, 200
+    assert dx.heat_points([blue, red]) == [(1000, 2000), (dx.MAP_SIZE - 1000, dx.MAP_SIZE - 2000)]
+
+
 # --------------------------------------------------------------------- plan
 def plan_games(n_each=6):
     """Losses have 3 deaths after an own kill, wins 0; everything else is identical in both."""

@@ -903,17 +903,23 @@ def aggregate(analyses: list[dict]) -> dict:
 
 
 def heat_points(analyses, phase="todas", result="todas") -> list[tuple[int, int]]:
-    """Death positions, optionally only before/after minute 14 and only in wins/losses."""
+    """Death positions, optionally only before/after minute 14 and only in wins/losses.
+
+    Red-side games are mirrored so the player's own base is always bottom-left; otherwise
+    "your side of the map" would be smeared across both halves.
+    """
     pts = []
     for a in analyses:
         if result == "victorias" and not a["win"] or result == "derrotas" and a["win"]:
             continue
+        red = a.get("team") == 200
         for d in a["deaths"]:
             if d["pos"] is None:
                 continue
             if phase == "antes14" and not d["early"] or phase == "despues14" and d["early"]:
                 continue
-            pts.append(d["pos"])
+            x, y = d["pos"]
+            pts.append((MAP_SIZE - x, MAP_SIZE - y) if red else (x, y))
     return pts
 
 
