@@ -141,7 +141,7 @@ def test_save_requires_header_and_json(client, root):
 
 
 def test_save_preserves_unknown_keys_and_comments(root):
-    write_env(root, "# mis cosas\r\nRIOT_API_KEY_RYUK=ryuk-secret\r\n\r\n"
+    write_env(root, "# mis cosas\r\nRIOT_API_KEY_OTRA=otra-secreta\r\n\r\n"
                     f"RIOT_API_KEY={RIOT_KEY}\r\nRIOT_ID=Viejo#LAN\r\nPLATFORM=la1\r\n"
                     "# fin\r\nOTRA=1\r\n")
     c = web.create_app(root).test_client()
@@ -151,7 +151,7 @@ def test_save_preserves_unknown_keys_and_comments(root):
     assert "\r\n" in raw and "\n" not in raw.replace("\r\n", "")      # EOL style kept
     lines = raw.splitlines()
     assert lines[0] == "# mis cosas" and "# fin" in lines and "OTRA=1" in lines
-    assert "RIOT_API_KEY_RYUK=ryuk-secret" in lines
+    assert "RIOT_API_KEY_OTRA=otra-secreta" in lines
     values = env(root)
     assert values["RIOT_ID"] == "Nuevo#TAG" and values["PLATFORM"] == "euw1"
     assert values["REGION"] == "europe"
