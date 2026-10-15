@@ -94,7 +94,8 @@ main.wrap { padding-bottom: 2rem; }
 .card.good { border-top: 3px solid var(--win-bar); }
 .card.bad { border-top: 3px solid var(--loss-bar); }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 0 1rem; }
-.grid-2 > .card { min-width: 0; }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 0 1rem; }
+.grid-2 > .card, .grid-3 > .card { min-width: 0; }
 .empty { text-align: center; padding: 2rem 1rem; margin-top: 1.5rem; }
 .empty h1 { justify-content: center; }
 .crumb { margin: 1rem 0 0; font-size: .9rem; }

@@ -4,7 +4,7 @@
 {% block content %}
 <h1>Resumen <span class="sub">{% if show_picker and jugador %}{{ jugador.riot_id }} · {% endif %}{{ queue_labels[cola] }}</span></h1>
 
-{% if pat %}<p class="jump">Ir a: <a href="#patrones">Patrones de tus muertes</a> · <a href="#mapa-calor">Mapa de calor</a> · <a href="#plan">Plan de mejora</a></p>{% endif %}
+{% if pat %}<p class="jump">Ir a: <a href="#patrones">Patrones de tus muertes</a> · <a href="#mapa-calor">Mapa de calor</a> · <a href="#rivales">Rivales</a> · <a href="#plan">Plan de mejora</a></p>{% endif %}
 
 <section class="stats" aria-label="Indicadores">
   {{ m.stat("Partidas", o.games, o.wins ~ " victorias · " ~ (o.games - o.wins) ~ " derrotas") }}

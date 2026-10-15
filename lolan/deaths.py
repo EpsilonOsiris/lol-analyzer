@@ -506,6 +506,8 @@ def _context(game) -> dict:
     enemy = [p for p in parts.values() if p["team"] != game.team]
     jungler = next((p for p in enemy if p["role"] == "JUNGLE"), None)
     bot = [p for r in ("BOTTOM", "UTILITY") for p in enemy if p["role"] == r]
+    adc = next((p for p in enemy if p["role"] == "BOTTOM"), None)
+    support = next((p for p in enemy if p["role"] == "UTILITY"), None)
     opp = find_lane_opponent(game.info.get("participants"), game.me_raw) if game.me_raw else None
     return {
         "lane_opponent": opp.get("championName") if opp else None,
@@ -513,6 +515,10 @@ def _context(game) -> dict:
         "enemy_jungler_pid": jungler["pid"] if jungler else None,
         "enemy_bot": [p["champion"] for p in bot],
         "enemy_bot_pids": [p["pid"] for p in bot],
+        "enemy_adc": adc["champion"] if adc else None,
+        "enemy_adc_pid": adc["pid"] if adc else None,
+        "enemy_support": support["champion"] if support else None,
+        "enemy_support_pid": support["pid"] if support else None,
     }
 
 
@@ -833,8 +839,18 @@ def deaths_of(analyses):
     return [(a["win"], d) for a in analyses for d in a["deaths"]]
 
 
-def matchup_table(analyses, key_func, min_games=MIN_MATCHUP_GAMES) -> list[dict]:
-    """Games, deaths per game and winrate against each opponent key (rows with enough games)."""
+def _took_part(d, pid) -> bool:
+    """Whether participant `pid` killed or assisted in death `d`."""
+    people = ([d["killer"]] if d.get("killer") else []) + list(d.get("assisters") or [])
+    return any(isinstance(p, dict) and p.get("pid") == pid for p in people)
+
+
+def matchup_table(analyses, key_func, min_games=MIN_MATCHUP_GAMES, pid_func=None) -> list[dict]:
+    """Games, deaths per game and winrate against each opponent key (rows with enough games).
+
+    With `pid_func` (the opponent's participant id in each game) rows also count the player's
+    deaths in which that opponent got the kill or an assist.
+    """
     buckets = defaultdict(list)
     for a in analyses:
         key = key_func(a)
@@ -846,15 +862,23 @@ def matchup_table(analyses, key_func, min_games=MIN_MATCHUP_GAMES) -> list[dict]
             continue
         deaths = sum(len(a["deaths"]) for a in games)
         wins = sum(1 for a in games if a["win"])
-        rows.append({"key": key, "games": len(games), "wins": wins, "winrate": wins / len(games),
-                     "deaths": deaths, "deaths_pg": deaths / len(games)})
+        row = {"key": key, "games": len(games), "wins": wins, "winrate": wins / len(games),
+               "deaths": deaths, "deaths_pg": deaths / len(games)}
+        if pid_func is not None:
+            by_them = sum(1 for a in games for d in a["deaths"] if _took_part(d, pid_func(a)))
+            row["by_them"], row["by_them_pg"] = by_them, by_them / len(games)
+        rows.append(row)
     rows.sort(key=lambda r: (-r["games"], str(r["key"])))
     return rows
 
 
-def _bot_duo(a):
-    bot = a["context"]["enemy_bot"]
-    return " + ".join(champion_display(c) for c in bot) if len(bot) == 2 else None
+def _rival_table(analyses, role):
+    """Matchup rows against the enemy in `role` ("jungler", "adc" or "support")."""
+    champ, pid = f"enemy_{role}", f"enemy_{role}_pid"
+    return matchup_table(
+        analyses,
+        lambda a: champion_display(a["context"].get(champ)) if a["context"].get(champ) else None,
+        pid_func=lambda a: a["context"].get(pid))
 
 
 def aggregate(analyses: list[dict]) -> dict:
@@ -896,9 +920,9 @@ def aggregate(analyses: list[dict]) -> dict:
         "enemy_side": _split(items, lambda d: d["side"] == "enemigo", lambda d: d["side"] is not None),
         "zones": zone_rows,
         "objectives": objectives,
-        "junglers": matchup_table(analyses, lambda a: champion_display(a["context"]["enemy_jungler"])
-                                  if a["context"]["enemy_jungler"] else None),
-        "bot_duos": matchup_table(analyses, _bot_duo),
+        "junglers": _rival_table(analyses, "jungler"),
+        "adcs": _rival_table(analyses, "adc"),
+        "supports": _rival_table(analyses, "support"),
     }
 
 

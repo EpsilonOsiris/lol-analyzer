@@ -75,43 +75,34 @@
   {% if not pat.real_map %}<p class="note">Se muestra un mapa esquemático porque aún no se descarga el mapa real de Riot (Data Dragon); se descarga solo, una vez, si hay conexión.</p>{% endif %}
 </section>
 
-<div class="grid-2">
-  <section class="card" id="junglas">
-    <h2>Contra qué junglas</h2>
-    {% if a.junglers %}
+{% macro rival_table(id, title, rows, header, empty) %}
+  <section class="card" id="{{ id }}">
+    <h2>{{ title }}</h2>
+    {% if rows %}
     <div class="table-wrap">
     <table class="sortable">
-      <thead><tr><th>Jungla enemiga</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Muertes por partida</th><th class="num" data-type="num">Winrate</th></tr></thead>
+      <thead><tr><th>{{ header }}</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Winrate</th><th class="num" data-type="num">Te mató o ayudó, por partida</th><th class="num" data-type="num">Tus muertes por partida</th></tr></thead>
       <tbody>
-      {% for r in a.junglers %}
-      <tr><td>{{ r.key }}</td><td class="num" data-v="{{ r.games }}">{{ r.games }}</td><td class="num" data-v="{{ r.deaths_pg }}">{{ r.deaths_pg|num(1) }}</td><td class="num" data-v="{{ r.winrate }}">{{ m.wr(r.winrate) }}</td></tr>
+      {% for r in rows %}
+      <tr><td>{{ r.key }}</td><td class="num" data-v="{{ r.games }}">{{ r.games }}</td><td class="num" data-v="{{ r.winrate }}">{{ m.wr(r.winrate) }}</td><td class="num" data-v="{{ r.by_them_pg }}">{{ r.by_them_pg|num(1) }}</td><td class="num" data-v="{{ r.deaths_pg }}">{{ r.deaths_pg|num(1) }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
     </div>
-    <p class="note">Solo junglas con 3 partidas o más. Haz clic en un encabezado para ordenar.</p>
     {% else %}
-    <p class="muted">Aún no hay una jungla enemiga con 3 partidas o más.</p>
+    <p class="muted">{{ empty }}</p>
     {% endif %}
   </section>
-  <section class="card" id="duos">
-    <h2>Contra qué dúos de bot</h2>
-    {% if a.bot_duos %}
-    <div class="table-wrap">
-    <table class="sortable">
-      <thead><tr><th>Dúo enemigo (ADC + soporte)</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Muertes por partida</th><th class="num" data-type="num">Winrate</th></tr></thead>
-      <tbody>
-      {% for r in a.bot_duos %}
-      <tr><td>{{ r.key }}</td><td class="num" data-v="{{ r.games }}">{{ r.games }}</td><td class="num" data-v="{{ r.deaths_pg }}">{{ r.deaths_pg|num(1) }}</td><td class="num" data-v="{{ r.winrate }}">{{ m.wr(r.winrate) }}</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <p class="note">Solo dúos con 3 partidas o más. «Muertes por partida» cuenta todas tus muertes de esas partidas, no solo las de la línea.</p>
-    {% else %}
-    <p class="muted">Aún no hay un dúo enemigo con 3 partidas o más.</p>
-    {% endif %}
-  </section>
+{% endmacro %}
+
+<section class="card" id="rivales">
+  <h2>Contra qué rivales</h2>
+  <p class="note">Cada rival por separado, en las partidas en que jugó ese rol contra ti. «Te mató o ayudó» cuenta tus muertes en las que ese campeón hizo la kill o una asistencia; «Tus muertes» cuenta todas tus muertes de esas partidas. Solo campeones con 3 partidas o más. Haz clic en un encabezado para ordenar.</p>
+</section>
+<div class="grid-3">
+{{ rival_table("junglas", "Junglas rivales", a.junglers, "Jungla enemiga", "Aún no hay una jungla enemiga con 3 partidas o más.") }}
+{{ rival_table("adcs", "ADC rivales", a.adcs, "ADC enemigo", "Aún no hay un ADC enemigo con 3 partidas o más.") }}
+{{ rival_table("soportes", "Soportes rivales", a.supports, "Soporte enemigo", "Aún no hay un soporte enemigo con 3 partidas o más.") }}
 </div>
 
 <section class="card" id="plan">

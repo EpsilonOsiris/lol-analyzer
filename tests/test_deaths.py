@@ -187,7 +187,9 @@ def test_death_record_facts():
     ]
     a = analyze(events, tweak=tweak_state)
     assert a["context"] == {"lane_opponent": "Zed", "enemy_jungler": "Champ7", "enemy_jungler_pid": 7,
-                            "enemy_bot": ["Champ9", "Champ10"], "enemy_bot_pids": [9, 10]}
+                            "enemy_bot": ["Champ9", "Champ10"], "enemy_bot_pids": [9, 10],
+                            "enemy_adc": "Champ9", "enemy_adc_pid": 9,
+                            "enemy_support": "Champ10", "enemy_support_pid": 10}
     assert len(a["deaths"]) == 1
     d = a["deaths"][0]
     assert d["t"] == 5 * MIN and d["clock"] == "5:00" and d["early"]
@@ -349,7 +351,8 @@ def game(match_id, win, deaths_specs, enemy_jungler="Wukong", bot=("Jinx", "Thre
         deaths.append(d)
     return {"match_id": match_id, "win": win, "created": int(match_id[1:]) if match_id[1:].isdigit() else 0,
             "champion": "Jinx", "deaths": deaths, "objectives_lost": list(objs),
-            "context": {"enemy_jungler": enemy_jungler, "enemy_bot": list(bot)}}
+            "context": {"enemy_jungler": enemy_jungler, "enemy_jungler_pid": 7, "enemy_bot": list(bot),
+                        "enemy_adc": bot[0], "enemy_adc_pid": 9, "enemy_support": bot[1], "enemy_support_pid": 10}}
 
 
 def test_aggregate_splits_wins_and_losses():
@@ -372,6 +375,17 @@ def test_aggregate_splits_wins_and_losses():
     assert zones == {"Línea de bot · tu lado": 3, "Línea de bot · lado enemigo": 1}
 
 
+def test_rival_rows_count_deaths_that_rival_took_part_in():
+    by_jg = {"killer": {"pid": 7}, "assisters": []}
+    by_adc = {"killer": {"pid": 9}, "assisters": [{"pid": 7}]}
+    other = {"killer": {"pid": 3}, "assisters": []}
+    games = [game(f"g{i}", True, [by_jg, by_adc, other]) for i in range(3)]
+    ag = dx.aggregate(games)
+    jg, adc, sup = ag["junglers"][0], ag["adcs"][0], ag["supports"][0]
+    assert (jg["by_them"], jg["by_them_pg"], jg["deaths_pg"]) == (6, 2.0, 3.0)  # kill or assist both count
+    assert (adc["by_them"], sup["by_them"]) == (3, 0)
+
+
 def test_aggregate_objectives_and_empty():
     objs = [{"kind": "dragon", "dead": True, "far": False, "died_recently": True, "distance": 100},
             {"kind": "baron", "dead": False, "far": True, "died_recently": False, "distance": 6000},
@@ -392,7 +406,9 @@ def test_matchup_tables_need_three_games():
     row = ag["junglers"][0]
     assert row["games"] == 3 and row["deaths"] == 6 and row["deaths_pg"] == 2.0
     assert row["winrate"] == pytest.approx(2 / 3)
-    assert [r["key"] for r in ag["bot_duos"]] == ["Jinx + Thresh"] and ag["bot_duos"][0]["games"] == 4
+    # Rivals are counted one by one, not as a duo: Thresh has 4 games; Brand only 1.
+    assert [r["key"] for r in ag["adcs"]] == ["Jinx"] and ag["adcs"][0]["games"] == 4
+    assert [r["key"] for r in ag["supports"]] == ["Thresh"]
     assert dx.matchup_table(games, lambda a: "x", min_games=6) == []
 
 

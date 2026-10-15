@@ -67,7 +67,8 @@ def test_pages_with_a_ddragon_cache_show_icons_and_serve_them(root, tmp_path):
 def test_summary_patterns_and_plan(client):
     html = text(client.get("/?cola=solo"))
     assert "Patrones de tus muertes" in html and "Mapa de calor de tus muertes" in html
-    assert "Contra qué junglas" in html and "Contra qué dúos de bot" in html
+    assert "Contra qué rivales" in html and "Junglas rivales" in html
+    assert "ADC rivales" in html and "Soportes rivales" in html and "Te mató o ayudó" in html
     assert 'id="plan"' in html and "Se necesitan al menos 8 partidas" in html     # only 6 solo games
     assert "En victorias" in html and "En derrotas" in html
     assert '<svg class="minimap heat-map"' in html
