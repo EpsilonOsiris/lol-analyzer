@@ -704,7 +704,20 @@ def enrich(report: dict, assets: Assets) -> dict:
             p["history_text"] = history_text(p.get("history"), viewer_label, assets.champion_by_name)
         for b in out["bans"][side]:
             b["champion_name"], b["icon"] = assets.champion(b["champion_id"])
+    _enrich_duelos(out.get("duelos"), assets)
     return out
+
+
+def _enrich_duelos(duelos, assets: Assets) -> None:
+    """Names and icons for the champions of the lane matchups (in place)."""
+    if not isinstance(duelos, dict):
+        return
+    for lane in duelos.get("lanes") or []:
+        for side in ("ally", "enemy"):
+            lane[side]["champion_name"], lane[side]["icon"] = assets.champion(lane[side]["champion_id"])
+    for duo in (duelos.get("duo") or {}).values():
+        for key in ("adc", "support"):
+            duo[f"{key}_name"], duo[f"{key}_icon"] = assets.champion(duo[f"{key}_id"])
 
 
 # ------------------------------------------------------------------------- text

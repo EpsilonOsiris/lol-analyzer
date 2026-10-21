@@ -177,6 +177,17 @@ Dentro de **En vivo** (y también en el modo stream) hay una sección **Rivales 
 - **No corre junto a una sincronización.** Comparten el mismo cupo de peticiones: el botón responde con un mensaje amable, y la búsqueda automática espera a que termine la sincronización.
 - **Política de Riot.** Solo se muestra lo que la API de Riot expone sobre la cuenta de cada jugador (rango, maestría, historial de partidas) y su Riot ID público; nada de esperas de hechizos en vivo, ni «dodge» ni consejos sobre qué hacer. Si algún día Riot cambia sus reglas, esta sección se puede quitar sin afectar al resto.
 
+#### Duelos por línea y probabilidad estimada (OP.GG)
+
+Dentro de **Rivales y aliados**, en partidas de la Grieta con 5 contra 5, el panel añade (en segundo plano, después del escaneo y sin retrasarlo) el bloque **Duelos por línea** y una **probabilidad estimada** de que gane tu equipo:
+
+- **De dónde salen los datos.** Del servidor MCP público y oficial de OP.GG (`https://mcp-api.op.gg/mcp`, sin key). Para cada línea se pide la tasa de victorias de tu campeón contra el campeón enemigo (`lol_get_lane_matchup_guide`; el % es el de **tu** campeón) y, para el dúo tirador + soporte de cada equipo, su tasa conjunta (`lol_get_champion_synergies`). OP.GG no deja filtrar por rango estos duelos: son datos de **todos los rangos**, y la pantalla lo dice. Con menos de 200 partidas en el duelo no se muestra el % («Pocos datos»). Verde = favorable (52 % o más), rojo = desfavorable (48 % o menos), gris azulado = parejo. Junto a tu línea aparece **tu propio historial** contra ese campeón (de tus partidas guardadas) si tienes 3 o más.
+- **Las líneas se deducen.** Spectator no dice quién juega dónde: se asigna con Aplastar (jungla), los porcentajes de línea de cada campeón en OP.GG y, para los jugadores registrados, la línea que más juegan en tu base de datos (se prueban las 120 combinaciones por equipo). Si una línea es dudosa aparece «posición dudosa».
+- **Es una estimación.** `logit(P) = w0 + 0,5 · suma de logit(tasa de cada línea) + 0,5 · (dúo propio − dúo enemigo) + 0,1 · (rango medio propio − enemigo, en ligas de 400 puntos cada una)`, con cada tasa acercada al 50 % según su muestra y el resultado limitado a 25–75 %, porque las cinco líneas no son independientes. Con menos de 3 líneas con datos no se muestra nada. Dice «aún sin calibrar» hasta que se compruebe.
+- **Calibración con el tiempo.** Cada estimación mostrada al empezar la partida se guarda en `data/lol.db` (tabla `predictions`); cuando sincronizas esa partida se anota si ganó tu equipo. Con 20 resultados aparece «Acierta el X % (N partidas, Brier B)». Con 100 o más, el panel prueba a reajustar los pesos (regresión logística con penalización hacia los pesos por defecto, en Python puro, dejando fuera de la prueba el 25 % más reciente) y **solo si ganan a los pesos por defecto** en esas partidas aparte los guarda en `data/winprob_model.json` (se puede borrar para volver a los pesos por defecto).
+- **Cuántas peticiones.** Unas 9 a OP.GG por partida en frío (5 duelos, 2 dúos, lista de campeones y porcentajes de línea); todo se guarda 24 horas en la tabla `opgg_cache` y se invalida al cambiar de parche. Si OP.GG no responde, la sección dice «Sin datos de OP.GG» y el resto del escaneo sigue igual. Para desactivarlo del todo, define la variable de entorno `LOLAN_OPGG=off`.
+- **Política.** Solo datos: nada de consejos sobre qué elegir ni sobre abandonar la partida.
+
 Para pruebas automáticas, la variable `LOLAN_TEST_RIOT_URL` cambia la dirección de la API de Riot (solo acepta direcciones locales; no la uses normalmente).
 
 ## Dónde queda todo
@@ -184,6 +195,7 @@ Para pruebas automáticas, la variable `LOLAN_TEST_RIOT_URL` cambia la direcció
 | Ruta | Contenido |
 |---|---|
 | `data/lol.db` | Base de datos SQLite con el JSON crudo de cada partida y timeline (y la caché de 6 horas del escaneo de Rivales, tabla `scout_cache`) |
+| `data/winprob_model.json` | Pesos reajustados de la probabilidad estimada de En vivo (solo existe tras 100 partidas con resultado; se puede borrar) |
 | `data/gold_model.json` | Coeficientes y errores del modelo de oro estimado de la página En vivo (se recalcula solo; se puede borrar) |
 | `data/ddragon/` | Mapa, íconos y nombres (habilidades, hechizos de invocador, runas) en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |

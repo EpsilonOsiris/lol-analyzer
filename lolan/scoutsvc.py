@@ -16,6 +16,7 @@ import time
 import traceback
 
 from . import comps
+from . import duelos as duelos_mod
 from .config import ConfigError, load_config
 from .players import load_roster
 from .riot import (ApiSlot, InvalidApiKeyError, Limiters, MissingApiKeyError, NotFoundError, RiotError)
@@ -41,7 +42,8 @@ NO_RIOT_ID_MESSAGE = "Falta tu Riot ID (formato Nombre#TAG): escrÃ­belo en la pÃ
 
 class ScoutService:
     def __init__(self, root, limiters: Limiters, slot: ApiSlot, client_factory, health: KeyHealth | None = None,
-                 notify=None, clock=time.time, poll_s: float = POLL_S, resolver: PuuidResolver | None = None):
+                 notify=None, clock=time.time, poll_s: float = POLL_S, resolver: PuuidResolver | None = None,
+                 duelos=None):
         """`client_factory(api_key, host) -> RiotClient-like` (host: the platform or the region)."""
         self.root = root
         self.db_path = root / "data" / "lol.db"
@@ -52,6 +54,8 @@ class ScoutService:
         self._clock = clock
         self.poll_s = poll_s
         self.resolver = resolver or PuuidResolver()
+        self.duelos = duelos                # DuelosService: lane matchups from OP.GG, built after the report
+        self._duelos_thread: threading.Thread | None = None
         self.history = LocalHistory(lambda: Store(self.db_path))
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -131,6 +135,9 @@ class ScoutService:
     # ------------------------------------------------------------------- jobs
     def join(self, timeout=None) -> None:
         t = self._thread
+        if t is not None:
+            t.join(timeout)
+        t = self._duelos_thread
         if t is not None:
             t.join(timeout)
 
@@ -218,7 +225,14 @@ class ScoutService:
                 self._attached = game_seq if (is_main and live_status == "playing") else None
                 self._pending_after = game_seq
             self._reported_error = False
+            wants_duelos = self.duelos is not None and duelos_mod.eligible(report)
+            if wants_duelos:
+                report = {**report, "duelos": {"status": "pending"}}
             self._set(report=report, status="ready", message="", target=target)
+            if wants_duelos:
+                self._duelos_thread = threading.Thread(
+                    target=self._duelos_job, args=(report, cfg.platform, target), daemon=True, name="lolan-duelos")
+                self._duelos_thread.start()
         except MissingApiKeyError:
             self._error(MISSING_KEY_MESSAGE, manual)
         except InvalidApiKeyError:
@@ -253,6 +267,24 @@ class ScoutService:
             return run.run(game)
         finally:
             store.close()
+
+    def _duelos_job(self, report, platform, target) -> None:
+        """Lane matchups from OP.GG, added to the report that is already on screen."""
+        try:
+            store = Store(self.db_path)
+            try:
+                roster = load_roster(store, target)
+                ids = [p.riot_id for p in roster.players]
+            finally:
+                store.close()
+            result = self.duelos.build(report, platform=platform, viewer_riot_id=target, registered_ids=ids)
+        except Exception as exc:        # OP.GG is an extra: never let it break the scout
+            traceback.print_exc()
+            result = {"status": "error", "message": duelos_mod.NO_DATA_MESSAGE}
+        with self._lock:
+            current = self.report is report
+        if current:
+            self._set(report={**report, "duelos": result})
 
     def _no_game(self, target, is_main, manual) -> None:
         if manual:

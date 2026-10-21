@@ -241,3 +241,65 @@ main.stream-main { max-width: none; width: 100%; height: 100vh; padding: 10px 14
   .stream .sc-row { grid-template-columns: 1fr auto; }
   .stream .sc-teams { grid-template-columns: 1fr; }
 }
+
+/* ---------------------------------------------- duelos por línea (OP.GG) and win probability */
+.duelos { margin: .4rem 0 .6rem; padding: .4rem 0 .2rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.duelos h3 { font-size: .9rem; margin: .5rem 0 .3rem; }
+.duelos h3 small { font-weight: 400; }
+.duel-msg { margin: .2rem 0; font-size: .85rem; }
+.prob { display: grid; gap: .15rem; margin: 0 0 .3rem; }
+.prob-text { font-size: .95rem; }
+.prob-text b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.prob-bar { display: block; height: 10px; border-radius: 999px; background: var(--enemy); overflow: hidden; max-width: 520px; }
+.prob-bar i { display: block; height: 100%; background: var(--ally); }
+.prob-label { font-size: .74rem; }
+.duel-rows { display: grid; gap: 2px; }
+.duel { display: grid; grid-template-columns: 7.5rem auto minmax(0, 1fr) 9rem auto auto; gap: .1rem .6rem; align-items: center; padding: .15rem .3rem; border-radius: 6px; border-left: 4px solid var(--border); font-size: .82rem; }
+.duel.me { background: var(--surface-2); }
+.duel.tone-fav { border-left-color: var(--win); }
+.duel.tone-unfav { border-left-color: var(--loss); }
+.duel.tone-even { border-left-color: var(--accent); }
+.duel-lane { font-weight: 600; }
+.duel-doubt { display: inline-block; margin-left: .25rem; padding: 0 .35rem; border: 1px dashed var(--muted); border-radius: 999px; font-size: .64rem; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.duel-pair { display: inline-flex; align-items: center; gap: .3rem; }
+.duel-pair i { font-style: normal; color: var(--muted); font-size: .7rem; }
+.duel .champ { width: 26px; height: 26px; border-width: 2px; }
+.duel .champ.ph { font-size: .6rem; }
+.duel-names { color: var(--muted); font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.duel-nums { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.duel-nums small { color: var(--muted); font-size: .7rem; }
+.duel-chip { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .68rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.duel-chip.tone-fav { color: var(--win); border-color: var(--win); }
+.duel-chip.tone-unfav { color: var(--loss); border-color: var(--loss); }
+.duel-chip.tone-even { color: var(--accent); border-color: var(--accent); }
+.duel-own { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.duel-duo { display: flex; flex-wrap: wrap; gap: .1rem 1.2rem; align-items: center; margin: .35rem 0 0; font-size: .78rem; }
+.duo-side { display: inline-flex; align-items: center; gap: .25rem; }
+.champ.mini { width: 20px; height: 20px; border-width: 1px; display: inline-block; vertical-align: middle; }
+.duel-note { margin: .3rem 0 .1rem; font-size: .72rem; }
+@media (max-width: 760px) {
+  .duel { grid-template-columns: auto 1fr auto; }
+  .duel-lane { grid-column: 1 / -1; }
+  .duel-names { display: none; }
+  .duel-own { grid-column: 1 / -1; }
+}
+
+/* duelos in stream mode: five compact cells in one row, nothing but the numbers */
+.stream .duelos { margin: 2px 0 4px; padding: 2px 0; }
+.stream .duelos h3 { margin: 2px 0; font-size: .8rem; }
+.stream .prob { grid-template-columns: auto minmax(120px, 260px) 1fr; align-items: center; gap: 0 .8rem; margin: 0 0 2px; }
+.stream .prob-text small { display: none; }
+.stream .prob-label { font-size: .7rem; }
+.stream .duel-rows { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.stream .duel { grid-template-columns: auto 1fr; padding: 2px 4px; gap: 0 .4rem; font-size: .75rem; }
+.stream .duel-lane { grid-column: 1 / -1; font-size: .72rem; }
+.stream .duel-names, .stream .duel-note { display: none; }
+.stream .duel-nums { grid-column: 2; }
+.stream .duel-chip { grid-column: 1 / -1; justify-self: start; font-size: .64rem; padding: 0 .35rem; }
+.stream .duel-own { grid-column: 1 / -1; white-space: normal; }
+.stream .duel-duo { margin: 2px 0 0; font-size: .72rem; }
+@media (max-width: 760px) {
+  .stream .duel-rows { grid-template-columns: 1fr; }
+  .stream .duel { grid-template-columns: auto 1fr auto; }
+  .stream .prob { grid-template-columns: 1fr; }
+}

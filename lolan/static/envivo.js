@@ -267,6 +267,58 @@
     var html = side(bans.ally, 'Bans de tu equipo') + side(bans.enemy, 'Bans enemigos');
     return html ? '<div class="sc-bans">' + html + '</div>' : '';
   }
+  // ---- duelos por línea (OP.GG) and the estimated win probability: data only, no advice
+  var DUEL_TONES = { fav: 'Favorable', even: 'Parejo', unfav: 'Desfavorable', few: 'Pocos datos', none: 'Sin datos' };
+  function duelIcon(side, cls) {
+    var icon = side.icon
+      ? '<img class="' + cls + '" src="' + esc(side.icon) + '" alt="" title="' + esc(side.champion_name) + '">'
+      : '<span class="' + cls + ' ph" title="' + esc(side.champion_name) + '">' + esc(String(side.champion_name || '?').slice(0, 2)) + '</span>';
+    return icon;
+  }
+  function duelRow(l) {
+    var gamesText = l.games != null ? plural(l.games, 'partida', 'partidas') : '—';
+    var wr = l.wr_text ? '<b class="duel-wr">' + esc(l.wr_text) + '</b>' : '<span class="duel-wr muted">—</span>';
+    var doubt = l.low_confidence
+      ? ' <span class="duel-doubt" title="La línea de estos jugadores es una suposición (la partida no dice las posiciones)">posición dudosa</span>' : '';
+    var own = l.personal
+      ? '<small class="duel-own" title="Tu historial guardado contra este campeón en esta línea">Tu historial: ' +
+        esc(l.personal.text) + ' (' + l.personal.games + ')</small>' : '';
+    return '<div class="duel tone-' + esc(l.tone) + (l.ally.is_viewer ? ' me' : '') + '">' +
+      '<span class="duel-lane">' + esc(l.label) + doubt + '</span>' +
+      '<span class="duel-pair">' + duelIcon(l.ally, 'champ ally') + '<i aria-hidden="true">vs</i>' + duelIcon(l.enemy, 'champ enemy') + '</span>' +
+      '<span class="duel-names">' + esc(l.ally.champion_name) + ' contra ' + esc(l.enemy.champion_name) + '</span>' +
+      '<span class="duel-nums">' + wr + ' <small>' + esc(gamesText) + '</small></span>' +
+      '<span class="duel-chip tone-' + esc(l.tone) + '">' + esc(DUEL_TONES[l.tone] || '') + '</span>' + own + '</div>';
+  }
+  function duoHtml(duo, ownName) {
+    if (!duo || !duo.ally || !duo.enemy) return '';
+    function one(d, title) {
+      var nums = d.games != null ? (d.wr_text ? d.wr_text + ' · ' : '') + plural(d.games, 'partida', 'partidas') : 'sin datos';
+      return '<span class="duo-side"><b>' + esc(title) + '</b> ' + duelIcon({ icon: d.adc_icon, champion_name: d.adc_name }, 'champ mini') +
+        '+' + duelIcon({ icon: d.support_icon, champion_name: d.support_name }, 'champ mini') + ' ' + esc(d.adc_name) + ' + ' +
+        esc(d.support_name) + ': ' + esc(nums) + '</span>';
+    }
+    return '<div class="duel-duo"><span class="muted">Dúo de línea (tirador + soporte)</span> ' +
+      one(duo.ally, ownName) + one(duo.enemy, 'Enemigo') + '</div>';
+  }
+  function probHtml(prob) {
+    if (!prob) return '';
+    var pct = Math.round(prob.value * 100);
+    return '<div class="prob"><span class="prob-text">Probabilidad estimada: <b>' + esc(prob.text) + '</b> <small class="muted">de que gane tu equipo</small></span>' +
+      '<span class="prob-bar" role="img" aria-label="' + esc('Probabilidad estimada de ganar tu equipo: ' + prob.text) + '"><i style="width:' + pct + '%"></i></span>' +
+      '<small class="prob-label muted">' + esc(prob.label) + '</small></div>';
+  }
+  function duelosHtml(d, own) {
+    if (!d || d.status === 'na') return '';
+    if (d.status === 'pending') return '<div class="duelos"><p class="muted duel-msg">Calculando duelos con OP.GG…</p></div>';
+    if (d.status === 'error' || d.status === 'nodata') {
+      return '<div class="duelos"><p class="muted duel-msg">' + esc(d.message || 'Sin datos de OP.GG') + '</p></div>';
+    }
+    return '<div class="duelos">' + probHtml(d.prob) +
+      '<h3>Duelos por línea <small class="muted">· OP.GG, ' + esc(d.scope) + (d.patch ? ', parche ' + esc(d.patch) : '') + '</small></h3>' +
+      '<div class="duel-rows">' + d.lanes.map(duelRow).join('') + '</div>' + duoHtml(d.duo, own) +
+      '<p class="duel-note muted">' + esc(d.note) + (d.status === 'partial' ? ' Faltan datos de algunos duelos.' : '') + '</p></div>';
+  }
   function scoutReport(sc, status) {
     var r = sc.report, g = r.game, q = r.requests;
     var phase = status === 'playing' ? 'partida en curso' : status === 'finished' ? 'partida terminada'
@@ -276,6 +328,7 @@
       (q.from_cache ? ' · ' + plural(q.from_cache, 'jugador salió', 'jugadores salieron') + ' de la caché' : '') + '.';
     var skipped = q.skipped.length ? '<p class="sc-skip">Faltó: ' + q.skipped.map(esc).join('; ') + '.</p>' : '';
     return '<p class="sc-head"><b>' + esc(r.scouted.riot_id) + '</b> · ' + esc(g.queue_label) + ' · ' + esc(phase) + '</p>' +
+      duelosHtml(r.duelos, own) +
       '<div class="sc-teams">' + scoutTeam(own, 'ally', r.teams.ally) + scoutTeam('Equipo enemigo', 'enemy', r.teams.enemy) + '</div>' +
       bansHtml(r.bans) + '<p class="sc-foot muted">' + esc(foot) + '</p>' + skipped;
   }

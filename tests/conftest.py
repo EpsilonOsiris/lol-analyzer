@@ -133,6 +133,12 @@ def no_ddragon_network(monkeypatch):
     monkeypatch.setattr(ddragon, "default_fetch", refuse)
 
 
+@pytest.fixture(autouse=True)
+def no_opgg(monkeypatch):
+    """Tests never reach OP.GG: the panel builds no duelos service unless a test injects a fake one."""
+    monkeypatch.setenv("LOLAN_OPGG", "off")
+
+
 # ------------------------------------------------------------ composition helpers
 def make_comp_match(match_id="LA1_1", blue=None, red=None, win=True, queue=440, duration=1800,
                     created=BASE_TIME_MS, main_role="BOTTOM", spells=(4, 14), enemy_cc=None):

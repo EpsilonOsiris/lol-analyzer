@@ -38,6 +38,23 @@ CREATE TABLE IF NOT EXISTS scout_cache (
     fetched_at INTEGER NOT NULL,
     PRIMARY KEY (puuid, champion_id)
 );
+CREATE TABLE IF NOT EXISTS opgg_cache (
+    key TEXT PRIMARY KEY,
+    json TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    patch TEXT
+);
+CREATE TABLE IF NOT EXISTS predictions (
+    match_id TEXT PRIMARY KEY,
+    game_id INTEGER,
+    scouted TEXT NOT NULL,
+    features TEXT NOT NULL,
+    p REAL NOT NULL,
+    model TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    outcome INTEGER,
+    resolved_at INTEGER
+);
 """
 
 
@@ -309,6 +326,86 @@ class Store:
         now = time.time() if now is None else now
         with self.conn:
             cur = self.conn.execute("DELETE FROM scout_cache WHERE fetched_at < ?", (int(now - older_than_s),))
+        return cur.rowcount
+
+    # ------------------------------------------------------------ OP.GG cache
+    def get_opgg_cache(self, key: str, max_age_s: float, patch: str | None = None, now: float | None = None):
+        """{"v": value} of a cached OP.GG answer if younger than `max_age_s` and, when `patch` is
+        given, fetched on that same patch; else None."""
+        row = self.conn.execute(
+            "SELECT json, fetched_at, patch FROM opgg_cache WHERE key=?", (key,)).fetchone()
+        if row is None:
+            return None
+        now = time.time() if now is None else now
+        if now - row[1] > max_age_s or (patch is not None and row[2] != patch):
+            return None
+        try:
+            data = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) and "v" in data else None
+
+    def put_opgg_cache(self, key: str, value, patch: str | None = None, now: float | None = None) -> None:
+        now = int(time.time() if now is None else now)
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO opgg_cache(key, json, fetched_at, patch) VALUES (?, ?, ?, ?)",
+                (key, json.dumps({"v": value}, separators=(",", ":")), now, patch))
+
+    def prune_opgg_cache(self, older_than_s: float, now: float | None = None) -> int:
+        now = time.time() if now is None else now
+        with self.conn:
+            cur = self.conn.execute("DELETE FROM opgg_cache WHERE fetched_at < ?", (int(now - older_than_s),))
+        return cur.rowcount
+
+    # ------------------------------------------------------------ predictions
+    def put_prediction(self, match_id: str, game_id, scouted: str, features: dict, p: float, model: str,
+                       now: float | None = None) -> None:
+        """Remember the win probability shown for a game (replaces an earlier one for the same game)."""
+        now = int(time.time() if now is None else now)
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO predictions(match_id, game_id, scouted, features, p, model, created_at,"
+                " outcome, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                (match_id, game_id if isinstance(game_id, int) else None, scouted,
+                 json.dumps(features, separators=(",", ":")), float(p), model, now))
+
+    def pending_predictions(self) -> list[dict]:
+        return [self._prediction(r) for r in self.conn.execute(
+            "SELECT match_id, game_id, scouted, features, p, model, created_at, outcome, resolved_at "
+            "FROM predictions WHERE outcome IS NULL ORDER BY created_at")]
+
+    def resolved_predictions(self) -> list[dict]:
+        """Predictions whose game was later stored, oldest first."""
+        return [self._prediction(r) for r in self.conn.execute(
+            "SELECT match_id, game_id, scouted, features, p, model, created_at, outcome, resolved_at "
+            "FROM predictions WHERE outcome IS NOT NULL ORDER BY created_at, match_id")]
+
+    @staticmethod
+    def _prediction(row) -> dict:
+        try:
+            features = json.loads(row[3])
+        except (TypeError, ValueError):
+            features = {}
+        return {"match_id": row[0], "game_id": row[1], "scouted": row[2], "features": features, "p": row[4],
+                "model": row[5], "created_at": row[6], "outcome": row[7], "resolved_at": row[8]}
+
+    def resolve_prediction(self, match_id: str, won: bool, now: float | None = None) -> None:
+        now = int(time.time() if now is None else now)
+        with self.conn:
+            self.conn.execute("UPDATE predictions SET outcome=?, resolved_at=? WHERE match_id=?",
+                              (1 if won else 0, now, match_id))
+
+    def drop_prediction(self, match_id: str) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM predictions WHERE match_id=?", (match_id,))
+
+    def prune_predictions(self, older_than_s: float, now: float | None = None) -> int:
+        """Delete predictions that never got a result (dodged games) older than `older_than_s`."""
+        now = time.time() if now is None else now
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM predictions WHERE outcome IS NULL AND created_at < ?", (int(now - older_than_s),))
         return cur.rowcount
 
     def iter_matches(self, puuid: str | None = None):

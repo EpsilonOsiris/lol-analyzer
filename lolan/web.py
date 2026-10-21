@@ -18,7 +18,9 @@ from werkzeug.exceptions import NotFound
 from . import analyze as an
 from . import comps
 from . import deaths as dx
-from . import deathsview, mapview
+from . import deathsview
+from . import duelos as duelos_mod
+from . import mapview
 from . import goldmodel
 from . import live as lv
 from . import scout as sc
@@ -460,7 +462,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     live = live or lv.LivePoller(namer=live_champion_name)
     scout = ScoutService(
         root, limiters, slot, lambda key, host: RiotClient(key, region=host, limiter=limiters.for_host(host)),
-        health=health, notify=lambda: getattr(live, "touch", lambda: None)())
+        health=health, notify=lambda: getattr(live, "touch", lambda: None)(),
+        duelos=duelos_mod.make_service(root, dd))
     app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
                                "health": health, "ddragon": dd, "live": live, "scout": scout,
                                "limiters": limiters}
