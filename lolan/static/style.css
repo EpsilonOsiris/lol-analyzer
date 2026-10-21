@@ -372,3 +372,8 @@ td.wrap-cell { white-space: normal; min-width: 260px; }
 .rec-list > li { margin: .7rem 0; }
 .rec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; }
 .rec-list ul { margin-top: .2rem; }
+
+/* nav: dot that shows a game is running */
+.live-dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; background: var(--loss-bar); margin-left: .25rem; vertical-align: middle; }
+@media (prefers-reduced-motion: no-preference) { .live-dot { animation: live-blink 1.8s ease-in-out infinite; } }
+@keyframes live-blink { 50% { opacity: .35; } }

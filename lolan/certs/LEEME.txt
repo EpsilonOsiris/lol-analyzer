@@ -1,0 +1,8 @@
+riotgames.pem
+
+Certificado raiz publico de Riot Games ("LoL Game Engineering Certificate Authority") con el que se
+firma el certificado del cliente del juego (https://127.0.0.1:2999, Live Client Data API).
+
+Origen: https://static.developer.riotgames.com/docs/lol/riotgames.pem (documentacion oficial de Riot,
+"Game Client API"). Se incluye sin cambios. lolan/live.py comprueba la cadena del certificado del juego
+contra este archivo, solo para 127.0.0.1.

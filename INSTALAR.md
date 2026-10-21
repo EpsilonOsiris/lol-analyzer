@@ -73,10 +73,20 @@ El menú de arriba tiene estas secciones:
 - **Partidas:** la lista de todas tus partidas. Pulsa una para ver su «boleta»: tus puntos fuertes y débiles comparados con tu rival de línea y con tu propio historial.
 - **Clan:** una tabla para comparar a todos los jugadores registrados y cuánto ganan cuando juegan juntos.
 - **Jugadores:** aquí agregas o quitas a los miembros de tu clan.
+- **En vivo:** tu partida mientras juegas (ver «Ver tu partida en vivo y compartirla en Discord»).
 - **Sincronizar:** descarga partidas nuevas.
 - **Configuración:** tu Riot ID, servidor y keys.
 
 Arriba a la derecha puedes elegir la cola: **Solo/Dúo**, **Flex** o **Todas**.
+
+## Ver tu partida en vivo y compartirla en Discord
+
+1. Deja el panel abierto (la ventana negra de `abrir-panel.bat`) y entra a **En vivo** en el menú.
+2. Empieza una partida (también sirve la Herramienta de práctica). La página dice «Esperando partida…» y **se llena sola** cuando termina la pantalla de carga. Junto a «En vivo» en el menú aparece un punto rojo mientras juegas.
+3. Verás el marcador, a los 10 jugadores (como en TAB), el oro estimado, tus datos y cómo vas frente a tu propio historial. No hace falta ninguna key para esto y no se envía nada a internet: el panel solo lee lo que el juego muestra en tu mismo PC.
+4. **Para mostrarlo en Discord:** pulsa **«Modo stream (para compartir en Discord)»**, comparte **esa ventana del navegador** en Discord (o ábrela en un segundo monitor y compártelo) y ponla en pantalla completa con **F11**.
+
+El oro de los demás jugadores es una **estimación**: Riot solo da el oro real de quien está jugando. Cuando termina la partida se queda el resumen; en unos minutos puedes sincronizarla en **Sincronizar** para ver el análisis completo. Esta página no muestra tiempos de habilidades ni de objetivos del rival ni te da órdenes, porque las reglas de Riot no lo permiten.
 
 ## Agregar a tu clan
 
@@ -131,6 +141,9 @@ Las keys normales duran 24 horas. Consigue una nueva (ver «Renovar la key cada 
 
 **La prueba de la key dice «Sin conexión» o el panel «no se puede conectar»**
 Revisa tu internet. Si la tienes, prueba apagar un momento el antivirus o la VPN: algunos bloquean estos programas pequeños. Vuelve a intentarlo después.
+
+**«Esperando partida…» no cambia aunque ya estoy jugando**
+Espera a que termine la pantalla de carga: el juego solo responde cuando la partida ya empezó. Si el panel dice que el certificado del juego no coincide, tu antivirus puede estar cambiando los certificados locales: añade una excepción para el juego o el panel, o avísale a quien te ayuda con el programa.
 
 **El panel no se abre en el navegador**
 Mira que la ventana negra siga abierta. Luego abre el navegador y escribe esto en la barra de direcciones: `http://127.0.0.1:8765`

@@ -334,13 +334,20 @@ def test_sync_conflict_while_running(root, monkeypatch):
 def test_web_command_parses_and_runs(root, monkeypatch, capsys):
     ran = {}
 
+    class FakeLive:
+        def start(self):
+            ran["live_started"] = True
+
     class FakeApp:
+        extensions = {"lolan": {"live": FakeLive()}}
+
         def run(self, **kwargs):
             ran.update(kwargs)
 
     monkeypatch.setattr(web, "create_app", lambda r=None: FakeApp())
     assert main(["web", "--puerto", "9123", "--no-abrir"]) == 0
     assert ran["host"] == "127.0.0.1" and ran["port"] == 9123
+    assert ran["live_started"]                      # the panel starts reading the game client
     assert "http://127.0.0.1:9123/" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         main(["web", "--puerto", "99999"])

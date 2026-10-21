@@ -169,3 +169,11 @@ def set_final_stats(timeline, pid, **stats):
     pf = timeline["info"]["frames"][-1]["participantFrames"][str(pid)]
     pf.setdefault("championStats", {}).update(stats)
     return timeline
+
+
+@pytest.fixture(autouse=True)
+def no_gold_autofit(monkeypatch):
+    """The gold model is never refitted in the background during tests (they switch it on explicitly)."""
+    from lolan import goldmodel
+
+    monkeypatch.setattr(goldmodel, "AUTOFIT", False)

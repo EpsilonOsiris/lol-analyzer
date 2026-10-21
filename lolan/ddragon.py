@@ -11,6 +11,7 @@ Layout of the cache:
     <version>/data/es_MX/champion/<Id>.json   spells + passive of one champion
     <version>/data/es_MX/item.json            item names
     <version>/img/champion/<Id>.png           square icon
+    <version>/img/item/<id>.png               item icon (only the items a live game shows)
     <version>/img/map/map11.png               minimap (Summoner's Rift)
 """
 from __future__ import annotations
@@ -136,10 +137,21 @@ class NameBook:
         return ((info or {}).get("passive") or {}).get("name") or None
 
     def item(self, item_id):
-        if self._items is None:
+        if not self._items:         # also retried while empty: the file may be downloaded later
             self._items = (self._dd.read_json(f"{self.version}/data/{LANG}/item.json") or {}).get("data") or {}
         entry = self._items.get(str(item_id))
         return entry.get("name") if isinstance(entry, dict) else None
+
+    def item_cost(self, item_id):
+        """Total gold cost of the item (components included), or None when the item is not in the cache."""
+        self.item(item_id)
+        entry = (self._items or {}).get(str(item_id))
+        total = ((entry or {}).get("gold") or {}).get("total") if isinstance(entry, dict) else None
+        return total if isinstance(total, (int, float)) and not isinstance(total, bool) else None
+
+    def has_items(self) -> bool:
+        self.item(0)
+        return bool(self._items)
 
 
 class DDragon:
@@ -213,6 +225,13 @@ class DDragon:
         if not version:
             return None
         rel = f"{version}/img/champion/{self.champion_id(version, name)}.png"
+        return rel if self.has(rel) else None
+
+    def item_icon_rel(self, version, item_id) -> str | None:
+        """Cache-relative path of the item icon, or None while it is not downloaded."""
+        if not version or not str(item_id).isdigit():
+            return None
+        rel = f"{version}/img/item/{int(item_id)}.png"
         return rel if self.has(rel) else None
 
     def minimap_rel(self) -> str | None:
@@ -301,7 +320,7 @@ class DDragon:
                 self._mark_down()
         return self.versions()
 
-    def _run_game_job(self, game_version, champions, minimap) -> None:
+    def _run_game_job(self, game_version, champions, minimap, items=()) -> None:
         versions = self._ensure_versions()
         version = pick_version(versions, game_version)
         if version is None:
@@ -318,6 +337,8 @@ class DDragon:
             latest = pick_version(versions, None)
             tasks.append((f"{latest}/{MINIMAP}", f"{BASE_URL}/cdn/{latest}/{MINIMAP}"))
         tasks.append((f"{data_rel}/item.json", f"{BASE_URL}/cdn/{version}/data/{LANG}/item.json"))
+        for item_id in items:
+            tasks.append((f"{version}/img/item/{item_id}.png", f"{BASE_URL}/cdn/{version}/img/item/{item_id}.png"))
         offline = False
         with ThreadPoolExecutor(max_workers=6) as pool:
             for future in [pool.submit(self._download, rel, url) for rel, url in tasks]:
@@ -352,18 +373,20 @@ class DDragon:
                 self._worker.start()
         self._jobs.put((key, func))
 
-    def prepare(self, game_versions=(None,), champions=(), wait: float = 0.0, minimap: bool = True) -> None:
+    def prepare(self, game_versions=(None,), champions=(), wait: float = 0.0, minimap: bool = True,
+                items=()) -> None:
         """Queue the downloads a page needs and wait for them at most `wait` seconds.
 
         `game_versions` are the game patches involved (None = the latest Data Dragon version).
         Nothing is queued while downloads are paused after a failure.
         """
         champs = tuple(sorted({c for c in champions if c}))
+        item_ids = tuple(sorted({int(i) for i in items if str(i).isdigit()}))
         for gv in dict.fromkeys(game_versions):
             if self._is_down():
                 break
-            key = ("game", gv, champs, minimap)
-            self._submit(key, lambda gv=gv: self._run_game_job(gv, champs, minimap))
+            key = ("game", gv, champs, minimap, item_ids)
+            self._submit(key, lambda gv=gv: self._run_game_job(gv, champs, minimap, item_ids))
         if wait > 0:
             self.wait(wait)
 

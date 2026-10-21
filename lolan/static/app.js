@@ -45,3 +45,28 @@
     sel.addEventListener('change', function () { sel.form.submit(); });
   });
 })();
+
+// Menu dot "En vivo": pages that stay open learn when a game starts or ends (not needed on the live page).
+(function () {
+  var link = document.getElementById('nav-live');
+  if (!link || link.getAttribute('aria-current') || typeof fetch === 'undefined') return;
+  function paint(playing) {
+    var dot = link.querySelector('.live-dot');
+    if (playing && !dot) {
+      dot = document.createElement('span');
+      dot.className = 'live-dot';
+      dot.setAttribute('role', 'img');
+      dot.setAttribute('aria-label', 'Hay una partida en curso');
+      dot.title = 'Hay una partida en curso';
+      link.appendChild(document.createTextNode(' '));
+      link.appendChild(dot);
+    } else if (!playing && dot) {
+      dot.remove();
+    }
+  }
+  setInterval(function () {
+    if (document.hidden) return;
+    fetch('/api/en-vivo/estado', { cache: 'no-store' }).then(function (r) { return r.json(); })
+      .then(function (d) { paint(d.status === 'playing'); }).catch(function () {});
+  }, 10000);
+})();

@@ -138,11 +138,32 @@ Para las partidas con timeline (las que no se descargaron con `--no-timeline`) e
 
 **Mapa e íconos.** La primera vez que abres una partida con timeline, el panel descarga una sola vez, de Data Dragon (el CDN público de Riot, sin enviar nada tuyo), el mapa, los íconos de los campeones de esa partida y sus nombres de habilidades en español (es_MX), y los guarda en `data/ddragon/`. Usa la versión del parche de la partida cuando existe. La descarga corre en segundo plano y una página nunca espera más de unos segundos: sin conexión (o mientras baja) se ve un mapa esquemático y las iniciales de cada campeón, y se reintenta más tarde.
 
+## En vivo (tu partida mientras juegas)
+
+La página **En vivo** del menú muestra la partida que estás jugando, pensada sobre todo para **compartir la ventana con tu clan en Discord**. El punto rojo junto a «En vivo» en el menú indica que hay una partida en curso.
+
+**Cómo funciona.** El cliente del juego, mientras hay una partida, responde en tu propio equipo en `https://127.0.0.1:2999/liveclientdata/` (la «Live Client Data API» de Riot). El panel la lee desde ahí, en el mismo PC: **no se envía nada a ningún lado y no usa tu key de Riot** (tampoco la de Gemini). Sin partida, el panel solo comprueba cada 5 segundos si el juego responde; cuando alguien tiene la página abierta y hay partida, lee cada segundo. Funciona también en la Herramienta de práctica y en partidas personalizadas. Al terminar la partida se queda el resumen final hasta que empiece otra; en unos minutos puedes sincronizarla en **Sincronizar** para ver el análisis completo.
+
+**Qué muestra** (solo lo que ya ves en pantalla con TAB, en el registro de eventos y en tus estadísticas):
+
+- Reloj, modo, marcador (asesinatos), torres, inhibidores, dragones (con su tipo), heraldos y barones de cada equipo.
+- Los 10 jugadores: campeón, nivel, KDA, CS, puntuación de visión, objetos (íconos de Data Dragon), y si están muertos con su cuenta atrás de reaparición, igual que en TAB.
+- **Valor en objetos** de cada jugador: el oro ya gastado en sus objetos (suma del precio de cada uno, por unidad en pociones y wards), con la diferencia frente a su rival de línea (misma posición) y el total de cada equipo. No es el oro actual: Riot solo entrega el oro actual del jugador que está jugando (el tuyo, que se muestra tal cual). Los precios salen de Data Dragon (`data/ddragon/`); sin precios guardados y sin conexión se ve «—».
+- **Oro total estimado («≈ Oro total») y «sin gastar»**: un modelo lineal (mínimos cuadrados, en Python puro) con el minuto, el CS, los kills y las asistencias del jugador, calibrado con tus partidas guardadas con timeline (todos los jugadores de cada partida, desde el minuto 2). Se ajusta con el 80 % de las partidas y su error típico por fase se mide con el 20 % restante, y es el «±» que se muestra. Los coeficientes y los errores quedan en `data/gold_model.json`, que se vuelve a calcular solo, en segundo plano, cuando faltan o cuando hay 20 partidas guardadas más que la última vez; mientras tanto se usan valores de referencia. «Sin gastar» es el estimado menos el valor en objetos (redondeado a 100) y es solo aproximado: no cuenta pociones o wards consumidos, objetos vendidos, tropas ni recompensas por objetivos. Para ti se muestra tu oro real.
+- **Tú contra tu historial**: tu CS actual junto a tu promedio con ese campeón a esta altura de la partida (interpolado entre tus promedios a los 7, 14 y 21 minutos; con menos de 3 partidas con ese campeón se usa tu rol y luego todas tus partidas), tu CS a los 7, 14 y 21 minutos de esta partida (si el panel estaba abierto) y tu dif. de oro a los 14 de promedio. Además, las metas de tu **Plan de mejora** que se pueden contar en vivo con los eventos de la partida (muertes antes del minuto 14, muertes en el minuto siguiente a una kill tuya, muertes contra 3 o más rivales, muertes antes del 14 con el jungla enemigo), como un dato: «2 · meta: máximo 1». Las demás metas se marcan como «no se puede contar en vivo». Todo se calcula con tu jugador principal (el Riot ID de Configuración).
+
+**Qué NO muestra, a propósito.** La política de Riot para productos con datos del juego prohíbe mostrar información que no está en el cliente y da ventaja competitiva (por ejemplo, las esperas de las definitivas enemigas) y no aprueba apps que dicten las decisiones del jugador. Por eso esta página **no** muestra las esperas de hechizos de invocador ni de definitivas enemigas, **ni** cuenta atrás de reaparición de objetivos o inhibidores, **ni** da consejos o alertas del tipo «vuelve a base» o «pelea ahora». Los datos de tu historial se muestran como números neutros.
+
+**Modo stream.** El botón «Modo stream (para compartir en Discord)» abre `/en-vivo?stream=1`: sin menú, pie ni avisos, siempre oscuro, con letra grande y un diseño que cabe en 1280×720 sin desplazarse. Comparte esa ventana del navegador en Discord (o ábrela en un segundo monitor y compártelo) y ponla en pantalla completa con F11.
+
+**Certificado.** El juego usa un certificado propio. Se comprueba su cadena contra el certificado raíz de Riot incluido en `lolan/certs/riotgames.pem` (descargado de la documentación de Riot, ver `lolan/certs/LEEME.txt`) y solo para `127.0.0.1`; el nombre del servidor no se comprueba porque el certificado no está emitido para esa dirección. Nunca se desactiva la verificación en general. Algunos antivirus (Norton) reemplazan incluso los certificados locales: si Riot no valida, el panel prueba con el almacén de certificados de Windows (que sí confía en tu antivirus), también solo para `127.0.0.1`. Si ninguno valida, la página lo avisa. Para pruebas automáticas se puede cambiar la dirección con la variable `LOLAN_TEST_LIVE_URL` (solo acepta direcciones locales; no la uses normalmente).
+
 ## Dónde queda todo
 
 | Ruta | Contenido |
 |---|---|
 | `data/lol.db` | Base de datos SQLite con el JSON crudo de cada partida y timeline |
+| `data/gold_model.json` | Coeficientes y errores del modelo de oro estimado de la página En vivo (se recalcula solo; se puede borrar) |
 | `data/ddragon/` | Mapa, íconos y nombres de habilidades en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |

@@ -1,6 +1,7 @@
 """Local web dashboard: python -m lolan web."""
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -10,15 +11,18 @@ import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from flask import (Flask, abort, g, jsonify, redirect, render_template, request, send_file,
-                   url_for)
+from flask import (Flask, Response, abort, g, jsonify, redirect, render_template, request,
+                   send_file, stream_with_context, url_for)
 from werkzeug.exceptions import NotFound
 
 from . import analyze as an
 from . import comps
 from . import deaths as dx
 from . import deathsview, mapview
+from . import goldmodel
+from . import live as lv
 from .ddragon import DDragon, champion_display
+from .livectx import LiveContext
 from .__main__ import QUEUE_ALIASES
 from .config import ConfigError, load_config, project_root
 from .players import load_roster, normalize_riot_id
@@ -35,6 +39,9 @@ QUEUE_LABELS = {"todas": "Todas", "solo": "Solo/Dúo", "flex": "Flex"}
 DEFAULT_COLA = "solo"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 PAGE_SIZE = 50
+NL2 = "\n\n"                # end of a server-sent event
+LIVE_HEARTBEAT_S = 10.0     # quiet time after which the live stream sends a keep-alive comment
+LIVE_ASSET_RETRY_S = 30.0   # how often missing live icons / prices are requested again
 MAX_LOG_LINES = 200
 DDRAGON_WAIT_S = 3.0        # longest a page waits for Data Dragon downloads; it never waits more
 HEAT_PHASES = {"todas": "Toda la partida", "antes14": "Antes del minuto 14", "despues14": "Del minuto 14 en adelante"}
@@ -296,7 +303,12 @@ def _bar_rows(rows, short=None, title=None):
              "winrate": r["winrate"], "games": r["games"]} for r in rows]
 
 
-def create_app(root=None, ddragon=None) -> Flask:
+def start_live(app) -> None:
+    """Start the live-game poller of `app` (the CLI does it; tests and imports never poll)."""
+    app.extensions["lolan"]["live"].start()
+
+
+def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     root = Path(root) if root else project_root()
     app = Flask(__name__)
     # Same location as Config.db_path.
@@ -305,7 +317,15 @@ def create_app(root=None, ddragon=None) -> Flask:
     health = KeyHealth()
     job = SyncJob(root, cache, health)
     dd = ddragon or DDragon(root / "data" / "ddragon")
-    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root, "health": health, "ddragon": dd}
+
+    def live_champion_name(champion_id, api_name):
+        version = dd.latest()
+        name = dd.champion_name(version, champion_id) if version else champion_display(champion_id)
+        return api_name if (name == champion_id and api_name) else name
+
+    live = live or lv.LivePoller(namer=live_champion_name)
+    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root, "health": health,
+                               "ddragon": dd, "live": live}
 
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
@@ -381,7 +401,8 @@ def create_app(root=None, ddragon=None) -> Flask:
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
                 "jugador": current, "picker_action": picker_action,
                 "show_picker": bool(roster) and len(roster) > 1
-                and request.endpoint not in ("clan_page", "players_page", "comps_page"),
+                and request.endpoint not in ("clan_page", "players_page", "comps_page", "live_page"),
+                "live_on": live.in_game,
                 "min_champion_games": an.MIN_CHAMPION_GAMES, "session_gap": an.SESSION_GAP_MIN}
 
     def data() -> Data:
@@ -621,6 +642,106 @@ def create_app(root=None, ddragon=None) -> Flask:
             draft_roles=[r for r in comps.ROLES if r != "BOTTOM"], c=comps,
             min_games=analysis["min_games"], clan_prefix=st.clan_prefix, cola_text="todas las colas" if g.cola == "todas"
             else QUEUE_LABELS[g.cola])
+
+    # --------------------------------------------------------- live game
+    def main_games():
+        main = open_roster().main
+        return cache.get(main.puuid if main else None, None)
+
+    live_context = LiveContext(main_games)
+
+    def stored_matches():
+        store = Store(db_path)
+        try:
+            return store.count_matches()
+        finally:
+            store.close()
+
+    gold = gold or goldmodel.GoldModelStore(
+        root / "data" / "gold_model.json", fit_func=lambda: goldmodel.fit_from_db(db_path),
+        count_func=stored_matches)
+    app.extensions["lolan"]["gold"] = gold
+    asset_state = {"sig": None, "at": 0.0, "lock": threading.Lock()}
+
+    def live_payload(snap=None) -> dict:
+        """JSON of the current live state: game (with icons and item values), personal context."""
+        snap = snap or live.snapshot()
+        out = {"status": snap["status"], "version": snap["version"], "updated": snap["updated"],
+               "problem": snap["problem"], "game": None, "context": None}
+        game = snap["game"]
+        if game is None:
+            return out
+        version = dd.latest()
+        players = [p for role in ("ally", "enemy") for p in game["teams"][role]["players"]]
+        champions = sorted({p["champion"] for p in players if p["champion"]})
+        item_ids = sorted({it["id"] for p in players for it in p["items"]})
+        names = dd.names(version)
+        have_prices = bool(names and names.has_items())
+        with asset_state["lock"]:
+            sig = (version, tuple(champions), tuple(item_ids), have_prices)
+            now = time.monotonic()
+            missing = (not version or not have_prices
+                       or any(dd.icon_rel(version, c) is None for c in champions)
+                       or any(dd.item_icon_rel(version, i) is None for i in item_ids))
+            if sig != asset_state["sig"] or (missing and now - asset_state["at"] > LIVE_ASSET_RETRY_S):
+                asset_state["sig"], asset_state["at"] = sig, now
+                dd.prepare((None,), champions, minimap=False, items=item_ids)
+        enriched = lv.enrich(
+            game,
+            champion_icon=lambda c: asset_url(dd.icon_rel(version, c)),
+            item_icon=lambda i: asset_url(dd.item_icon_rel(version, i)),
+            item_cost=names.item_cost if names else None,
+            item_name=names.item if names else None, prices_available=have_prices,
+            gold_model=gold.model())
+        gold.maybe_refit()
+        out["game"] = enriched
+        try:
+            out["context"] = live_context.build(enriched)
+        except Exception as exc:        # a broken history must not take the live page down
+            print(f"Aviso: no se pudo armar el contexto personal en vivo: {exc!r}", file=sys.stderr)
+        return out
+
+    @app.get("/en-vivo")
+    def live_page():
+        stream = request.args.get("stream") == "1"
+        return render_template("envivo.html", stream=stream, init=live_payload())
+
+    @app.get("/api/en-vivo")
+    def api_live():
+        resp = jsonify(live_payload())
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.get("/api/en-vivo/estado")
+    def api_live_status():
+        """Tiny answer for the menu dot on pages that stay open."""
+        resp = jsonify(status=live.status)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.get("/api/en-vivo/stream")
+    def api_live_stream():
+        """Server-sent events: the live payload each time it changes, a comment when it is quiet."""
+        heartbeat = app.config.get("LIVE_HEARTBEAT_S", LIVE_HEARTBEAT_S)
+
+        @stream_with_context
+        def events():
+            live.add_listener()
+            try:
+                yield "retry: 2000" + NL2
+                last = -1
+                while not live.is_stopped():
+                    snap = live.wait_for_change(last, heartbeat)
+                    if snap["version"] != last:
+                        last = snap["version"]
+                        yield "data: " + json.dumps(live_payload(snap), ensure_ascii=False) + NL2
+                    else:
+                        yield ": latido" + NL2
+            finally:
+                live.remove_listener()
+
+        return Response(events(), mimetype="text/event-stream", headers={
+            "Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     @app.get("/jugadores")
     def players_page():

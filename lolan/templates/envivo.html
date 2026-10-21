@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}En vivo{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='envivo.css') }}">{% endblock %}
+{% block content %}
+<div id="live" class="live" data-status="{{ init.status }}" data-problem="{{ init.problem or '' }}" data-stream="{{ '1' if stream else '0' }}"
+     data-sync-url="{{ url_for('sync_page') if not stream else '' }}">
+  {% if not stream %}
+  <h1>En vivo <span id="live-chip" class="chip">{% if init.status == 'playing' %}En partida{% elif init.status == 'finished' %}Terminada{% elif init.status == 'loading' %}Cargando{% else %}Sin partida{% endif %}</span></h1>
+  <p class="stream-link">
+    <a class="btn small" href="{{ url_for('live_page', stream=1) }}">Modo stream (para compartir en Discord)</a>
+    <span class="muted">Consejo: comparte esa ventana del navegador (o ábrela en un segundo monitor) y ponla en pantalla completa con F11.</span>
+  </p>
+  {% endif %}
+
+  <div id="live-status" class="live-status" role="status" aria-live="polite">
+    <div class="status-variant" data-for="waiting">
+      <h2>Esperando partida…</h2>
+      <p>Esta página empieza sola cuando carga una partida. También funciona en la Herramienta de práctica y en partidas personalizadas. Solo lee lo que el juego te muestra a ti en pantalla; no se envía nada a ningún lado.</p>
+      <p id="live-tls" class="notice error" hidden>El juego respondió, pero su certificado no coincide con el de Riot, así que no se leyó nada.</p>
+    </div>
+    <div class="status-variant" data-for="loading">
+      <h2>Cargando partida…</h2>
+      <p>El juego ya está abierto, pero la partida todavía no empieza. Los datos aparecen solos cuando termina la pantalla de carga.</p>
+    </div>
+    <div class="status-variant" data-for="finished">
+      <h2>La partida terminó <span id="live-result"></span></h2>
+      <p>Abajo queda el resumen final. En unos minutos podrás {% if stream %}sincronizar la partida{% else %}<a href="{{ url_for('sync_page') }}">sincronizar la partida</a>{% endif %} para ver el análisis completo.</p>
+    </div>
+  </div>
+  <p id="live-conn" class="notice" hidden>Reconectando con el panel…</p>
+
+  <div id="live-game" class="live-game"{% if init.game is none %} hidden{% endif %}>
+    <section id="live-head" class="live-head" aria-label="Marcador"></section>
+    <div class="live-teams">
+      <section id="live-ally" class="live-team ally" aria-label="Tu equipo"></section>
+      <section id="live-enemy" class="live-team enemy" aria-label="Equipo enemigo"></section>
+    </div>
+    <div class="live-bottom">
+      <section id="live-me" class="live-box" aria-label="Tú"></section>
+      <section id="live-ctx" class="live-box" aria-label="Tú contra tu historial"></section>
+      <section id="live-feed" class="live-box" aria-label="Eventos"></section>
+    </div>
+    <p id="live-note" class="note live-foot"></p>
+  </div>
+</div>
+<script id="live-init" type="application/json">{{ init|tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='envivo.js') }}" defer></script>{% endblock %}

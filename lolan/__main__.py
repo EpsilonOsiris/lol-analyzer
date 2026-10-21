@@ -440,9 +440,10 @@ def cmd_composiciones(args, cfg) -> int:
 
 
 def cmd_web(args, cfg) -> int:
-    from .web import create_app  # Flask is only needed for this command
+    from .web import create_app, start_live  # Flask is only needed for this command
 
     app = create_app(cfg.root)
+    start_live(app)        # reads the game client on this PC (127.0.0.1:2999) while a game runs
     url = f"http://127.0.0.1:{args.puerto}/"
     print(f"Panel web en {url} (solo accesible desde este equipo). Ctrl+C para detenerlo.")
     if not args.no_abrir:
