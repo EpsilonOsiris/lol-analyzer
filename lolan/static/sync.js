@@ -46,6 +46,10 @@
     } else if (s.error) {
       stateEl.textContent = 'La sincronización se detuvo';
       show(errEl, s.error);
+      if (s.error_code === 'rekey') {
+        var rk = document.getElementById('rekey-card');
+        if (rk) rk.hidden = false;
+      }
       show(doneEl, '');
     } else if (s.result) {
       var r = s.result;

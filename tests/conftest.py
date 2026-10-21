@@ -169,3 +169,112 @@ def set_final_stats(timeline, pid, **stats):
     pf = timeline["info"]["frames"][-1]["participantFrames"][str(pid)]
     pf.setdefault("championStats", {}).update(stats)
     return timeline
+
+
+# ------------------------------------------------------------ Riot "apps" (API key change)
+FRIEND_PUUID = "puuid-4"      # blue-side teammate in every make_match game
+
+
+def encode_for_app(match, app):
+    """Copy of a match (logical puuids) as Riot would serve it to `app`: every puuid gets '@app'."""
+    import copy
+    match = copy.deepcopy(match)
+    for p in match["info"]["participants"]:
+        p["puuid"] = f"{p['puuid']}@{app}"
+    match["metadata"]["participants"] = [p["puuid"] for p in match["info"]["participants"]]
+    return match
+
+
+def world_matches(count=6, friend_in=range(4)):
+    """match_id -> logical match. Games 0-3 are solo queue, the rest flex; the friend plays in
+    `friend_in`; ME_PUUID plays in all."""
+    world = {}
+    for i in range(count):
+        m = make_match(f"LA1_{i}", queue=420 if i < 4 else 440, win=bool(i % 2), kills=i,
+                       created=BASE_TIME_MS + i * 3_600_000)
+        if i not in friend_in:
+            for p in m["info"]["participants"]:
+                if p["puuid"] == FRIEND_PUUID:
+                    p["puuid"] = "puuid-44"
+            m["metadata"]["participants"] = [p["puuid"] for p in m["info"]["participants"]]
+        world[f"LA1_{i}"] = m
+    return world
+
+
+class AppRiot:
+    """Stands in for RiotClient talking to one Riot app: puuids are '<logical id>@<app>', and a
+    puuid issued to another app is rejected like Riot does (PuuidFromOtherAppError)."""
+
+    ACCOUNTS = {"Yo#LAN": ME_PUUID, "Amigo#LAN": FRIEND_PUUID}
+
+    def __init__(self, app, world, accounts=None, missing_matches=(), missing_timelines=(),
+                 fail_key_after=None, gate=None):
+        self.app = app
+        self.world = world
+        self.accounts = dict(self.ACCOUNTS if accounts is None else accounts)
+        self.missing_matches = set(missing_matches)
+        self.missing_timelines = set(missing_timelines)
+        self.fail_key_after = fail_key_after       # matches served before the key "expires"
+        self.gate = gate                           # threading.Event the match download waits for
+        self.calls = []
+
+    def enc(self, logical):
+        return f"{logical}@{self.app}"
+
+    def get_puuid(self, name, tag):
+        from lolan.riot import NotFoundError
+        self.calls.append(("get_puuid", f"{name}#{tag}"))
+        logical = self.accounts.get(f"{name}#{tag}")
+        if logical is None:
+            raise NotFoundError("404")
+        return self.enc(logical)
+
+    def get_riot_id(self, puuid):
+        from lolan.riot import PUUID_OTHER_APP_MESSAGE, NotFoundError, PuuidFromOtherAppError
+        self.calls.append(("get_riot_id", puuid))
+        if not puuid.endswith(f"@{self.app}"):
+            raise PuuidFromOtherAppError(PUUID_OTHER_APP_MESSAGE)
+        logical = puuid[:-len(f"@{self.app}")]
+        for riot_id, value in self.accounts.items():
+            if value == logical:
+                return riot_id
+        raise NotFoundError("404")
+
+    def list_match_ids(self, puuid, start_time=None, queue=None):
+        return list(self.world)
+
+    def get_match(self, match_id):
+        from lolan.riot import InvalidApiKeyError, NotFoundError
+        if self.gate is not None:
+            self.gate.wait(10)
+        served = sum(1 for kind, _ in self.calls if kind == "get_match")
+        if self.fail_key_after is not None and served >= self.fail_key_after:
+            raise InvalidApiKeyError("expired")
+        self.calls.append(("get_match", match_id))
+        if match_id in self.missing_matches or match_id not in self.world:
+            raise NotFoundError("404")
+        return encode_for_app(self.world[match_id], self.app)
+
+    def get_timeline(self, match_id):
+        from lolan.riot import NotFoundError
+        self.calls.append(("get_timeline", match_id))
+        if match_id in self.missing_timelines:
+            raise NotFoundError("404")
+        timeline = make_timeline()
+        timeline["metadata"] = {"participants": encode_for_app(
+            self.world[match_id], self.app)["metadata"]["participants"]}
+        return timeline
+
+    def fetched(self, kind="get_match"):
+        return [arg for k, arg in self.calls if k == kind]
+
+
+def seed_app_store(store, world, app="A", friend=True):
+    """A database as an older install under `app` would have left it."""
+    old = AppRiot(app, world)
+    store.add_player(old.enc(ME_PUUID), "Yo#LAN", is_main=True)
+    if friend:
+        store.add_player(old.enc(FRIEND_PUUID), "Amigo#LAN")
+    for match_id in world:
+        store.save_match(match_id, old.get_match(match_id), old.get_timeline(match_id))
+    return old

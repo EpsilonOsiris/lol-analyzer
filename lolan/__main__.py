@@ -1,4 +1,4 @@
-"""Command line interface: python -m lolan {sync,analyze,game,campeon,jugadores,web}."""
+"""Command line interface: python -m lolan {sync,rekey,analyze,game,campeon,jugadores,web}."""
 from __future__ import annotations
 
 import argparse
@@ -14,6 +14,8 @@ from . import report
 from .config import ConfigError, load_config
 from .players import load_roster, normalize_riot_id
 from .riot import MissingApiKeyError, NotFoundError, RiotClient, RiotError
+from .rekey import RekeyError
+from .rekey import rekey as run_rekey
 from .store import Store
 from .sync import sync as run_sync
 from .sync import sync_players
@@ -95,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_player_arg(who, "descarga las partidas de este jugador registrado")
     who.add_argument("--clan", action="store_true",
                      help="descarga las partidas de todos los jugadores registrados, uno tras otro")
+
+    sub.add_parser("rekey", help="actualiza tus datos después de cambiar de API key "
+                                 "(Riot cifra los identificadores por app; se puede interrumpir y reanudar)")
 
     p = sub.add_parser("analyze", help="reconstruye data/games.csv y los reportes en reports/")
     p.add_argument("--todas-las-colas", action="store_true",
@@ -244,6 +249,16 @@ def cmd_sync(args, cfg) -> int:
     suffix = "" if is_main else f' --jugador "{riot_id}"'
     print(f"Para analizar lo descargado ejecuta: python -m lolan analyze{suffix}")
     return 0
+
+
+def cmd_rekey(args, cfg) -> int:
+    client = _client(cfg)
+    store = Store(cfg.db_path)
+    try:
+        result = run_rekey(client, store)
+    finally:
+        store.close()
+    return 0 if result.ok else 1
 
 
 def _write_player_reports(cfg, player, roster, games, queue) -> None:
@@ -457,7 +472,7 @@ def cmd_web(args, cfg) -> int:
     return 0
 
 
-COMMANDS = {"sync": cmd_sync, "analyze": cmd_analyze, "game": cmd_game, "campeon": cmd_campeon,
+COMMANDS = {"sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game, "campeon": cmd_campeon,
             "jugadores": cmd_jugadores, "composiciones": cmd_composiciones, "web": cmd_web}
 
 
@@ -478,7 +493,7 @@ def main(argv=None) -> int:
     try:
         cfg = load_config()
         return COMMANDS[args.command](args, cfg)
-    except (ConfigError, RiotError, ValueError) as exc:
+    except (ConfigError, RiotError, RekeyError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

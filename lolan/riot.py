@@ -41,6 +41,17 @@ class NotFoundError(RiotError):
     pass
 
 
+PUUID_OTHER_APP_MESSAGE = (
+    "Cambiaste de API key: Riot cifra los identificadores de jugador por app, así que los datos "
+    "guardados ya no sirven con esta key. Actualízalos con: python -m lolan rekey "
+    "(o con el botón «Actualizar mis datos» del panel)."
+)
+
+
+class PuuidFromOtherAppError(RiotError):
+    """A stored puuid was issued to another Riot app (the API key changed to a different app)."""
+
+
 class RiotConnectionError(RiotError):
     """Riot could not be reached at all (no internet, firewall, antivirus...)."""
 
@@ -102,6 +113,17 @@ class RiotClient:
         except (TypeError, ValueError):
             return 1.0
 
+    @staticmethod
+    def _is_other_app_puuid(resp) -> bool:
+        """True for the 400 Riot answers when a puuid was encrypted by another app's key:
+        {"status": {"message": "Bad Request - Exception decrypting <puuid>", ...}}."""
+        try:
+            data = resp.json()
+            message = str(((data or {}).get("status") or {}).get("message") or "")
+        except (ValueError, AttributeError, TypeError):
+            return False
+        return "exception decrypting" in message.lower()
+
     def _get(self, path: str, params: dict | None = None):
         url = self.base_url + path
         failures = 0
@@ -129,6 +151,8 @@ class RiotClient:
                 raise InvalidApiKeyError(INVALID_KEY_MESSAGE)
             if status == 404:
                 raise NotFoundError(f"No encontrado: {path}")
+            if status == 400 and self._is_other_app_puuid(resp):
+                raise PuuidFromOtherAppError(PUUID_OTHER_APP_MESSAGE)
             if status == 429:
                 throttled += 1
                 if throttled > MAX_THROTTLE_RETRIES:

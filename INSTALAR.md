@@ -96,6 +96,15 @@ Si usas la key de 24 horas, el panel te avisa con un recuadro amarillo: **«Tu k
 
 No hace falta cerrar nada ni reiniciar. Todo lo ya descargado se conserva.
 
+## Si cambias a una Personal API Key (o a otra key de otra app)
+
+La key de 24 horas y la «Personal API Key» son de **apps distintas** en Riot, y Riot cambia los identificadores de los jugadores entre apps. Si cambias de una a la otra, tus partidas ya guardadas hay que actualizarlas **una sola vez**:
+
+1. Pega la key nueva en **Configuración** y pulsa **«Guardar»**. Si Riot detecta el cambio, aparece un recuadro **«Cambiaste de API key»**.
+2. Pulsa **«Actualizar mis datos»** y espera (unos 13 minutos para ~330 partidas; puedes cerrar y volver a pulsar el botón, continúa donde se quedó). Antes de empezar, el programa guarda una copia de tu base de datos en la carpeta `data` (`lol.db.antes-rekey-…`).
+
+También se puede hacer con el comando `python -m lolan rekey`. Mientras no lo hagas, **Sincronizar** se detiene y te lo recuerda. Si solo regeneras la key de 24 horas no hace falta nada de esto.
+
 ## Usar el programa otros días
 
 Haz doble clic en el acceso directo **«LoL Analyzer»** del escritorio. Se abre una ventana negra y, en unos segundos, el panel en tu navegador. **No cierres la ventana negra mientras uses el panel.** Cuando termines, ciérrala para apagar el programa.
@@ -128,6 +137,9 @@ El programa no instala nada más en Windows, salvo Python y ffmpeg si los instal
 
 **«Tu key de Riot probablemente expiró» o «la key es inválida o expiró»**
 Las keys normales duran 24 horas. Consigue una nueva (ver «Renovar la key cada día»).
+
+**«Cambiaste de API key: Riot cifra los identificadores por app…»**
+Cambiaste a una key de otra app (por ejemplo, a la Personal API Key). Pulsa **«Actualizar mis datos»** en Configuración o en Sincronizar (ver «Si cambias a una Personal API Key»).
 
 **La prueba de la key dice «Sin conexión» o el panel «no se puede conectar»**
 Revisa tu internet. Si la tienes, prueba apagar un momento el antivirus o la VPN: algunos bloquean estos programas pequeños. Vuelve a intentarlo después.

@@ -156,7 +156,68 @@ class Store:
             cur = self.conn.execute("DELETE FROM account WHERE puuid=?", (puuid,))
         return cur.rowcount > 0
 
+    def replace_player_puuid(self, old: str, new: str) -> None:
+        """Swap a player's puuid for the one the current Riot app issues (API key change).
+
+        Keeps riot_id / is_main / added_at. If `new` is already registered (the player was added
+        again under the new key) both rows are merged into it. Every other table with a `puuid`
+        column (found with PRAGMA table_info, so tables of later features are covered) follows.
+        `match_players` is not touched: it is rebuilt per match from the re-downloaded JSON.
+        """
+        if old == new:
+            return
+        with self.conn:
+            old_row = self.conn.execute(
+                "SELECT riot_id, is_main, added_at FROM account WHERE puuid=?", (old,)).fetchone()
+            new_row = self.conn.execute(
+                "SELECT riot_id, is_main, added_at FROM account WHERE puuid=?", (new,)).fetchone()
+            if old_row is not None and new_row is None:
+                self.conn.execute("UPDATE account SET puuid=? WHERE puuid=?", (new, old))
+            elif old_row is not None:
+                added = [a for a in (old_row[2], new_row[2]) if a is not None]
+                self.conn.execute(
+                    "UPDATE account SET riot_id=?, is_main=?, added_at=? WHERE puuid=?",
+                    (new_row[0] or old_row[0], int(bool(old_row[1] or new_row[1])),
+                     min(added) if added else None, new))
+                self.conn.execute("DELETE FROM account WHERE puuid=?", (old,))
+            for table in self.puuid_tables():
+                quoted = '"' + table.replace('"', '""') + '"'
+                self.conn.execute(f"UPDATE OR IGNORE {quoted} SET puuid=? WHERE puuid=?", (new, old))
+                self.conn.execute(f"DELETE FROM {quoted} WHERE puuid=?", (old,))
+
+    def puuid_tables(self) -> list[str]:
+        """Tables (other than account / match_players) that have a `puuid` column."""
+        names = [r[0] for r in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        found = []
+        for name in names:
+            if name in ("account", "match_players"):
+                continue
+            quoted = '"' + name.replace('"', '""') + '"'
+            if any(r[1] == "puuid" for r in self.conn.execute(f"PRAGMA table_info({quoted})")):
+                found.append(name)
+        return found
+
     # --------------------------------------------------------------- matches
+    def match_ids_newest_first(self) -> list[str]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT match_id FROM matches ORDER BY game_creation DESC, match_id DESC")]
+
+    def participants_by_match(self) -> dict[str, set[str]]:
+        """match_id -> puuids linked to it (from match_players)."""
+        result: dict[str, set[str]] = {}
+        for match_id, puuid in self.conn.execute("SELECT match_id, puuid FROM match_players"):
+            result.setdefault(match_id, set()).add(puuid)
+        return result
+
+    def linked_match_ids(self, *puuids: str) -> set[str]:
+        """Ids of the matches linked to any of `puuids`."""
+        if not puuids:
+            return set()
+        marks = ",".join("?" * len(puuids))
+        return {r[0] for r in self.conn.execute(
+            f"SELECT match_id FROM match_players WHERE puuid IN ({marks})", puuids)}
+
     def existing_match_ids(self) -> set[str]:
         return {r[0] for r in self.conn.execute("SELECT match_id FROM matches")}
 

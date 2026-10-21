@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .riot import InvalidApiKeyError, NotFoundError, RiotError
+from .riot import InvalidApiKeyError, NotFoundError, PuuidFromOtherAppError, RiotError
 
 SECONDS_PER_REQUEST = 1.2  # 100 requests / 120 s on a development key
 MAX_CONSECUTIVE_FAILURES = 5
@@ -80,6 +80,16 @@ def sync(client, store, riot_id: str, max_matches: int | None = None, since: dat
             raise NotFoundError(
                 f"No se encontró la cuenta {name}#{tag}. Revisa el nombre y el TAG "
                 "(la cuenta pudo haber cambiado de nombre).") from None
+        if known is not None and known.puuid != puuid:
+            # The name resolves to a different puuid than the registered one: either the API key
+            # now belongs to another Riot app (stored puuids are dead) or the name changed hands.
+            # By-puuid tells them apart; PuuidFromOtherAppError stops the sync (run rekey).
+            try:
+                client.get_riot_id(known.puuid)
+            except PuuidFromOtherAppError:
+                raise
+            except RiotError:
+                pass
     # Re-registering every time keeps the Riot ID current when someone renames their account.
     store.add_player(puuid, f"{name}#{tag}", is_main=main)
 

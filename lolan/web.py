@@ -22,8 +22,9 @@ from .ddragon import DDragon, champion_display
 from .__main__ import QUEUE_ALIASES
 from .config import ConfigError, load_config, project_root
 from .players import load_roster, normalize_riot_id
-from .riot import (InvalidApiKeyError, MissingApiKeyError, NotFoundError, RateLimiter,
-                   RiotClient, RiotConnectionError, RiotError)
+from . import rekey as rk
+from .riot import (InvalidApiKeyError, MissingApiKeyError, NotFoundError, PuuidFromOtherAppError,
+                   RateLimiter, RiotClient, RiotConnectionError, RiotError)
 from .settings import (PLATFORM_CHOICES, KeyHealth, age_text, key_warning, mask_key, platform_region,
                        read_settings, update_env_file, valid_key)
 from .store import Store
@@ -42,12 +43,16 @@ HEAT_RESULTS = {"todas": "Victorias y derrotas", "victorias": "Solo victorias", 
 
 PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)\]")
 TOTAL_RE = re.compile(r"Por descargar: (\d+)")
+REKEY_TOTAL_RE = re.compile(r"Partidas por actualizar: (\d+)")
 HEADER_RE = re.compile(r"^=== (.+) \((\d+)/(\d+)\) ===$")   # printed by sync_players per player
 MISSING_KEY_MESSAGE = ("Falta tu key de Riot. Pégala en la página Configuración y vuelve a "
                        "intentarlo; no hace falta reiniciar el panel.")
 INVALID_KEY_MESSAGE = ("Tu key de Riot es inválida o expiró (las keys de desarrollo duran 24 horas). "
                        "Consigue una nueva en developer.riotgames.com, pégala en la página "
                        "Configuración y vuelve a {again}; no hace falta reiniciar el panel.")
+REKEY_NEEDED_MESSAGE = ("Cambiaste de API key: Riot cifra los identificadores de jugador por app y tus "
+                        "datos guardados ya no sirven con esta key. Pulsa «Actualizar mis datos» "
+                        "para ponerlos al día (tarda unos minutos y se puede interrumpir).")
 # Pages that stay reachable before the first setup (API calls are never redirected).
 SETUP_ENDPOINTS = ("static", "config_page", "api_config_save", "api_config_test")
 
@@ -157,13 +162,36 @@ class GamesCache:
 
 
 # -------------------------------------------------------------------- sync
+class JobGuard:
+    """Lets only one background job (sync or rekey) run at a time."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.owner: str | None = None
+
+    def acquire(self, name: str) -> bool:
+        with self._lock:
+            if self.owner is not None:
+                return False
+            self.owner = name
+            return True
+
+    def release(self, name: str) -> None:
+        with self._lock:
+            if self.owner == name:
+                self.owner = None
+
+
 class SyncJob:
     """One background sync at a time; state is read by GET /api/sync."""
 
-    def __init__(self, root, cache: GamesCache, health: KeyHealth | None = None):
+    def __init__(self, root, cache: GamesCache, health: KeyHealth | None = None,
+                 guard: JobGuard | None = None, on_rekey_needed=None):
         self._root = root
         self._cache = cache
         self.health = health or KeyHealth()
+        self.guard = guard or JobGuard()
+        self._on_rekey_needed = on_rekey_needed or (lambda: None)
         self._lock = threading.Lock()
         # Shared by every sync this server runs: the key's 100 req / 2 min budget spans runs
         # (and the Riot ID lookups done when adding players).
@@ -178,11 +206,12 @@ class SyncJob:
         self.current = None      # {"riot_id", "index", "count"} of the player being synced
         self.result = None
         self.error = None
+        self.error_code = None   # "rekey": the API key belongs to another Riot app
 
     def start(self, queue, max_matches, with_timeline, target="yo") -> bool:
         """`target`: "yo" (the RIOT_ID in .env), "clan" (everyone registered) or a Riot ID."""
         with self._lock:
-            if self.running:
+            if self.running or not self.guard.acquire("sync"):
                 return False
             self._reset()
             self.running = True
@@ -194,10 +223,13 @@ class SyncJob:
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"running": self.running, "lines": list(self.lines),
+            snap = {"running": self.running, "lines": list(self.lines),
                     "progress": dict(self.progress) if self.progress else None,
                     "current": dict(self.current) if self.current else None,
                     "result": self.result, "error": self.error}
+            if self.error_code:
+                snap["error_code"] = self.error_code      # "rekey": the key is from another app
+            return snap
 
     def join(self, timeout=None) -> None:
         if self.thread is not None:
@@ -221,7 +253,7 @@ class SyncJob:
                 self.progress = {"done": 0, "total": int(m.group(1))}
 
     def _run(self, queue, max_matches, with_timeline, target) -> None:
-        result = error = None
+        result = error = code = None
         key_used = ""
         try:
             # override=True: the dev API key is regenerated every 24 h and .env gets edited
@@ -261,6 +293,9 @@ class SyncJob:
         except InvalidApiKeyError:
             self.health.mark_invalid(key_used)
             error = INVALID_KEY_MESSAGE.format(again="pulsar Sincronizar")
+        except PuuidFromOtherAppError:
+            error, code = REKEY_NEEDED_MESSAGE, "rekey"
+            self._on_rekey_needed()
         except (ConfigError, RiotError, ValueError) as exc:
             error = str(exc)
         except Exception as exc:  # keep the thread's failure visible in the UI
@@ -269,7 +304,111 @@ class SyncJob:
         finally:
             self._cache.invalidate()
             with self._lock:
+                self.result, self.error, self.error_code, self.running = result, error, code, False
+            self.guard.release("sync")
+
+
+class RekeyJob:
+    """The migration to a new Riot app, in the background; state is read by GET /api/rekey."""
+
+    def __init__(self, root, cache: GamesCache, health: KeyHealth, limiter: RateLimiter,
+                 guard: JobGuard):
+        self._root = root
+        self._cache = cache
+        self.health = health
+        self.limiter = limiter          # the one the sync job uses: same key, same budget
+        self.guard = guard
+        self._lock = threading.Lock()
+        self.needed = False             # a key from another Riot app was detected (memory only)
+        self.thread: threading.Thread | None = None
+        self._reset()
+
+    def _reset(self) -> None:
+        self.running = False
+        self.lines: deque = deque(maxlen=MAX_LOG_LINES)
+        self.progress = None
+        self.result = None
+        self.error = None
+
+    def start(self) -> bool:
+        with self._lock:
+            if self.running or not self.guard.acquire("rekey"):
+                return False
+            self._reset()
+            self.running = True
+            self.thread = threading.Thread(target=self._run, daemon=True, name="lolan-rekey")
+            self.thread.start()
+        return True
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"running": self.running, "lines": list(self.lines),
+                    "progress": dict(self.progress) if self.progress else None,
+                    "result": self.result, "error": self.error, "needed": self.needed}
+
+    def join(self, timeout=None) -> None:
+        if self.thread is not None:
+            self.thread.join(timeout)
+
+    def _out(self, line: str) -> None:
+        with self._lock:
+            self.lines.append(str(line))
+            m = PROGRESS_RE.match(line)
+            if m:
+                self.progress = {"done": int(m.group(1)), "total": int(m.group(2))}
+                return
+            m = REKEY_TOTAL_RE.search(line)
+            if m and int(m.group(1)) > 0:
+                self.progress = {"done": 0, "total": int(m.group(1))}
+
+    def _run(self) -> None:
+        result = error = None
+        key_used = ""
+        try:
+            cfg = load_config(self._root, override=True)
+            key_used = cfg.api_key
+            if not cfg.api_key:
+                raise MissingApiKeyError(MISSING_KEY_MESSAGE)
+            client = RiotClient(cfg.api_key, region=cfg.region, limiter=self.limiter)
+            store = Store(cfg.db_path)
+            try:
+                outcome = rk.rekey(client, store, out=self._out)
+            finally:
+                store.close()
+            result = _rekey_result(outcome)
+            self.health.mark_ok(cfg.api_key)
+            if outcome.registry_updated or outcome.nothing_to_do:
+                self.needed = False
+        except MissingApiKeyError:
+            error = MISSING_KEY_MESSAGE
+        except InvalidApiKeyError:
+            self.health.mark_invalid(key_used)
+            error = INVALID_KEY_MESSAGE.format(again="pulsar Actualizar mis datos")
+        except (ConfigError, RiotError, rk.RekeyError, ValueError) as exc:
+            error = str(exc)
+        except Exception as exc:  # keep the thread's failure visible in the UI
+            traceback.print_exc()
+            error = f"Error inesperado: {type(exc).__name__}: {exc}"
+        finally:
+            self._cache.invalidate()
+            with self._lock:
                 self.result, self.error, self.running = result, error, False
+            self.guard.release("rekey")
+
+
+def _rekey_result(outcome) -> dict:
+    return {
+        "actualizadas": outcome.updated,
+        "pendientes": outcome.pending,
+        "no_encontradas": list(outcome.not_found),
+        "con_error": list(outcome.failed),
+        "jugadores_actualizados": outcome.registry_updated,
+        "omitidos": [{"riot_id": r, "motivo": why} for r, why in outcome.skipped],
+        "problemas": list(outcome.problems),
+        "respaldo": str(outcome.backup) if outcome.backup else None,
+        "nada_que_hacer": outcome.nothing_to_do,
+        "ok": outcome.ok,
+    }
 
 
 def _sync_result(outcomes) -> dict:
@@ -303,9 +442,14 @@ def create_app(root=None, ddragon=None) -> Flask:
     db_path = root / "data" / "lol.db"
     cache = GamesCache(db_path)
     health = KeyHealth()
-    job = SyncJob(root, cache, health)
+    guard = JobGuard()
+    holder: dict = {}
+    job = SyncJob(root, cache, health, guard,
+                  on_rekey_needed=lambda: setattr(holder["rekey"], "needed", True))
+    rekey_job = holder["rekey"] = RekeyJob(root, cache, health, job.limiter, guard)
     dd = ddragon or DDragon(root / "data" / "ddragon")
-    app.extensions["lolan"] = {"cache": cache, "sync": job, "root": root, "health": health, "ddragon": dd}
+    app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
+                               "health": health, "ddragon": dd}
 
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
@@ -349,6 +493,13 @@ def create_app(root=None, ddragon=None) -> Flask:
         g.player = g.roster.by_slug(request.args.get("jugador")) or g.roster.main
         return None
 
+    def rekey_minutes() -> int:
+        store = Store(db_path)
+        try:
+            return rk.estimate_minutes(store)
+        finally:
+            store.close()
+
     @app.context_processor
     def _context():
         roster = g.get("roster")
@@ -376,6 +527,8 @@ def create_app(root=None, ddragon=None) -> Flask:
         st = g.get("settings")
         banner = key_warning(st, health) if st else None
         return {"cola": g.get("cola", DEFAULT_COLA), "queue_labels": QUEUE_LABELS, "u": u,
+                "rekey_show": rekey_job.needed or rekey_job.running or bool(rekey_job.lines),
+                "rekey_minutes": rekey_minutes,
                 "key_banner": banner,
                 "key_age": age_text(st.riot_key_saved_at) if banner == "vieja" else "",
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
@@ -693,8 +846,28 @@ def create_app(root=None, ddragon=None) -> Flask:
                                      "Jugadores."), 400
             target = player.riot_id
         if not job.start(QUEUES[cola], max_matches, with_timeline, target):
+            if rekey_job.snapshot()["running"]:
+                return jsonify(error="Se está actualizando tu base de datos por el cambio de API "
+                                     "key; espera a que termine para sincronizar."), 409
             return jsonify(error="Ya hay una sincronización en curso."), 409
         return jsonify(job.snapshot()), 202
+
+    @app.get("/api/rekey")
+    def api_rekey_status():
+        return jsonify(rekey_job.snapshot())
+
+    @app.post("/api/rekey")
+    def api_rekey_start():
+        if (denied := api_guard()) is not None:
+            return denied
+        if not isinstance(request.get_json(silent=True), dict):
+            return jsonify(error="El cuerpo debe ser JSON."), 400
+        if not rekey_job.start():
+            if job.snapshot()["running"]:
+                return jsonify(error="Hay una sincronización en curso; espera a que termine para "
+                                     "actualizar tus datos."), 409
+            return jsonify(error="Ya hay una actualización en curso."), 409
+        return jsonify(rekey_job.snapshot()), 202
 
     def _key_field(body, name):
         """(key, error) for an optional key field: blank means "keep the saved one"."""
@@ -704,6 +877,20 @@ def create_app(root=None, ddragon=None) -> Flask:
             return "", ("La key tiene caracteres que no son válidos (espacios, acentos o símbolos). "
                         "Cópiala de nuevo, completa y sin espacios.")
         return key, None
+
+    def _key_from_other_app(key, region) -> bool:
+        """After a key change: does Riot reject the stored puuids with the new key (other app)?
+
+        One by-puuid request; any trouble (no connection, no players...) counts as "no".
+        """
+        store = Store(db_path)
+        try:
+            client = RiotClient(key, region=region, limiter=job.limiter, max_retries=1, timeout=10)
+            return rk.key_app_changed(client, store) is True
+        except Exception:
+            return False
+        finally:
+            store.close()
 
     @app.post("/api/configuracion")
     def api_config_save():
@@ -746,6 +933,7 @@ def create_app(root=None, ddragon=None) -> Flask:
             except ValueError as exc:
                 return jsonify(error=str(exc)), 400
             want["CLAN_ALIASES"] = aliases.replace("\n", ";")
+        key_changed = bool(riot_key and st.riot_key and riot_key != st.riot_key)
         updates = {k: v for k, v in want.items() if st.raw.get(k, "") != v}
         try:
             if updates:
@@ -757,9 +945,14 @@ def create_app(root=None, ddragon=None) -> Flask:
                                  "programa no sea de solo lectura y que ningún otro programa lo "
                                  "tenga abierto."), 500
         new = read_settings(root)
+        app_changed = key_changed and _key_from_other_app(riot_key, region)
+        if app_changed:
+            rekey_job.needed = True
         return jsonify(ok=True, listo=new.ready, riot_id=new.riot_id,
                        riot_key_fin=mask_key(new.riot_key), gemini_key_fin=mask_key(new.gemini_key),
-                       mensaje="Listo, se guardó tu configuración.")
+                       mensaje="Listo, se guardó tu configuración.",
+                       cambio_key=bool(app_changed),
+                       rekey_minutos=rekey_minutes() if app_changed else None)
 
     @app.post("/api/configuracion/probar")
     def api_config_test():
