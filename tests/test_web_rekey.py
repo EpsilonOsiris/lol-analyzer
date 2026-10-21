@@ -98,7 +98,7 @@ def test_job_migrates_in_the_background_and_refreshes_the_cache(root, world, mon
     assert "LA1_3" in text(client.get("/partidas"))
     assert len(list((root / "data").glob("lol.db.antes-rekey-*"))) == 1
     # The rekey job reuses the sync job's rate limiter: one key, one budget.
-    assert rekey_job.limiter is sync_job.limiter
+    assert rekey_job.limiters is sync_job.limiters and rekey_job.slot is sync_job.slot
 
 
 def test_job_reports_an_invalid_key_and_can_be_retried(root, world, monkeypatch):

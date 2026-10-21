@@ -21,14 +21,16 @@ from . import deaths as dx
 from . import deathsview, mapview
 from . import goldmodel
 from . import live as lv
+from . import scout as sc
 from .ddragon import DDragon, champion_display
 from .livectx import LiveContext
 from .__main__ import QUEUE_ALIASES
 from .config import ConfigError, load_config, project_root
 from .players import load_roster, normalize_riot_id
 from . import rekey as rk
-from .riot import (InvalidApiKeyError, MissingApiKeyError, NotFoundError, PuuidFromOtherAppError,
-                   RateLimiter, RiotClient, RiotConnectionError, RiotError)
+from .riot import (ApiSlot, InvalidApiKeyError, Limiters, MissingApiKeyError, NotFoundError,
+                   PuuidFromOtherAppError, RiotClient, RiotConnectionError, RiotError)
+from .scoutsvc import ScoutService
 from .settings import (PLATFORM_CHOICES, KeyHealth, age_text, key_warning, mask_key, platform_region,
                        read_settings, update_env_file, valid_key)
 from .store import Store
@@ -43,6 +45,8 @@ PAGE_SIZE = 50
 NL2 = "\n\n"                # end of a server-sent event
 LIVE_HEARTBEAT_S = 10.0     # quiet time after which the live stream sends a keep-alive comment
 LIVE_ASSET_RETRY_S = 30.0   # how often missing live icons / prices are requested again
+SCOUT_BUSY_MESSAGE = ("Se está buscando la partida de tus rivales (usa el mismo cupo de peticiones "
+                      "de tu key). Espera unos segundos y vuelve a pulsar Sincronizar.")
 MAX_LOG_LINES = 200
 DDRAGON_WAIT_S = 3.0        # longest a page waits for Data Dragon downloads; it never waits more
 HEAT_PHASES = {"todas": "Toda la partida", "antes14": "Antes del minuto 14", "despues14": "Del minuto 14 en adelante"}
@@ -169,40 +173,22 @@ class GamesCache:
 
 
 # -------------------------------------------------------------------- sync
-class JobGuard:
-    """Lets only one background job (sync or rekey) run at a time."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.owner: str | None = None
-
-    def acquire(self, name: str) -> bool:
-        with self._lock:
-            if self.owner is not None:
-                return False
-            self.owner = name
-            return True
-
-    def release(self, name: str) -> None:
-        with self._lock:
-            if self.owner == name:
-                self.owner = None
-
-
 class SyncJob:
     """One background sync at a time; state is read by GET /api/sync."""
 
     def __init__(self, root, cache: GamesCache, health: KeyHealth | None = None,
-                 guard: JobGuard | None = None, on_rekey_needed=None):
+                 limiters: Limiters | None = None, slot: ApiSlot | None = None,
+                 on_rekey_needed=None):
         self._root = root
         self._cache = cache
         self.health = health or KeyHealth()
-        self.guard = guard or JobGuard()
         self._on_rekey_needed = on_rekey_needed or (lambda: None)
         self._lock = threading.Lock()
-        # Shared by every sync this server runs: the key's 100 req / 2 min budget spans runs
-        # (and the Riot ID lookups done when adding players).
-        self.limiter = RateLimiter()
+        # One limiter per Riot host for the whole server (syncs, the rivals scout, Riot ID lookups
+        # when adding players): the key's 100 req / 2 min budget spans all of them.
+        self.limiters = limiters or Limiters()
+        # Only one of sync / rivals scout uses the API heavily at a time.
+        self.slot = slot or ApiSlot()
         self.thread: threading.Thread | None = None
         self._reset()
 
@@ -218,7 +204,7 @@ class SyncJob:
     def start(self, queue, max_matches, with_timeline, target="yo") -> bool:
         """`target`: "yo" (the RIOT_ID in .env), "clan" (everyone registered) or a Riot ID."""
         with self._lock:
-            if self.running or not self.guard.acquire("sync"):
+            if self.running or not self.slot.acquire("sync"):
                 return False
             self._reset()
             self.running = True
@@ -269,7 +255,8 @@ class SyncJob:
             key_used = cfg.api_key
             if not cfg.api_key:
                 raise MissingApiKeyError(MISSING_KEY_MESSAGE)
-            client = RiotClient(cfg.api_key, region=cfg.region, limiter=self.limiter)
+            client = RiotClient(cfg.api_key, region=cfg.region,
+                                limiter=self.limiters.for_host(cfg.region))
             store = Store(cfg.db_path)
             try:
                 if target == "clan":
@@ -312,19 +299,19 @@ class SyncJob:
             self._cache.invalidate()
             with self._lock:
                 self.result, self.error, self.error_code, self.running = result, error, code, False
-            self.guard.release("sync")
+            self.slot.release("sync")
 
 
 class RekeyJob:
     """The migration to a new Riot app, in the background; state is read by GET /api/rekey."""
 
-    def __init__(self, root, cache: GamesCache, health: KeyHealth, limiter: RateLimiter,
-                 guard: JobGuard):
+    def __init__(self, root, cache: GamesCache, health: KeyHealth, limiters: Limiters,
+                 slot: ApiSlot):
         self._root = root
         self._cache = cache
         self.health = health
-        self.limiter = limiter          # the one the sync job uses: same key, same budget
-        self.guard = guard
+        self.limiters = limiters        # the sync job's: same key, same per-host budget
+        self.slot = slot
         self._lock = threading.Lock()
         self.needed = False             # a key from another Riot app was detected (memory only)
         self.thread: threading.Thread | None = None
@@ -339,7 +326,7 @@ class RekeyJob:
 
     def start(self) -> bool:
         with self._lock:
-            if self.running or not self.guard.acquire("rekey"):
+            if self.running or not self.slot.acquire("rekey"):
                 return False
             self._reset()
             self.running = True
@@ -376,7 +363,7 @@ class RekeyJob:
             key_used = cfg.api_key
             if not cfg.api_key:
                 raise MissingApiKeyError(MISSING_KEY_MESSAGE)
-            client = RiotClient(cfg.api_key, region=cfg.region, limiter=self.limiter)
+            client = RiotClient(cfg.api_key, region=cfg.region, limiter=self.limiters.for_host(cfg.region))
             store = Store(cfg.db_path)
             try:
                 outcome = rk.rekey(client, store, out=self._out)
@@ -400,7 +387,7 @@ class RekeyJob:
             self._cache.invalidate()
             with self._lock:
                 self.result, self.error, self.running = result, error, False
-            self.guard.release("rekey")
+            self.slot.release("rekey")
 
 
 def _rekey_result(outcome) -> dict:
@@ -444,7 +431,10 @@ def _bar_rows(rows, short=None, title=None):
 
 def start_live(app) -> None:
     """Start the live-game poller of `app` (the CLI does it; tests and imports never poll)."""
-    app.extensions["lolan"]["live"].start()
+    ext = app.extensions["lolan"]
+    ext["live"].start()
+    if ext.get("scout") is not None:      # the rivals search follows the live poller
+        ext["scout"].start(ext["live"])
 
 
 def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
@@ -454,11 +444,12 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     db_path = root / "data" / "lol.db"
     cache = GamesCache(db_path)
     health = KeyHealth()
-    guard = JobGuard()
+    limiters = Limiters()
+    slot = ApiSlot()     # one heavy Riot user at a time: sync, rekey or the rivals scout
     holder: dict = {}
-    job = SyncJob(root, cache, health, guard,
+    job = SyncJob(root, cache, health, limiters, slot,
                   on_rekey_needed=lambda: setattr(holder["rekey"], "needed", True))
-    rekey_job = holder["rekey"] = RekeyJob(root, cache, health, job.limiter, guard)
+    rekey_job = holder["rekey"] = RekeyJob(root, cache, health, limiters, slot)
     dd = ddragon or DDragon(root / "data" / "ddragon")
 
     def live_champion_name(champion_id, api_name):
@@ -467,8 +458,12 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         return api_name if (name == champion_id and api_name) else name
 
     live = live or lv.LivePoller(namer=live_champion_name)
-    app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root, "health": health,
-                               "ddragon": dd, "live": live}
+    scout = ScoutService(
+        root, limiters, slot, lambda key, host: RiotClient(key, region=host, limiter=limiters.for_host(host)),
+        health=health, notify=lambda: getattr(live, "touch", lambda: None)())
+    app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
+                               "health": health, "ddragon": dd, "live": live, "scout": scout,
+                               "limiters": limiters}
 
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
@@ -815,11 +810,45 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     app.extensions["lolan"]["gold"] = gold
     asset_state = {"sig": None, "at": 0.0, "lock": threading.Lock()}
 
+    scout_asset = {"sig": None, "at": 0.0, "lock": threading.Lock()}
+
+    def scout_payload(live_status="waiting") -> dict:
+        """JSON of the rivals scout: its state and, when there is one, the report with names and icons."""
+        scout.reconcile(live_status, getattr(live, "game_seq", 0))
+        snap = scout.snapshot()
+        out = {k: snap[k] for k in ("status", "message", "target", "auto", "busy", "version")}
+        out["report"] = None
+        out["budget"] = sc.BUDGET
+        report = snap["report"]
+        if report is None:
+            return out
+        version = dd.latest()
+        champs, spells, perks = sc.wanted_assets(report)
+        enriched = sc.enrich(report, sc.Assets(dd, asset_url))
+        icons = []
+        for side in ("ally", "enemy"):
+            icons += [b["icon"] for b in enriched["bans"][side]]
+            for p in enriched["teams"][side]:
+                icons.append(p["icon"])
+                icons += [x["icon"] for x in p["spells"]]
+                if not p["hidden"] and not p["bot"]:
+                    icons += [x["icon"] for x in (p["keystone"], p["secondary"]) if x is not None]
+        with scout_asset["lock"]:
+            sig = (version, tuple(sorted(champs)), tuple(sorted(spells)), tuple(sorted(perks)))
+            missing = not version or any(i is None for i in icons)
+            now = time.monotonic()
+            if sig != scout_asset["sig"] or (missing and now - scout_asset["at"] > LIVE_ASSET_RETRY_S):
+                scout_asset["sig"], scout_asset["at"] = sig, now
+                dd.prepare((None,), (), minimap=False, champion_keys=champs, spells=spells, perks=perks)
+        out["report"] = enriched
+        return out
+
     def live_payload(snap=None) -> dict:
         """JSON of the current live state: game (with icons and item values), personal context."""
         snap = snap or live.snapshot()
         out = {"status": snap["status"], "version": snap["version"], "updated": snap["updated"],
-               "problem": snap["problem"], "game": None, "context": None}
+               "problem": snap["problem"], "game": None, "context": None,
+               "scout": scout_payload(snap["status"])}
         game = snap["game"]
         if game is None:
             return out
@@ -856,13 +885,33 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     @app.get("/en-vivo")
     def live_page():
         stream = request.args.get("stream") == "1"
-        return render_template("envivo.html", stream=stream, init=live_payload())
+        return render_template("envivo.html", stream=stream, init=live_payload(),
+                               scout_targets=[] if stream else scout.targets(), budget=sc.BUDGET)
 
     @app.get("/api/en-vivo")
     def api_live():
         resp = jsonify(live_payload())
         resp.headers["Cache-Control"] = "no-store"
         return resp
+
+    @app.get("/api/rivales")
+    def api_scout():
+        resp = jsonify(scout_payload(live.status))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.post("/api/rivales/buscar")
+    def api_scout_search():
+        """"Buscar partida ahora": look for the current game of you or a registered player."""
+        if (denied := api_guard()) is not None:
+            return denied
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error="El cuerpo debe ser JSON."), 400
+        code, answer = scout.request(body.get("jugador"), live.status, getattr(live, "game_seq", 0))
+        if code == 202:
+            answer = scout_payload(live.status)
+        return jsonify(answer), code
 
     @app.get("/api/en-vivo/estado")
     def api_live_status():
@@ -969,6 +1018,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             if rekey_job.snapshot()["running"]:
                 return jsonify(error="Se está actualizando tu base de datos por el cambio de API "
                                      "key; espera a que termine para sincronizar."), 409
+            if job.slot.holder == "scout":
+                return jsonify(error=SCOUT_BUSY_MESSAGE), 409
             return jsonify(error="Ya hay una sincronización en curso."), 409
         return jsonify(job.snapshot()), 202
 
@@ -986,6 +1037,9 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             if job.snapshot()["running"]:
                 return jsonify(error="Hay una sincronización en curso; espera a que termine para "
                                      "actualizar tus datos."), 409
+            if job.slot.holder == "scout":
+                return jsonify(error="Se están buscando los rivales de una partida; espera unos "
+                                     "segundos y vuelve a intentarlo."), 409
             return jsonify(error="Ya hay una actualización en curso."), 409
         return jsonify(rekey_job.snapshot()), 202
 
@@ -1005,7 +1059,7 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         """
         store = Store(db_path)
         try:
-            client = RiotClient(key, region=region, limiter=job.limiter, max_retries=1, timeout=10)
+            client = RiotClient(key, region=region, limiter=job.limiters.for_host(region), max_retries=1, timeout=10)
             return rk.key_app_changed(client, store) is True
         except Exception:
             return False
@@ -1093,7 +1147,7 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         if platform_region(platform) is None:
             return jsonify(error="Elige un servidor de la lista."), 400
         try:
-            RiotClient(key, region=platform, limiter=job.limiter, max_retries=1,
+            RiotClient(key, region=platform, limiter=limiters.for_host(platform), max_retries=1,
                        timeout=10).get_platform_status()
         except InvalidApiKeyError:
             health.mark_invalid(key)
@@ -1127,7 +1181,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             key_used = cfg.api_key
             if not cfg.api_key:
                 raise MissingApiKeyError(MISSING_KEY_MESSAGE)
-            puuid = RiotClient(cfg.api_key, region=cfg.region, limiter=job.limiter).get_puuid(name, tag)
+            puuid = RiotClient(cfg.api_key, region=cfg.region,
+                               limiter=limiters.for_host(cfg.region)).get_puuid(name, tag)
         except MissingApiKeyError:
             return jsonify(error=MISSING_KEY_MESSAGE), 401
         except InvalidApiKeyError:

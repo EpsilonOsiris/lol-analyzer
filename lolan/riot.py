@@ -1,15 +1,22 @@
 """Riot API client with a sliding-window rate limiter (development key limits)."""
 from __future__ import annotations
 
+import os
+import threading
 import time
 from collections import deque
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 
-# Development key limits: 20 requests / 1 s and 100 requests / 120 s, enforced per
-# routing value. Every endpoint we call lives on the regional host, so one limiter suffices.
+# Development key limits: 20 requests / 1 s and 100 requests / 120 s, enforced per routing value
+# (the regional host, e.g. americas, and the platform host, e.g. la1, each count on their own).
+# `Limiters` keeps ONE limiter per host for the whole process.
 DEFAULT_LIMITS = ((20, 1.0), (100, 120.0))
+# FOR TESTS ONLY (automated tests and the local smoke test with a fake Riot server). Normal use
+# never sets it. Only a loopback address is honoured, so it can never point the panel elsewhere.
+TEST_URL_ENV = "LOLAN_TEST_RIOT_URL"
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # Requests are stamped when sent but Riot counts them on arrival; latency jitter (e.g. the
 # TLS handshake on the first request) could push a request into a window early -> 429.
 WINDOW_MARGIN = 0.5
@@ -56,30 +63,89 @@ class RiotConnectionError(RiotError):
     """Riot could not be reached at all (no internet, firewall, antivirus...)."""
 
 
+def riot_base_url(region: str) -> str:
+    """https://<region>.api.riotgames.com, or the test override when it is a loopback address."""
+    override = os.environ.get(TEST_URL_ENV, "").strip()
+    if override:
+        parts = urlsplit(override)
+        if parts.scheme in ("http", "https") and parts.hostname in LOOPBACK_HOSTS:
+            return override.rstrip("/")
+    return f"https://{region}.api.riotgames.com"
+
+
 class RateLimiter:
-    """Sliding-window limiter. Blocks (via the injected sleep) until a request may go out."""
+    """Sliding-window limiter. Blocks (via the injected sleep) until a request may go out.
+
+    Thread-safe: the sync, the rivals scouting and the page's own lookups share one limiter per host.
+    """
 
     def __init__(self, limits=DEFAULT_LIMITS, clock=time.monotonic, sleep=time.sleep,
                  margin=WINDOW_MARGIN):
         self._clock = clock
         self._sleep = sleep
+        self._lock = threading.Lock()
         self._windows = [(limit, window + margin, deque()) for limit, window in limits]
+
+    def _wait_locked(self, now: float) -> float:
+        wait = 0.0
+        for limit, window, stamps in self._windows:
+            while stamps and now - stamps[0] >= window:
+                stamps.popleft()
+            if len(stamps) >= limit:
+                wait = max(wait, stamps[0] + window - now)
+        return wait
+
+    def wait_estimate(self) -> float:
+        """Seconds a request made right now would have to wait (0 when it can go out)."""
+        with self._lock:
+            return max(0.0, self._wait_locked(self._clock()))
 
     def acquire(self) -> None:
         while True:
-            now = self._clock()
-            wait = 0.0
-            for limit, window, stamps in self._windows:
-                while stamps and now - stamps[0] >= window:
-                    stamps.popleft()
-                if len(stamps) >= limit:
-                    wait = max(wait, stamps[0] + window - now)
-            if wait <= 0:
-                break
+            with self._lock:
+                now = self._clock()
+                wait = self._wait_locked(now)
+                if wait <= 0:
+                    for _limit, _window, stamps in self._windows:
+                        stamps.append(now)
+                    return
             self._sleep(wait)
-        now = self._clock()
-        for _limit, _window, stamps in self._windows:
-            stamps.append(now)
+
+
+class Limiters:
+    """One RateLimiter per routing value (host), shared by everything that calls Riot in a process."""
+
+    def __init__(self, **limiter_kwargs):
+        self._kwargs = limiter_kwargs
+        self._lock = threading.Lock()
+        self._by_host: dict[str, RateLimiter] = {}
+
+    def for_host(self, host: str) -> RateLimiter:
+        host = str(host or "").strip().lower()
+        with self._lock:
+            if host not in self._by_host:
+                self._by_host[host] = RateLimiter(**self._kwargs)
+            return self._by_host[host]
+
+
+class ApiSlot:
+    """Only one of "sync" / "scout" may use the Riot API heavily at a time (non-blocking)."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.holder: str | None = None
+
+    def acquire(self, who: str) -> bool:
+        with self._lock:
+            if self.holder is not None:
+                return False
+            self.holder = who
+            return True
+
+    def release(self, who: str) -> None:
+        with self._lock:
+            if self.holder == who:
+                self.holder = None
 
 
 class RiotClient:
@@ -97,7 +163,7 @@ class RiotClient:
         if not api_key:
             raise MissingApiKeyError(MISSING_KEY_MESSAGE)
         self.region = region
-        self.base_url = f"https://{region}.api.riotgames.com"
+        self.base_url = riot_base_url(region)
         self.session = session if session is not None else requests.Session()
         self._sleep = sleep
         self.limiter = limiter or RateLimiter(clock=clock, sleep=sleep)
@@ -207,6 +273,42 @@ class RiotClient:
         Lives on the platform host, so build the client with region=<platform> (e.g. "la1").
         """
         return self._get("/lol/status/v4/platform-data")
+
+    # ---- spectator / league / mastery (platform host: build the client with region=<platform>)
+    def get_active_game(self, puuid: str) -> dict | None:
+        """spectator-v5: the game the account is playing right now, or None (404 = not in a game)."""
+        try:
+            return self._get(f"/lol/spectator/v5/active-games/by-summoner/{quote(puuid, safe='')}")
+        except NotFoundError:
+            return None
+
+    def get_league_entries(self, puuid: str) -> list:
+        """league-v4: ranked entries (RANKED_SOLO_5x5, RANKED_FLEX_SR) of the account; [] if unranked."""
+        try:
+            data = self._get(f"/lol/league/v4/entries/by-puuid/{quote(puuid, safe='')}")
+        except NotFoundError:
+            return []
+        return data if isinstance(data, list) else []
+
+    def get_champion_mastery(self, puuid: str, champion_id: int) -> dict | None:
+        """champion-mastery-v4 for one champion, or None when the account never played it (404)."""
+        path = (f"/lol/champion-mastery/v4/champion-masteries/by-puuid/{quote(puuid, safe='')}"
+                f"/by-champion/{int(champion_id)}")
+        try:
+            return self._get(path)
+        except NotFoundError:
+            return None
+
+    def get_match_ids(self, puuid: str, count: int = 10, type: str | None = None,
+                      queue: int | None = None) -> list[str]:
+        """ONE page of match ids (newest first); `type="ranked"` keeps solo/duo and flex games."""
+        params: dict = {"start": 0, "count": int(count)}
+        if type:
+            params["type"] = type
+        if queue is not None:
+            params["queue"] = int(queue)
+        page = self._get(f"/lol/match/v5/matches/by-puuid/{quote(puuid, safe='')}/ids", params)
+        return page if isinstance(page, list) else []
 
     def get_match(self, match_id: str) -> dict:
         return self._get(f"/lol/match/v5/matches/{quote(match_id, safe='')}")

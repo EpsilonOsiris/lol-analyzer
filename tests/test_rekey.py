@@ -105,7 +105,7 @@ def test_other_tables_with_a_puuid_column_follow(store, world):
                            [(f"{ME_PUUID}@A", "uno"), (f"{FRIEND_PUUID}@A", "dos"),
                             ("ajeno@A", "tres")])
     store.conn.commit()
-    assert store.puuid_tables() == ["video_reviews"]
+    assert store.puuid_tables() == ["scout_cache", "video_reviews"]
     run(AppRiot("B", world), store)
     rows = store.conn.execute("SELECT puuid, note FROM video_reviews ORDER BY id").fetchall()
     assert rows == [(f"{ME_PUUID}@B", "uno"), (f"{FRIEND_PUUID}@B", "dos"), ("ajeno@A", "tres")]
@@ -113,7 +113,7 @@ def test_other_tables_with_a_puuid_column_follow(store, world):
 
 def test_works_without_extra_tables(store, world):
     old_app_store(store, world)
-    assert store.puuid_tables() == []
+    assert store.puuid_tables() == ["scout_cache"]          # the rivals cache (always created)
     assert run(AppRiot("B", world), store)[0].ok
 
 

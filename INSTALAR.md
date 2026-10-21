@@ -83,8 +83,10 @@ Arriba a la derecha puedes elegir la cola: **Solo/Dúo**, **Flex** o **Todas**.
 
 1. Deja el panel abierto (la ventana negra de `abrir-panel.bat`) y entra a **En vivo** en el menú.
 2. Empieza una partida (también sirve la Herramienta de práctica). La página dice «Esperando partida…» y **se llena sola** cuando termina la pantalla de carga. Junto a «En vivo» en el menú aparece un punto rojo mientras juegas.
-3. Verás el marcador, a los 10 jugadores (como en TAB), el oro estimado, tus datos y cómo vas frente a tu propio historial. No hace falta ninguna key para esto y no se envía nada a internet: el panel solo lee lo que el juego muestra en tu mismo PC.
+3. Verás el marcador, a los 10 jugadores (como en TAB), el oro estimado, tus datos y cómo vas frente a tu propio historial. Esto no necesita ninguna key y no se envía nada a internet: el panel solo lee lo que el juego muestra en tu mismo PC.
 4. **Para mostrarlo en Discord:** pulsa **«Modo stream (para compartir en Discord)»**, comparte **esa ventana del navegador** en Discord (o ábrela en un segundo monitor y compártelo) y ponla en pantalla completa con **F11**.
+
+**Quién está en tu partida («Rivales y aliados»).** En la pantalla de carga, esa misma página muestra a los 10 jugadores con su rango, cuánto dominan el campeón que van a jugar y si ya jugaron contigo o contra ti. Esta parte **sí usa tu key** (hasta 45 peticiones por partida; si vuelves a abrirla o buscas la misma sala, sale de la memoria de 6 horas) y se hace sola mientras la página está abierta, o con el botón **«Buscar partida ahora»**. No funciona a la vez que una sincronización (espera a que termine). Si un jugador tiene el perfil oculto, solo verás su campeón y sus hechizos.
 
 El oro de los demás jugadores es una **estimación**: Riot solo da el oro real de quien está jugando. Cuando termina la partida se queda el resumen; en unos minutos puedes sincronizarla en **Sincronizar** para ver el análisis completo. Esta página no muestra tiempos de habilidades ni de objetivos del rival ni te da órdenes, porque las reglas de Riot no lo permiten.
 

@@ -634,6 +634,7 @@ class LivePoller:
         self._listeners = 0
         self._misses = 0
         self._last_time = 0.0
+        self.game_seq = 0               # +1 each time a new game starts being played
         self._checkpoints: dict[int, dict] = {}
         self._snap = {"status": "waiting", "version": 0, "updated": time.time(), "game": None,
                       "problem": None}
@@ -719,6 +720,13 @@ class LivePoller:
                           "game": game, "problem": problem}
             self._cond.notify_all()
 
+    def touch(self) -> None:
+        """Push a new version with the same game: wakes the streams when something around the game
+        changed (the rivals report)."""
+        with self._cond:
+            self._snap = {**self._snap, "version": self._snap["version"] + 1, "updated": time.time()}
+            self._cond.notify_all()
+
     def _fast_interval(self) -> float:
         return self.fast_s if self.listeners else self.idle_s
 
@@ -737,6 +745,7 @@ class LivePoller:
                 new_game = status in ("waiting", "loading") or (status == "finished" and not state["ended"])
                 if new_game or state["time"] < self._last_time - 10:
                     self._checkpoints = {}
+                    self.game_seq += 1
                 self._last_time = state["time"]
                 self._record_checkpoints(state)
                 self._publish("finished" if state["ended"] else "playing", state)

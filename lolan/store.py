@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS match_players (
     PRIMARY KEY (match_id, puuid)
 );
 CREATE INDEX IF NOT EXISTS idx_match_players_puuid ON match_players(puuid);
+CREATE TABLE IF NOT EXISTS scout_cache (
+    puuid TEXT NOT NULL,
+    champion_id INTEGER NOT NULL,
+    json TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (puuid, champion_id)
+);
 """
 
 
@@ -264,6 +271,45 @@ class Store:
         if row is None:
             return None
         return json.loads(row[0]), (json.loads(row[1]) if row[1] else None)
+
+    def iter_match_json(self):
+        """Yield (match_id, match_dict) of every stored match, without reading the timelines."""
+        for match_id, mjson in self.conn.execute("SELECT match_id, json FROM matches"):
+            try:
+                yield match_id, json.loads(mjson)
+            except (TypeError, ValueError):
+                continue
+
+    # ----------------------------------------------------------- scout cache
+    def get_scout_cache(self, puuid: str, champion_id: int, max_age_s: float, now: float | None = None):
+        """The cached scouting data of (puuid, champion) if younger than `max_age_s`, else None."""
+        row = self.conn.execute(
+            "SELECT json, fetched_at FROM scout_cache WHERE puuid=? AND champion_id=?",
+            (puuid, int(champion_id))).fetchone()
+        if row is None:
+            return None
+        now = time.time() if now is None else now
+        if now - row[1] > max_age_s:
+            return None
+        try:
+            data = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def put_scout_cache(self, puuid: str, champion_id: int, data: dict, now: float | None = None) -> None:
+        now = int(time.time() if now is None else now)
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO scout_cache(puuid, champion_id, json, fetched_at) VALUES (?, ?, ?, ?)",
+                (puuid, int(champion_id), json.dumps(data, separators=(",", ":")), now))
+
+    def prune_scout_cache(self, older_than_s: float, now: float | None = None) -> int:
+        """Delete cached scouting data older than `older_than_s`; returns how many rows went."""
+        now = time.time() if now is None else now
+        with self.conn:
+            cur = self.conn.execute("DELETE FROM scout_cache WHERE fetched_at < ?", (int(now - older_than_s),))
+        return cur.rowcount
 
     def iter_matches(self, puuid: str | None = None):
         """Yield (match_id, match_dict, timeline_dict_or_None) ordered by game_creation.
