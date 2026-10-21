@@ -68,6 +68,8 @@
   <p class="note">Tus keys son personales: no las compartas ni las publiques en capturas de pantalla. Se guardan en el archivo <code>.env</code> de la carpeta del programa y nunca se vuelven a mostrar completas.</p>
 </section>
 
+{% include "_rekey.html" %}
+
 <details class="card help-card"{% if welcome %} open{% endif %}>
   <summary>Cómo conseguir tu key de Riot</summary>
   <ol>
@@ -101,4 +103,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='configuracion.js') }}" defer></script>
+<script src="{{ url_for('static', filename='rekey.js') }}" defer></script>
 {% endblock %}

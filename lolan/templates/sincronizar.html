@@ -4,6 +4,8 @@
 <h1>Sincronizar</h1>
 <p class="muted">Descarga las partidas nuevas desde Riot (usa tu Riot ID y tu key de <a href="{{ u('config_page') }}">Configuración</a>; una sola key sirve para todo el clan). Cada partida son unas 2 peticiones y una key de desarrollo permite unas 50 partidas cada 2 minutos; lo ya descargado nunca se repite (una partida que jugaron varios del clan se baja una sola vez) y puedes volver a pulsar el botón si se interrumpe.</p>
 
+{% include "_rekey.html" %}
+
 <section class="card">
   <form id="sync-form" class="form">
     <label class="field"><span>Jugador</span>
@@ -43,4 +45,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='sync.js') }}" defer></script>
+<script src="{{ url_for('static', filename='rekey.js') }}" defer></script>
 {% endblock %}

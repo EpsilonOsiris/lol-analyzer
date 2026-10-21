@@ -1,0 +1,15 @@
+{# Notice + button + progress of the "actualizar mis datos" job (rekey); shared by Sincronizar and Configuración. #}
+<section class="card" id="rekey-card"{% if not rekey_show %} hidden{% endif %}>
+  <h2>Actualiza tus datos</h2>
+  <p class="notice" role="status"><strong>Cambiaste de API key:</strong> Riot cifra los identificadores por app, hay que actualizar tus datos (≈ <span id="rekey-minutes">{{ rekey_minutes() }}</span> min).</p>
+  <p class="muted">Se guarda una copia de tu base de datos antes de empezar y se vuelve a descargar cada partida con la key nueva (mientras tanto no se puede sincronizar). Si se interrumpe, vuelve a pulsar el botón y continúa donde se quedó.</p>
+  <div><button type="button" class="btn primary" id="rekey-btn">Actualizar mis datos</button></div>
+  <div id="rekey-panel" hidden aria-live="polite">
+    <h3 id="rekey-state">Preparando…</h3>
+    <progress id="rekey-progress" max="100" value="0" hidden></progress>
+    <p id="rekey-progress-text" class="muted" hidden></p>
+    <p id="rekey-error" class="notice error" role="alert" hidden></p>
+    <p id="rekey-done" class="notice ok" hidden></p>
+    <pre id="rekey-log" class="log" tabindex="0" aria-label="Registro de la actualización"></pre>
+  </div>
+</section>

@@ -83,6 +83,12 @@
           var banner = document.getElementById('key-banner');
           if (banner) banner.hidden = true;
         }
+        if (res.data.cambio_key) {
+          var rk = document.getElementById('rekey-card');
+          var mins = document.getElementById('rekey-minutes');
+          if (mins && res.data.rekey_minutos) mins.textContent = res.data.rekey_minutos;
+          if (rk) rk.hidden = false;
+        }
         if (res.data.listo) {
           show(saveOk, res.data.mensaje);
           saveNext.hidden = false;

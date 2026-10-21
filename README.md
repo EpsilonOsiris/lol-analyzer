@@ -52,6 +52,10 @@ La página Configuración escribe este mismo `.env` (de forma atómica y sin toc
 
 La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 
+### Cambiar de key de desarrollo a Personal (u otra app)
+
+Una Development API Key y una Personal API Key pertenecen a **apps distintas** de Riot, y Riot cifra los PUUID por app. Al cambiar de una a otra hay que pasar tus datos una sola vez: ejecuta `python -m lolan rekey` o, en el panel, pulsa **«Actualizar mis datos»** (el aviso «Cambiaste de API key» aparece en **Configuración** al guardar la key nueva y en **Sincronizar** si un sync lo necesita). Regenerar la Development key cada 24 h **no** cambia de app. Más detalles en el comando `rekey` de la sección Uso. En el panel, la actualización es un trabajo en segundo plano con barra de progreso, excluyente con la sincronización.
+
 ### Plataforma y región
 
 `REGION` es el valor de enrutamiento que usa la API para cuentas y partidas. Si la omites, se deduce de `PLATFORM`.
@@ -81,6 +85,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
   - `--cola COLA`: solo partidas de esa cola: `solo` (clasificatoria solo/dúo, 420), `flex` (440), `normal` (400), `blind` (430), `quickplay` (490) o el número de cola.
   - `--no-timeline`: no descarga el timeline. Es el doble de rápido, pero se pierden las métricas por minuto (diferencias a los minutos 7/14/21/28, muertes por fase, objetivos, etc.).
   - Sin más opciones descarga solo **tus** partidas. `--jugador "Nombre#TAG"` descarga las de ese jugador registrado y `--clan` las de todos los registrados, uno tras otro. `--max`, `--since`, `--cola` y `--no-timeline` se aplican a cada jugador.
+- `rekey` actualiza tus datos después de cambiar de API key **a una de otra app de Riot** (por ejemplo, de la Development API Key a una Personal API Key). Riot cifra los identificadores de jugador (PUUID) por app: con la key nueva el mismo jugador tiene otro PUUID y los guardados ya no sirven (Riot responde 400 «Exception decrypting»). `rekey` hace una copia de `data/lol.db` (`data/lol.db.antes-rekey-AAAAMMDD-HHMM`; si no hay espacio en disco no hace nada), vuelve a buscar a cada jugador registrado por su Riot ID, vuelve a descargar cada partida y su timeline (los IDs de partida son los mismos; unas 2 peticiones por partida, ~13 min para 330 partidas), reemplaza los identificadores viejos en el registro y en toda tabla con una columna `puuid`, y al final verifica que cada jugador conserva las mismas partidas y el mismo análisis por cola. Se puede interrumpir (Ctrl+C, key vencida) y volver a ejecutar: continúa donde se quedó. Una partida que Riot ya no devuelve (404) se conserva como estaba y se avisa; un Riot ID que ya no existe se omite y sus datos quedan intactos. Mientras no lo ejecutes, `sync` se detiene con un mensaje que lo pide. Si cambias a otra key de la misma app (o regeneras la de desarrollo) no hace falta.
 - `analyze` reconstruye `data/games.csv` y todos los reportes a partir de lo que ya está en la base de datos (no usa la red, así que puedes correrlo las veces que quieras). `--jugador` analiza a otro jugador registrado y `--clan` genera los reportes de todos.
 - `game <matchId>` imprime la boleta de una partida; `game ultima` usa la más reciente.
 - `campeon <Nombre>` imprime los promedios y lo que decide tus partidas con ese campeón (el nombre no distingue mayúsculas ni apóstrofes: `kaisa` funciona).

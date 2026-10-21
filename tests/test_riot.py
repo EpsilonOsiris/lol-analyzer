@@ -2,7 +2,7 @@ import pytest
 import requests
 
 from lolan.riot import (WINDOW_MARGIN, InvalidApiKeyError, MissingApiKeyError, NotFoundError,
-                        RateLimiter, RiotClient, RiotError)
+                        PuuidFromOtherAppError, RateLimiter, RiotClient, RiotError)
 
 
 class FakeClock:
@@ -125,6 +125,39 @@ def test_404_raises_not_found():
     client, _, _ = make_client([FakeResponse(404)])
     with pytest.raises(NotFoundError):
         client.get_timeline("LA1_1")
+
+
+def test_400_decrypting_puuid_is_the_other_app_error():
+    body = {"status": {"message": "Bad Request - Exception decrypting abc123", "status_code": 400}}
+    client, session, _ = make_client([FakeResponse(400, body)])
+    with pytest.raises(PuuidFromOtherAppError) as exc:
+        client.get_riot_id("abc123")
+    assert isinstance(exc.value, RiotError) and "rekey" in str(exc.value)
+    assert "cambiaste de api key" in str(exc.value).lower()
+    assert len(session.calls) == 1                      # not retried
+
+
+@pytest.mark.parametrize("payload", [
+    {"status": {"message": "Bad Request - invalid match id", "status_code": 400}},
+    {"status": {}}, None, "texto",
+])
+def test_other_400s_stay_generic(payload):
+    client, _, _ = make_client([FakeResponse(400, payload)])
+    with pytest.raises(RiotError) as exc:
+        client.get_match("LA1_1")
+    assert not isinstance(exc.value, PuuidFromOtherAppError)
+    assert "400" in str(exc.value)
+
+
+def test_400_with_unreadable_body_stays_generic():
+    class NoJson(FakeResponse):
+        def json(self):
+            raise ValueError("no json")
+
+    client, _, _ = make_client([NoJson(400)])
+    with pytest.raises(RiotError) as exc:
+        client.get_match("LA1_1")
+    assert not isinstance(exc.value, PuuidFromOtherAppError)
 
 
 def test_missing_key():
