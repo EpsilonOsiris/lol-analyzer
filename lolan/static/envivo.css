@@ -162,3 +162,82 @@ main.stream-main { max-width: none; width: 100%; height: 100vh; padding: 10px 14
   .stream .live-teams, .stream .live-bottom { grid-template-columns: 1fr; max-height: none; }
   .stream .live-team, .stream .live-box { margin-bottom: 8px; }
 }
+
+/* ---------------------------------------------------------- rivals (who is in the game) */
+.scout { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem .9rem; margin-bottom: 1rem; min-width: 0; }
+.scout[hidden] { display: none; }
+.scout summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: .5rem; }
+.scout-controls { display: flex; flex-wrap: wrap; gap: .5rem .7rem; align-items: center; margin: .6rem 0; }
+.scout-controls select { max-width: 100%; }
+.scout-controls .muted { font-size: .85rem; }
+.scout-note { margin: .5rem 0 0; }
+.sc-head { margin: .4rem 0; font-size: .9rem; }
+.sc-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 600px), 1fr)); gap: .4rem 1rem; }
+.sc-team { border-top: 3px solid var(--ally); padding-top: .2rem; min-width: 0; }
+.sc-team.enemy { border-top-color: var(--enemy); }
+.sc-team h3 { font-size: .9rem; margin: .2rem 0; }
+.sc-row { display: grid; grid-template-columns: minmax(150px, 1.2fr) 100px minmax(135px, 1fr) minmax(110px, .9fr) minmax(150px, 1.3fr); gap: .15rem .6rem; align-items: center; padding: .3rem .2rem; border-bottom: 1px solid var(--border); font-size: .8rem; }
+.sc-row:last-child { border-bottom: 0; }
+.sc-row.me { background: var(--surface-2); border-radius: 6px; }
+.sc-row.is-hidden { opacity: .85; }
+.sc-who { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.sc-who .ic-wrap, .sc-who .champ { width: 34px; height: 34px; }
+.sc-who .nm small { color: var(--muted); font-size: .72rem; white-space: normal; }
+.sc-who .nm small .tag { margin-left: .15rem; }
+.sc-gear { display: flex; align-items: center; gap: .15rem; flex-wrap: nowrap; }
+.sc-spells, .sc-runes { display: inline-flex; gap: 2px; margin-right: .3rem; }
+.sc-spells img, .sc-runes img, .sc-spells .ph, .sc-runes .ph, .bans-side img, .bans-side .ph { width: 22px; height: 22px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); display: block; }
+.sc-runes img { border-radius: 50%; }
+.sc-spells .ph, .sc-runes .ph, .bans-side .ph { display: grid; place-items: center; font-size: .55rem; font-weight: 700; color: var(--muted); }
+.sc-cell { min-width: 0; line-height: 1.25; }
+.sc-plain { grid-column: 3 / -1; font-size: .78rem; }
+.rk { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rk small, .sc-cell small { color: var(--muted); font-size: .7rem; }
+.rk.none { color: var(--muted); }
+.rk.tier-iron b, .rk.tier-bronze b { color: #a9744f; }
+.rk.tier-silver b { color: #8794a3; }
+.rk.tier-gold b { color: #c89b1b; }
+.rk.tier-platinum b, .rk.tier-emerald b { color: #1f9d7a; }
+.rk.tier-diamond b { color: #4f7bd9; }
+.rk.tier-master b, .rk.tier-grandmaster b, .rk.tier-challenger b { color: #b04fd9; }
+.streak { display: inline-block; margin-top: 1px; color: var(--win); font-weight: 600; }
+.ms b { font-variant-numeric: tabular-nums; }
+.tag { display: inline-block; padding: 0 .4rem; border-radius: 999px; font-size: .68rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.tag.low { color: var(--loss); border-color: var(--loss); }
+.tag.main { color: var(--win); border-color: var(--win); }
+.tag.clan { color: var(--accent); border-color: var(--accent); }
+.tag.me { color: var(--text); }
+.hist { font-weight: 600; }
+.rec { color: var(--muted); }
+.sc-bans { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; align-items: center; margin: .5rem 0 .2rem; font-size: .8rem; }
+.bans-side { display: inline-flex; gap: 3px; align-items: center; }
+.bans-side .muted { margin-right: .3rem; }
+.sc-foot, .sc-skip, .sc-empty { margin: .3rem 0 0; font-size: .78rem; }
+.sc-skip { color: var(--loss); }
+@media (max-width: 760px) {
+  .sc-row { grid-template-columns: 1fr auto; }
+  .sc-rank, .sc-mast, .sc-hist, .sc-plain { grid-column: 1 / -1; }
+  .sc-teams { grid-template-columns: 1fr; }
+}
+
+/* rivals in stream mode: in the flow on the loading screen, a pill (that opens on top) during the game */
+.stream .scout { padding: 4px 10px; margin: 0 0 6px; }
+.stream .scout summary { font-size: .95rem; }
+.stream #live[data-scout="1"]:not([data-status=playing]):not([data-status=finished]) .live-status { display: none; }
+.stream #live:not([data-status=playing]):not([data-status=finished]) .scout { width: 100%; max-width: 1240px; margin: 0 auto; max-height: 100%; overflow: auto; }
+.stream #live[data-status=playing] .scout, .stream #live[data-status=finished] .scout { position: fixed; right: 14px; bottom: 10px; z-index: 20; width: min(1200px, calc(100vw - 28px)); max-height: calc(100vh - 20px); overflow: auto; margin: 0; box-shadow: 0 6px 24px rgba(0, 0, 0, .55); }
+.stream #live[data-status=playing] .scout:has(details:not([open])), .stream #live[data-status=finished] .scout:has(details:not([open])) { width: auto; }
+.stream .sc-teams { grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.stream .sc-row { padding: 2px 2px; font-size: .78rem; grid-template-columns: minmax(130px, 1.25fr) 92px minmax(115px, 1fr) minmax(85px, .8fr); }
+.stream .sc-cell { overflow-wrap: anywhere; }
+.stream .rk, .stream .tag { white-space: normal; }
+.stream .sc-hist { grid-column: 1 / -1; padding-left: 38px; display: flex; flex-wrap: wrap; gap: 0 .8rem; }
+.stream .sc-who .ic-wrap, .stream .sc-who .champ { width: 30px; height: 30px; }
+.stream .sc-team h3 { font-size: .85rem; margin: 0; }
+.stream .sc-head { margin: 2px 0; }
+.stream .sc-bans { margin: 4px 0 0; }
+@media (max-width: 760px) {
+  .stream #live[data-status=playing] .scout, .stream #live[data-status=finished] .scout { position: static; width: auto; max-height: none; box-shadow: none; margin: 0 0 8px; }
+  .stream .sc-row { grid-template-columns: 1fr auto; }
+  .stream .sc-teams { grid-template-columns: 1fr; }
+}

@@ -72,6 +72,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 .venv/Scripts/python -m lolan campeon <Nombre> [--jugador "Nombre#TAG"]
 .venv/Scripts/python -m lolan jugadores [listar | agregar "Nombre#TAG" | quitar "Nombre#TAG"]
 .venv/Scripts/python -m lolan composiciones [--cola solo] [--todos-los-adc]
+.venv/Scripts/python -m lolan rivales [--jugador "Nombre#TAG"]
 .venv/Scripts/python -m lolan web [--puerto N] [--no-abrir]
 ```
 
@@ -85,6 +86,7 @@ La key nunca se imprime en pantalla y `.env` está en `.gitignore`.
 - `game <matchId>` imprime la boleta de una partida; `game ultima` usa la más reciente.
 - `campeon <Nombre>` imprime los promedios y lo que decide tus partidas con ese campeón (el nombre no distingue mayúsculas ni apóstrofes: `kaisa` funciona).
 - `composiciones` analiza tus partidas junto a tu clan (no usa la red): pools de cada amigo, dúo bot por soporte, matriz de arquetipos de ADC x soporte, alineaciones, itemización (penetración de armadura) y Purificar; imprime un resumen con las recomendaciones de ADC para la alineación más común y escribe `reports/composiciones.md`. Un jugador cuenta como del clan si su nombre empieza con `CLAN_PREFIX` (por defecto `Epsilon`) o es un jugador registrado; `CLAN_ALIASES` (`Cuenta=Persona;Otra=Persona`) junta varias cuentas de una misma persona. Ambos se editan en la página Configuración. La página **Composiciones** del panel muestra lo mismo y un formulario «Armar draft». También calcula, desde tu asiento, el winrate de tu equipo por tipo de aliado en cada línea (y por persona del clan), las duplas de tipos (jungla × mid, jungla × top, soporte × ADC) y el «plan de pelea» de cada equipo (engage, proteger al carry, poke, pick, split o mixto) con su cruce contra el plan rival; el plan de ambos equipos aparece en la página de cada partida y en `data/games.csv` (`team_plan`, `enemy_plan`). El formulario recomienda los 3 mejores picks para cada línea sin campeón (los campeones de la persona elegida, o solo tipos si dejas «Aleatorio») y el plan resultante. Las clasificaciones de ADC y soportes salen de un video de coaching, salvo las marcadas como «propia»; las de top, jungla y mid y el plan de pelea son nuestras (guías como EarlyGame, LoLTheory, WeCoach y Mobalytics), no datos oficiales de Riot.
+- `rivales` muestra quién está en tu partida **ahora** (la de tu `RIOT_ID`, o la de otro jugador registrado con `--jugador`) con la API Spectator de Riot: campeones, hechizos, runa clave, rango, maestría, partidas recientes e historial contigo. Ver [Rivales](#rivales-quién-está-en-tu-partida). Usa tu key (hasta 45 peticiones; lo ya consultado en las últimas 6 horas sale de la caché).
 - `jugadores` muestra los jugadores registrados (con cuántas partidas hay guardadas de cada uno); `jugadores agregar "Nombre#TAG"` busca la cuenta con tu API key y la registra; `jugadores quitar "Nombre#TAG"` la saca de la lista (sus partidas se conservan). Los Riot ID no distinguen mayúsculas.
 
 ## Tu clan (varios jugadores)
@@ -142,7 +144,7 @@ Para las partidas con timeline (las que no se descargaron con `--no-timeline`) e
 
 La página **En vivo** del menú muestra la partida que estás jugando, pensada sobre todo para **compartir la ventana con tu clan en Discord**. El punto rojo junto a «En vivo» en el menú indica que hay una partida en curso.
 
-**Cómo funciona.** El cliente del juego, mientras hay una partida, responde en tu propio equipo en `https://127.0.0.1:2999/liveclientdata/` (la «Live Client Data API» de Riot). El panel la lee desde ahí, en el mismo PC: **no se envía nada a ningún lado y no usa tu key de Riot** (tampoco la de Gemini). Sin partida, el panel solo comprueba cada 5 segundos si el juego responde; cuando alguien tiene la página abierta y hay partida, lee cada segundo. Funciona también en la Herramienta de práctica y en partidas personalizadas. Al terminar la partida se queda el resumen final hasta que empiece otra; en unos minutos puedes sincronizarla en **Sincronizar** para ver el análisis completo.
+**Cómo funciona.** El cliente del juego, mientras hay una partida, responde en tu propio equipo en `https://127.0.0.1:2999/liveclientdata/` (la «Live Client Data API» de Riot). El panel la lee desde ahí, en el mismo PC: **no se envía nada a ningún lado y esa lectura no usa tu key de Riot** (tampoco la de Gemini). Solo los datos de [Rivales](#rivales-quién-está-en-tu-partida) se piden a Riot con tu key. Sin partida, el panel solo comprueba cada 5 segundos si el juego responde; cuando alguien tiene la página abierta y hay partida, lee cada segundo. Funciona también en la Herramienta de práctica y en partidas personalizadas. Al terminar la partida se queda el resumen final hasta que empiece otra; en unos minutos puedes sincronizarla en **Sincronizar** para ver el análisis completo.
 
 **Qué muestra** (solo lo que ya ves en pantalla con TAB, en el registro de eventos y en tus estadísticas):
 
@@ -158,13 +160,27 @@ La página **En vivo** del menú muestra la partida que estás jugando, pensada 
 
 **Certificado.** El juego usa un certificado propio. Se comprueba su cadena contra el certificado raíz de Riot incluido en `lolan/certs/riotgames.pem` (descargado de la documentación de Riot, ver `lolan/certs/LEEME.txt`) y solo para `127.0.0.1`; el nombre del servidor no se comprueba porque el certificado no está emitido para esa dirección. Nunca se desactiva la verificación en general. Algunos antivirus (Norton) reemplazan incluso los certificados locales: si Riot no valida, el panel prueba con el almacén de certificados de Windows (que sí confía en tu antivirus), también solo para `127.0.0.1`. Si ninguno valida, la página lo avisa. Para pruebas automáticas se puede cambiar la dirección con la variable `LOLAN_TEST_LIVE_URL` (solo acepta direcciones locales; no la uses normalmente).
 
+### Rivales: quién está en tu partida
+
+Dentro de **En vivo** (y también en el modo stream) hay una sección **Rivales y aliados** que se llena desde la **pantalla de carga**, con datos de Riot que se piden con tu key (API Spectator, league, champion-mastery y match-v5):
+
+- **Cuándo se busca.** Mientras la página En vivo está abierta y el juego no está en partida (sin partida, cargando o con el resumen final de la anterior), el panel pregunta a Riot cada 30 segundos si tu cuenta está en una partida (1 petición cada vez). Cuando aparece una, hace el escaneo una sola vez en segundo plano y lo empuja a la página; el resultado se queda toda la partida y en «terminada». El botón **«Buscar partida ahora»** lo hace al momento, y el selector de jugador permite ver la partida de cualquier jugador registrado de tu clan. También por terminal: `python -m lolan rivales [--jugador "Nombre#TAG"]`.
+- **Qué muestra de cada jugador.** Equipo aliado y enemigo (relativo al jugador buscado), bans, campeón, hechizos de invocador, runa clave y árbol secundario (nombres e íconos de Data Dragon en español), rango de Solo/Dúo y Flex con PL y winrate de la temporada, maestría en ese campeón (puntos, nivel y «hace N días» desde la última vez que lo jugó) con la etiqueta «poca experiencia con este campeón» (menos de 10 000 puntos o nunca lo jugó) o «main» (más de 100 000), racha de victorias, las últimas 10 partidas clasificatorias (de los enemigos, hasta 3 con detalle: V/D y KDA, y cuáles fueron con ese campeón) y el **historial local**: «Antes: 2V-1D contra ti», calculado gratis con tus partidas guardadas, comparando por Riot ID (`Nombre#TAG`, sin distinguir mayúsculas), nunca por puuid. Los jugadores de tu clan (prefijo, alias o registrados) llevan la insignia «de tu clan».
+- **Jugadores ocultos.** Si Riot entrega a un jugador sin puuid ni Riot ID (modo oculto, streamer), la página solo muestra su campeón y sus hechizos, con la etiqueta «Jugador oculto»: nunca se intenta identificarlo ni se consulta nada de él. Los bots se marcan como «Bot».
+- **Cuántas peticiones gasta.** Máximo **45 por escaneo** (típico en frío: unas 35; con todo en caché, solo la pregunta a Spectator). Orden: rango y maestría de todos (enemigos primero, luego aliados, tú al final; 2 por jugador), después las últimas partidas clasificatorias (1 petición por jugador; de los enemigos, hasta 3 detalles de partida que no estén ya guardados). Si se agotan las 45 o Riot pediría esperar más de 60 segundos por el límite de tu key (20 cada segundo y 100 cada 2 minutos por servidor), el escaneo se detiene y muestra lo que alcanzó a obtener y qué quedó pendiente. Cada servidor de Riot (por ejemplo `americas` y `la1`) tiene su propio cupo: el panel mantiene un limitador por servidor compartido por la sincronización, el escaneo y las búsquedas de cuentas.
+- **Caché.** Lo consultado de cada (jugador, campeón) se guarda 6 horas en la tabla `scout_cache` de `data/lol.db` (se borra a las 24 horas), así que volver a buscar la misma sala, o a las mismas personas más tarde, no gasta peticiones. Los puuid se resuelven cada vez por Riot ID con tu key actual (y se recuerdan en memoria por Riot ID y huella de la key), no se toman del registro ni de las partidas guardadas, para que siga funcionando justo después de cambiar de key.
+- **No corre junto a una sincronización.** Comparten el mismo cupo de peticiones: el botón responde con un mensaje amable, y la búsqueda automática espera a que termine la sincronización.
+- **Política de Riot.** Solo se muestra lo que la API de Riot expone sobre la cuenta de cada jugador (rango, maestría, historial de partidas) y su Riot ID público; nada de esperas de hechizos en vivo, ni «dodge» ni consejos sobre qué hacer. Si algún día Riot cambia sus reglas, esta sección se puede quitar sin afectar al resto.
+
+Para pruebas automáticas, la variable `LOLAN_TEST_RIOT_URL` cambia la dirección de la API de Riot (solo acepta direcciones locales; no la uses normalmente).
+
 ## Dónde queda todo
 
 | Ruta | Contenido |
 |---|---|
-| `data/lol.db` | Base de datos SQLite con el JSON crudo de cada partida y timeline |
+| `data/lol.db` | Base de datos SQLite con el JSON crudo de cada partida y timeline (y la caché de 6 horas del escaneo de Rivales, tabla `scout_cache`) |
 | `data/gold_model.json` | Coeficientes y errores del modelo de oro estimado de la página En vivo (se recalcula solo; se puede borrar) |
-| `data/ddragon/` | Mapa, íconos y nombres de habilidades en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
+| `data/ddragon/` | Mapa, íconos y nombres (habilidades, hechizos de invocador, runas) en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |
 | `reports/campeones/<Campeón>.md` | Promedios y qué separa tus victorias de tus derrotas con ese campeón |
@@ -199,7 +215,7 @@ Los `.bat` usan solo caracteres ASCII (cmd se confunde con acentos en algunos Wi
 .venv/Scripts/python -m pytest -q
 ```
 
-Las pruebas usan partidas y timelines sintéticos; no necesitan red ni API key.
+Las pruebas usan partidas y timelines sintéticos; no necesitan red ni API key. Las del script de la página En vivo (sección Rivales) usan Node.js si está instalado (si no, se omiten).
 
 ## Notas sobre la base de datos
 

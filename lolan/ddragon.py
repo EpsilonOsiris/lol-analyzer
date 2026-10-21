@@ -10,8 +10,12 @@ Layout of the cache:
     <version>/data/es_MX/champion.json        list of champions (display names)
     <version>/data/es_MX/champion/<Id>.json   spells + passive of one champion
     <version>/data/es_MX/item.json            item names
+    <version>/data/es_MX/summoner.json        summoner spells (names + icon file)
+    <version>/data/es_MX/runesReforged.json   rune trees and runes (names + icon path)
     <version>/img/champion/<Id>.png           square icon
     <version>/img/item/<id>.png               item icon (only the items a live game shows)
+    <version>/img/spell/<File>.png            summoner spell icon (only the ones a scouted game shows)
+    <version>/img/rune/<icon path>.png        rune / rune tree icon (same path Riot uses, unversioned upstream)
     <version>/img/map/map11.png               minimap (Summoner's Rift)
 """
 from __future__ import annotations
@@ -168,6 +172,7 @@ class DDragon:
         self._jobs: queue.Queue = queue.Queue()
         self._worker: threading.Thread | None = None
         self._json_cache: dict = {}
+        self._derived: dict = {}
         self._books: dict = {}
 
     # ----------------------------------------------------------- cache reads
@@ -219,6 +224,96 @@ class DDragon:
     def champion_name(self, version, name) -> str:
         found = self._champion_map(version).get(norm(name)) if version else None
         return found[1] if found else champion_display(name)
+
+    def _derive(self, rel: str, build):
+        """`build(parsed json)` of a cached file, rebuilt only when the file changes."""
+        data = self.read_json(rel)
+        if data is None:
+            return {}
+        try:
+            stamp = self._path(rel).stat().st_mtime_ns
+        except OSError:
+            return {}
+        cached = self._derived.get(rel)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        built = build(data)
+        self._derived[rel] = (stamp, built)
+        return built
+
+    def champion_by_key(self, version, key) -> tuple[str, str] | None:
+        """(id, display name) of the champion with the numeric key (spectator's championId), or None
+        while the champion list of that version is not cached."""
+        if not version:
+            return None
+
+        def build(data):
+            out = {}
+            for cid, c in ((data or {}).get("data") or {}).items():
+                k = (c or {}).get("key")
+                if k is not None and str(k).isdigit():
+                    out[int(k)] = (cid, (c or {}).get("name") or cid)
+            return out
+
+        try:
+            wanted = int(key)
+        except (TypeError, ValueError):
+            return None
+        return self._derive(f"{version}/data/{LANG}/champion.json", build).get(wanted)
+
+    def spell_info(self, version, spell_id) -> dict | None:
+        """{"name", "file", "icon_rel"} of a summoner spell by numeric id; icon_rel is None until downloaded."""
+        if not version:
+            return None
+
+        def build(data):
+            out = {}
+            for sid, sp in ((data or {}).get("data") or {}).items():
+                k = (sp or {}).get("key")
+                full = ((sp or {}).get("image") or {}).get("full")
+                if k is not None and str(k).isdigit() and full:
+                    out[int(k)] = {"name": (sp or {}).get("name") or sid, "file": full}
+            return out
+
+        try:
+            wanted = int(spell_id)
+        except (TypeError, ValueError):
+            return None
+        found = self._derive(f"{version}/data/{LANG}/summoner.json", build).get(wanted)
+        if found is None:
+            return None
+        rel = f"{version}/img/spell/{found['file']}"
+        return {**found, "icon_rel": rel if self.has(rel) else None}
+
+    def perk_info(self, version, perk_id) -> dict | None:
+        """{"name", "icon", "icon_rel"} of a rune or rune tree by id; icon_rel is None until downloaded."""
+        if not version:
+            return None
+
+        def build(data):
+            out = {}
+            for tree in data if isinstance(data, list) else []:
+                if not isinstance(tree, dict):
+                    continue
+                if isinstance(tree.get("id"), int):
+                    out[tree["id"]] = {"name": tree.get("name") or tree.get("key") or "",
+                                       "icon": tree.get("icon") or ""}
+                for slot in tree.get("slots") or []:
+                    for rune in (slot or {}).get("runes") or []:
+                        if isinstance(rune, dict) and isinstance(rune.get("id"), int):
+                            out[rune["id"]] = {"name": rune.get("name") or rune.get("key") or "",
+                                               "icon": rune.get("icon") or ""}
+            return out
+
+        try:
+            wanted = int(perk_id)
+        except (TypeError, ValueError):
+            return None
+        found = self._derive(f"{version}/data/{LANG}/runesReforged.json", build).get(wanted)
+        if found is None:
+            return None
+        rel = f"{version}/img/rune/{found['icon']}" if found["icon"] else None
+        return {**found, "icon_rel": rel if rel and self.has(rel) else None}
 
     def icon_rel(self, version, name) -> str | None:
         """Cache-relative path of the champion icon, or None while it is not downloaded."""
@@ -320,7 +415,8 @@ class DDragon:
                 self._mark_down()
         return self.versions()
 
-    def _run_game_job(self, game_version, champions, minimap, items=()) -> None:
+    def _run_game_job(self, game_version, champions, minimap, items=(), champion_keys=(), spells=(),
+                      perks=()) -> None:
         versions = self._ensure_versions()
         version = pick_version(versions, game_version)
         if version is None:
@@ -336,6 +432,25 @@ class DDragon:
         if minimap and self.minimap_rel() is None:
             latest = pick_version(versions, None)
             tasks.append((f"{latest}/{MINIMAP}", f"{BASE_URL}/cdn/{latest}/{MINIMAP}"))
+        for key in champion_keys:       # scouted games name champions by number (spectator's championId)
+            found = self.champion_by_key(version, key)
+            if found:
+                tasks.append((f"{version}/img/champion/{found[0]}.png",
+                              f"{BASE_URL}/cdn/{version}/img/champion/{found[0]}.png"))
+        if spells:
+            self._download(f"{data_rel}/summoner.json", f"{BASE_URL}/cdn/{version}/data/{LANG}/summoner.json")
+            for sid in spells:
+                info = self.spell_info(version, sid)
+                if info:
+                    tasks.append((f"{version}/img/spell/{info['file']}",
+                                  f"{BASE_URL}/cdn/{version}/img/spell/{info['file']}"))
+        if perks:
+            self._download(f"{data_rel}/runesReforged.json",
+                           f"{BASE_URL}/cdn/{version}/data/{LANG}/runesReforged.json")
+            for pid in perks:
+                info = self.perk_info(version, pid)
+                if info and info["icon"]:
+                    tasks.append((f"{version}/img/rune/{info['icon']}", f"{BASE_URL}/cdn/img/{info['icon']}"))
         tasks.append((f"{data_rel}/item.json", f"{BASE_URL}/cdn/{version}/data/{LANG}/item.json"))
         for item_id in items:
             tasks.append((f"{version}/img/item/{item_id}.png", f"{BASE_URL}/cdn/{version}/img/item/{item_id}.png"))
@@ -374,7 +489,7 @@ class DDragon:
         self._jobs.put((key, func))
 
     def prepare(self, game_versions=(None,), champions=(), wait: float = 0.0, minimap: bool = True,
-                items=()) -> None:
+                items=(), champion_keys=(), spells=(), perks=()) -> None:
         """Queue the downloads a page needs and wait for them at most `wait` seconds.
 
         `game_versions` are the game patches involved (None = the latest Data Dragon version).
@@ -382,11 +497,15 @@ class DDragon:
         """
         champs = tuple(sorted({c for c in champions if c}))
         item_ids = tuple(sorted({int(i) for i in items if str(i).isdigit()}))
+        keys = tuple(sorted({int(k) for k in champion_keys if str(k).isdigit()}))
+        spell_ids = tuple(sorted({int(k) for k in spells if str(k).isdigit()}))
+        perk_ids = tuple(sorted({int(k) for k in perks if str(k).isdigit()}))
         for gv in dict.fromkeys(game_versions):
             if self._is_down():
                 break
-            key = ("game", gv, champs, minimap, item_ids)
-            self._submit(key, lambda gv=gv: self._run_game_job(gv, champs, minimap, item_ids))
+            key = ("game", gv, champs, minimap, item_ids, keys, spell_ids, perk_ids)
+            self._submit(key, lambda gv=gv: self._run_game_job(gv, champs, minimap, item_ids, keys,
+                                                                spell_ids, perk_ids))
         if wait > 0:
             self.wait(wait)
 

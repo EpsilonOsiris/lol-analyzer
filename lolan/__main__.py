@@ -1,4 +1,4 @@
-"""Command line interface: python -m lolan {sync,analyze,game,campeon,jugadores,web}."""
+"""Command line interface: python -m lolan {sync,analyze,game,campeon,jugadores,composiciones,rivales,web}."""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +13,7 @@ from . import analyze as an
 from . import report
 from .config import ConfigError, load_config
 from .players import load_roster, normalize_riot_id
-from .riot import MissingApiKeyError, NotFoundError, RiotClient, RiotError
+from .riot import Limiters, MissingApiKeyError, NotFoundError, RiotClient, RiotError
 from .store import Store
 from .sync import sync as run_sync
 from .sync import sync_players
@@ -132,6 +132,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="solo esa cola: solo, flex, normal, blind, quickplay o un número (por defecto, todas)")
     p.add_argument("--todos-los-adc", action="store_true",
                    help="la recomendación incluye todos los ADC clasificados, no solo los de tu pool")
+
+    p = sub.add_parser("rivales",
+                       help="muestra quién está en tu partida actual (Spectator de Riot): campeones, rango, maestría e historial")
+    _add_player_arg(p, "busca la partida de este jugador registrado")
 
     p = sub.add_parser("web", help="abre el panel web local (solo escucha en 127.0.0.1)")
     p.add_argument("--puerto", type=_port, metavar="N", default=8765,
@@ -439,6 +443,60 @@ def cmd_composiciones(args, cfg) -> int:
     return 0
 
 
+def cmd_rivales(args, cfg) -> int:
+    from . import comps
+    from . import scout as sc
+    from .ddragon import DDragon
+    from .settings import read_settings
+
+    if not cfg.api_key:
+        raise MissingApiKeyError(
+            "Falta RIOT_API_KEY en el archivo .env. Copia .env.example a .env y pega tu API key "
+            "(se obtiene en developer.riotgames.com; las keys de desarrollo duran 24 h).")
+    store = Store(cfg.db_path)
+    try:
+        roster = load_roster(store, cfg.riot_id)
+    finally:
+        store.close()
+    if args.jugador:
+        player = roster.by_ref(args.jugador)
+        if player is not None:
+            target, is_main = player.riot_id, player.is_main
+        elif cfg.riot_id and args.jugador.strip().casefold() == cfg.riot_id.strip().casefold():
+            target, is_main = cfg.riot_id, True
+        else:
+            _resolve_player(roster, args.jugador, cfg)       # raises the "not registered" error
+            return 1
+    else:
+        if not cfg.riot_id:
+            raise ConfigError("Falta RIOT_ID en el archivo .env (formato Nombre#TAG).")
+        target, is_main = cfg.riot_id, True
+    limiters = Limiters()          # one limiter per Riot host, like the panel
+    api = sc.ScoutApi(RiotClient(cfg.api_key, region=cfg.platform, limiter=limiters.for_host(cfg.platform)),
+                      RiotClient(cfg.api_key, region=cfg.region, limiter=limiters.for_host(cfg.region)))
+    puuid = sc.PuuidResolver().resolve(target, cfg.api_key, api.account)
+    raw = api.active_game(puuid)
+    game = sc.parse_spectator(raw, puuid, target) if raw else None
+    if game is None:
+        print(f"{target} no está en una partida en este momento. Riot publica la partida unos "
+              "segundos después de empezar la pantalla de carga; vuelve a intentarlo.")
+        return 0
+    st = read_settings(cfg.root)
+    clan = comps.ClanConfig.build(st.clan_prefix, st.clan_aliases, {p.puuid: p.riot_id for p in roster.players})
+    store = Store(cfg.db_path)
+    try:
+        report = sc.ScoutRun(api, store, sc.LocalHistory(lambda: Store(cfg.db_path)), clan,
+                             viewer_riot_id=target, viewer_is_main=is_main,
+                             tracked_ids=[p.riot_id for p in roster.players]).run(game)
+    finally:
+        store.close()
+    dd = DDragon(cfg.data_dir / "ddragon")
+    champs, spells, perks = sc.wanted_assets(report)
+    dd.prepare((None,), (), wait=10, minimap=False, champion_keys=champs, spells=spells, perks=perks)
+    print(sc.render_text(report, sc.Assets(dd)))
+    return 0
+
+
 def cmd_web(args, cfg) -> int:
     from .web import create_app, start_live  # Flask is only needed for this command
 
@@ -459,7 +517,8 @@ def cmd_web(args, cfg) -> int:
 
 
 COMMANDS = {"sync": cmd_sync, "analyze": cmd_analyze, "game": cmd_game, "campeon": cmd_campeon,
-            "jugadores": cmd_jugadores, "composiciones": cmd_composiciones, "web": cmd_web}
+            "jugadores": cmd_jugadores, "composiciones": cmd_composiciones, "rivales": cmd_rivales,
+            "web": cmd_web}
 
 
 def main(argv=None) -> int:

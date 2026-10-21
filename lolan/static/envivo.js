@@ -180,6 +180,161 @@
     }).join('') + '</ol>' : '<p class="muted">Todavía no pasa nada.</p>');
   }
 
+  // ---- rivals (who is in the game): Riot's Spectator data, only what the API shows about each account
+  var scoutBox = document.getElementById('live-scout');
+  var scoutDetails = document.getElementById('scout-details');
+  var scoutMsg = document.getElementById('scout-msg');
+  var scoutGo = document.getElementById('scout-go');
+  var scoutTarget = document.getElementById('scout-target');
+  var scoutOpen = null;        // null until the viewer opens or closes it by hand
+  var SCOUT_HINT = 'Buscando tu partida en Riot cada 30 segundos mientras esta página esté abierta.';
+
+  function phIcon(label, title) {
+    return '<span class="ph" title="' + esc(title) + '">' + esc(String(label || '?').slice(0, 2)) + '</span>';
+  }
+  function spellsHtml(p) {
+    return '<span class="sc-spells">' + (p.spells || []).map(function (s) {
+      return s.icon ? '<img src="' + esc(s.icon) + '" alt="" title="' + esc(s.name) + '">' : phIcon(s.name, s.name);
+    }).join('') + '</span>';
+  }
+  function runesHtml(p) {
+    var out = '';
+    [[p.keystone, 'Runa clave'], [p.secondary, 'Árbol secundario']].forEach(function (pair) {
+      var r = pair[0];
+      if (!r) return;
+      var title = pair[1] + ': ' + r.name;
+      out += r.icon ? '<img src="' + esc(r.icon) + '" alt="" title="' + esc(title) + '">' : phIcon(r.name, title);
+    });
+    return '<span class="sc-runes">' + out + '</span>';
+  }
+  function rankBadge(r, tag) {
+    if (!r) return '';
+    return '<div class="rk tier-' + esc(String(r.tier).toLowerCase()) + '" title="' +
+      esc(tag + ': ' + r.label + ' · ' + r.lp_text + ' · ' + r.record_text + ' esta temporada') +
+      '"><small>' + esc(tag) + '</small> <b>' + esc(r.label) + '</b> ' + esc(r.lp_text) +
+      ' · ' + esc(r.winrate_text) + ' <small>(' + r.games + ')</small></div>';
+  }
+  function rankHtml(p) {
+    if (p.rank == null) return '<span class="muted">rango: sin datos</span>';
+    var solo = rankBadge(p.rank.solo, 'Solo'), flex = rankBadge(p.rank.flex, 'Flex');
+    if (!solo && !flex) return '<div class="rk none">Sin clasificar</div>';
+    return solo + flex + (p.streak ? '<small class="streak" title="Racha de victorias">en racha</small>' : '');
+  }
+  function masteryHtml(p) {
+    var m = p.mastery;
+    if (!m) return '<span class="muted">maestría: sin datos</span>';
+    var main = m.never ? 'nunca lo ha jugado'
+      : '<b>' + esc(m.points_text) + '</b> pts · nivel ' + m.level + (m.last_text ? ' · ' + esc(m.last_text) : '');
+    return '<div class="ms">' + main + '</div>' +
+      (m.label ? '<span class="tag ' + esc(m.tone) + '">' + esc(m.label) + '</span>' : '');
+  }
+  function recentHtml(p) {
+    var out = '';
+    if (p.history_text) out += '<div class="hist">' + esc(p.history_text) + '</div>';
+    var r = p.recent;
+    if (r && r.known) {
+      out += '<div class="rec" title="Partidas clasificatorias recientes que se pudieron revisar">Últimas ' + r.known +
+        ' ranked: ' + esc(r.record_text) + (r.on_champion.length ? ' · con este campeón: ' + r.on_champion.map(function (x) {
+          return (x.win ? 'V ' : 'D ') + esc(x.kda);
+        }).join(', ') : '') + (r.partial ? ' <small>(parcial)</small>' : '') + '</div>';
+    }
+    return out;
+  }
+  function scoutRow(p) {
+    var tags = (p.is_viewer ? ' <span class="tag me">tú</span>' : '') +
+      (p.clan ? ' <span class="tag clan">de tu clan</span>' : '') + (p.bot ? ' <span class="tag">bot</span>' : '');
+    var plain = p.hidden || p.bot;
+    var body = plain
+      ? '<div class="sc-cell sc-plain muted">' + (p.hidden ? 'Solo se muestra su campeón y sus hechizos.' : 'Jugador controlado por el juego.') + '</div>'
+      : '<div class="sc-cell sc-rank">' + rankHtml(p) + '</div><div class="sc-cell sc-mast">' + masteryHtml(p) +
+        '</div><div class="sc-cell sc-hist">' + recentHtml(p) + '</div>';
+    return '<div class="sc-row' + (p.is_viewer ? ' me' : '') + (p.hidden ? ' is-hidden' : '') + '">' +
+      '<div class="sc-who"><span class="ic-wrap">' + iconHtml(p.icon, p.champion_name, 'champ') + '</span><span class="nm"><b>' +
+      esc(p.display_name) + '</b><small>' + esc(p.champion_name) + tags + '</small></span></div>' +
+      '<div class="sc-cell sc-gear">' + spellsHtml(p) + (plain ? '' : runesHtml(p)) + '</div>' + body + '</div>';
+  }
+  function scoutTeam(title, cls, players) {
+    return '<div class="sc-team ' + cls + '"><h3>' + esc(title) + '</h3>' + players.map(scoutRow).join('') + '</div>';
+  }
+  function bansHtml(bans) {
+    function side(list, label) {
+      if (!list.length) return '';
+      return '<span class="bans-side"><span class="muted">' + esc(label) + '</span> ' + list.map(function (b) {
+        return b.icon ? '<img src="' + esc(b.icon) + '" alt="' + esc(b.champion_name) + '" title="' + esc(b.champion_name) + '">'
+          : phIcon(b.champion_name, b.champion_name);
+      }).join('') + '</span>';
+    }
+    var html = side(bans.ally, 'Bans de tu equipo') + side(bans.enemy, 'Bans enemigos');
+    return html ? '<div class="sc-bans">' + html + '</div>' : '';
+  }
+  function scoutReport(sc, status) {
+    var r = sc.report, g = r.game, q = r.requests;
+    var phase = status === 'playing' ? 'partida en curso' : status === 'finished' ? 'partida terminada'
+      : g.length_s > 0 ? 'va por el minuto ' + Math.floor(g.length_s / 60) : 'en la pantalla de carga';
+    var own = r.scouted.is_main ? 'Tu equipo' : 'Equipo de ' + r.scouted.riot_id.split('#')[0];
+    var foot = 'Peticiones a Riot: ' + q.used + ' de ' + q.budget + ' como máximo' +
+      (q.from_cache ? ' · ' + plural(q.from_cache, 'jugador salió', 'jugadores salieron') + ' de la caché' : '') + '.';
+    var skipped = q.skipped.length ? '<p class="sc-skip">Faltó: ' + q.skipped.map(esc).join('; ') + '.</p>' : '';
+    return '<p class="sc-head"><b>' + esc(r.scouted.riot_id) + '</b> · ' + esc(g.queue_label) + ' · ' + esc(phase) + '</p>' +
+      '<div class="sc-teams">' + scoutTeam(own, 'ally', r.teams.ally) + scoutTeam('Equipo enemigo', 'enemy', r.teams.enemy) + '</div>' +
+      bansHtml(r.bans) + '<p class="sc-foot muted">' + esc(foot) + '</p>' + skipped;
+  }
+  var SCOUT_CHIPS = { ready: '', busy: 'En espera', error: 'Sin datos', nogame: 'No está en partida' };
+  function renderScout(data) {
+    var sc = data.scout;
+    if (!scoutBox || !sc) return;
+    var hasReport = !!sc.report;
+    var quiet = data.status === 'waiting' || data.status === 'loading';
+    var msg = sc.message || (!hasReport && quiet ? SCOUT_HINT : '');
+    // Stream mode: the box only shows up when there is something to read.
+    scoutBox.hidden = stream && !hasReport && !msg;
+    root.dataset.scout = hasReport ? '1' : '0';
+    var chip = document.getElementById('scout-chip');
+    if (chip) {
+      var text = sc.busy ? 'Buscando…' : (SCOUT_CHIPS[sc.status] || '');
+      chip.textContent = text;
+      chip.hidden = !text;
+    }
+    var note = document.getElementById('scout-note');
+    if (note) note.hidden = stream && !hasReport;
+    if (scoutMsg) scoutMsg.textContent = msg;
+    put('scout-body', hasReport ? scoutReport(sc, data.status) : (stream && msg ? '<p class="sc-empty muted">' + esc(msg) + '</p>' : ''));
+    if (scoutGo) scoutGo.disabled = !!sc.busy;
+    if (scoutDetails) {
+      // Open on the loading screen; folded during the game (the viewer can open it, and it stays so).
+      var want = scoutOpen != null ? scoutOpen : !(data.status === 'playing' || data.status === 'finished');
+      if (scoutDetails.open !== want) scoutDetails.open = want;
+    }
+  }
+  var scoutSummary = scoutDetails && scoutDetails.querySelector ? scoutDetails.querySelector('summary') : null;
+  if (scoutSummary) {
+    // The click comes before the browser flips `open`: remember what the viewer is asking for, so an
+    // update that arrives in between does not undo it.
+    scoutSummary.addEventListener('click', function () { scoutOpen = !scoutDetails.open; });
+  }
+  if (scoutGo) {
+    scoutGo.addEventListener('click', function () {
+      scoutGo.disabled = true;
+      if (scoutMsg) scoutMsg.textContent = 'Buscando la partida…';
+      fetch('/api/rivales/buscar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Lolan': '1' },
+        body: JSON.stringify({ jugador: scoutTarget ? scoutTarget.value : '' })
+      }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          if (!res.ok) {
+            if (scoutMsg) scoutMsg.textContent = res.d.error || 'No se pudo buscar la partida.';
+            scoutGo.disabled = false;
+            return;
+          }
+          renderScout({ status: root.dataset.status, scout: res.d });
+        })
+        .catch(function () {
+          if (scoutMsg) scoutMsg.textContent = 'No se pudo hablar con el panel.';
+          scoutGo.disabled = false;
+        });
+    });
+  }
+
   function render(data) {
     received = Date.now();
     root.dataset.status = data.status;
@@ -193,6 +348,7 @@
     if (gameBox) gameBox.hidden = !game;
     var result = document.getElementById('live-result');
     if (result) result.textContent = game && game.result ? '· ' + (game.result === 'win' ? 'Victoria' : 'Derrota') : '';
+    renderScout(data);
     if (!game) return;
     var minutes = game.time / 60;
     legend = game.gold_model ? game.gold_model.legend : '';

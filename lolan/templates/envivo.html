@@ -29,6 +29,24 @@
   </div>
   <p id="live-conn" class="notice" hidden>Reconectando con el panel…</p>
 
+  <section id="live-scout" class="scout" aria-label="Quién está en la partida" hidden>
+    <details id="scout-details" open>
+      <summary><span class="scout-title">Rivales y aliados</span> <span id="scout-chip" class="chip" hidden></span></summary>
+      {% if not stream %}
+      <div class="scout-controls">
+        <label class="sr-only" for="scout-target">Jugador</label>
+        <select id="scout-target"{% if scout_targets|length < 2 %} hidden{% endif %}>
+          {% for t in scout_targets %}<option value="{{ t.riot_id }}">{{ t.label }}</option>{% endfor %}
+        </select>
+        <button id="scout-go" class="btn small" type="button">Buscar partida ahora</button>
+        <span id="scout-msg" class="muted" role="status" aria-live="polite"></span>
+      </div>
+      {% endif %}
+      <div id="scout-body" class="scout-body"></div>
+      <p id="scout-note" class="note scout-note">Datos de Riot (Spectator) desde la pantalla de carga; se gastan hasta ~{{ budget }} peticiones de tu key por partida (lo ya consultado en las últimas 6 horas sale de la caché). Solo se muestra información pública de las cuentas.</p>
+    </details>
+  </section>
+
   <div id="live-game" class="live-game"{% if init.game is none %} hidden{% endif %}>
     <section id="live-head" class="live-head" aria-label="Marcador"></section>
     <div class="live-teams">
