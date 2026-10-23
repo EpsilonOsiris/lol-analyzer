@@ -54,54 +54,7 @@
 
   {% if submitted %}
   <h3>Recomendación</h3>
-  {% if notes %}<ul class="muted">{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
-  <h4>ADC (tú)</h4>
-  {% if ranking %}
-  <ol class="rec-list">
-    {% for x in ranking[:8] %}
-    <li>
-      <div class="rec-head"><strong>{{ x.champion }}</strong>
-        <span class="badge main">{{ adc_labels[x.adc_type] }}{% if x.adc_source == 'propia' %} · clasificación propia{% endif %}</span>
-        <span class="muted">puntaje {{ x.score }}</span>
-        {% if not x.in_pool %}<span class="muted">· fuera de tu pool</span>{% endif %}</div>
-      <ul>{% for r in x.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
-    </li>
-    {% endfor %}
-  </ol>
-  {% else %}
-  <p class="muted">Ningún ADC tiene aún 3 partidas tuyas. Marca «Incluir todos los ADC clasificados» para ver sugerencias basadas solo en el marco.</p>
-  {% endif %}
-
-  {% if draft %}
-  <h3>Otras líneas</h3>
-  <p class="muted">Cada pick se puntúa con las reglas del marco (pesan más cuando hay pocos datos) y con tus resultados: el winrate de tu equipo con ese tipo en esa línea y con la dupla relevante (jungla × mid, jungla × top, soporte × ADC) cuando hay 10 partidas o más, y el winrate de esa persona con ese campeón. Las clasificaciones son propias, no datos de Riot.</p>
-  {% for role in draft_roles %}
-  {% set e = draft.roles[role] %}
-  <div class="draft-role">
-    <h4>{{ e.label }}{% if e.person %} <span class="muted">· {{ e.person }}</span>{% endif %}</h4>
-    {% if e.mode == 'fijo' %}
-    <p class="muted">{{ e.fixed }} ya está escogido ({{ e.fixed_type_label|lower }}).</p>
-    {% else %}
-    {% if e.note %}<p class="muted">{{ e.note }}</p>
-    {% elif e.mode == 'tipos' %}<p class="muted">Sin persona del clan ni campeón: te sugerimos tipos, no campeones.</p>{% endif %}
-    <ol class="rec-list">
-      {% for x in e.picks %}
-      <li>
-        <div class="rec-head"><strong>{% if x.kind == 'tipo' %}Tipo: {{ x.type_label }}{% else %}{{ x.champion }}{% endif %}</strong>
-          {% if x.kind == 'campeon' %}<span class="badge main">{{ x.type_label }}{% if x.source == 'propia' %} · clasificación propia{% endif %}</span>{% endif %}
-          <span class="muted">puntaje {{ x.score }}</span>
-          {% if x.plan_label %}<span class="muted">· plan {{ x.plan_label }}</span>{% endif %}</div>
-        <ul>{% for r in x.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
-      </li>
-      {% endfor %}
-    </ol>
-    {% endif %}
-  </div>
-  {% endfor %}
-  <h3>Plan de pelea resultante</h3>
-  <p><strong>{{ draft.plan.label }}</strong> <span class="muted">con {% for mm in draft.plan.members %}{{ mm.label }}: {{ mm.text }}{% if not loop.last %} · {% endif %}{% endfor %}</span></p>
-  <ul>{% for r in draft.plan.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
-  {% endif %}
+  {% include "_borrador.html" %}
   {% endif %}
 </section>
 
