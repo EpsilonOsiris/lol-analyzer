@@ -180,11 +180,12 @@ class SyncJob:
 
     def __init__(self, root, cache: GamesCache, health: KeyHealth | None = None,
                  limiters: Limiters | None = None, slot: ApiSlot | None = None,
-                 on_rekey_needed=None):
+                 on_rekey_needed=None, on_synced=None):
         self._root = root
         self._cache = cache
         self.health = health or KeyHealth()
         self._on_rekey_needed = on_rekey_needed or (lambda: None)
+        self._on_synced = on_synced or (lambda: None)     # called after a sync that ended without error
         self._lock = threading.Lock()
         # One limiter per Riot host for the whole server (syncs, the rivals scout, Riot ID lookups
         # when adding players): the key's 100 req / 2 min budget spans all of them.
@@ -302,6 +303,11 @@ class SyncJob:
             with self._lock:
                 self.result, self.error, self.error_code, self.running = result, error, code, False
             self.slot.release("sync")
+            if error is None:
+                try:
+                    self._on_synced()
+                except Exception as exc:    # a warm-up problem must never turn a good sync into a failure
+                    print(f"Aviso: no se pudo precargar las partidas: {exc!r}", file=sys.stderr)
 
 
 class RekeyJob:
@@ -434,6 +440,9 @@ def _bar_rows(rows, short=None, title=None):
 def start_live(app) -> None:
     """Start the live-game poller of `app` (the CLI does it; tests and imports never poll)."""
     ext = app.extensions["lolan"]
+    ext["preload"] = True                 # from now on syncs re-warm the cache too
+    if ext.get("warm_up_async") is not None:
+        ext["warm_up_async"]()
     ext["live"].start()
     if ext.get("scout") is not None:      # the rivals search follows the live poller
         ext["scout"].start(ext["live"])
@@ -450,7 +459,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     slot = ApiSlot()     # one heavy Riot user at a time: sync, rekey or the rivals scout
     holder: dict = {}
     job = SyncJob(root, cache, health, limiters, slot,
-                  on_rekey_needed=lambda: setattr(holder["rekey"], "needed", True))
+                  on_rekey_needed=lambda: setattr(holder["rekey"], "needed", True),
+                  on_synced=lambda: holder["synced"]())
     rekey_job = holder["rekey"] = RekeyJob(root, cache, health, limiters, slot)
     dd = ddragon or DDragon(root / "data" / "ddragon")
 
@@ -467,6 +477,30 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
                                "health": health, "ddragon": dd, "live": live, "scout": scout,
                                "limiters": limiters}
+
+    def warm_up() -> None:
+        """Load the main player's games and composition records so the first page isn't slow.
+
+        Fail soft: any problem is one warning line. Requests that arrive meanwhile wait on the
+        cache lock, then find everything loaded."""
+        try:
+            main = open_roster().main
+            if main is None:
+                return
+            st = read_settings(root)
+            cache.get(main.puuid, None)
+            cache.comps(main.puuid, st.clan_prefix, st.clan_aliases)
+        except Exception as exc:
+            print(f"Aviso: no se pudo precargar las partidas: {exc!r}", file=sys.stderr)
+
+    def warm_up_async() -> None:
+        threading.Thread(target=warm_up, daemon=True, name="lolan-warmup").start()
+
+    # Tests never start the live services, so a finished sync only re-warms once start_live ran.
+    holder["synced"] = lambda: (app.extensions["lolan"]["warm_up_async"]()
+                                if app.extensions["lolan"].get("preload") else None)
+    app.extensions["lolan"]["warm_up"] = warm_up
+    app.extensions["lolan"]["warm_up_async"] = warm_up_async
 
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
