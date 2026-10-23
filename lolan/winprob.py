@@ -5,8 +5,10 @@
 
 The five lane win rates are NOT independent (the same patch, the same drafts), so their sum is
 damped with a conservative weight (0.5), every rate is shrunk toward 50% with PRIOR_GAMES
-imaginary games, and the answer is clamped to 25 to 75 %. It is a rough estimate, not a forecast:
-the page says so until it has been checked against real results.
+imaginary games, and the answer is clamped to 25 to 75 %. A duo with fewer than MIN_GAMES_USED games
+does not count; when only one side counts it is set against a neutral 50 % (the other logit is 0),
+and `syn_sides` (0, 1 or 2) in the stored features tells the cases apart. It is a rough estimate,
+not a forecast: the page says so until it has been checked against real results.
 
 Calibration over time: every shown estimate is stored (table `predictions`); when the game is later
 synced, `resolve_outcomes` records whether the scouted player's team won. `calibration` gives the
@@ -103,14 +105,17 @@ def features(lanes, syn_ally, syn_enemy, ally_rank, enemy_rank) -> dict:
         if row and row["games"] >= MIN_GAMES_USED:
             lane_sum += logit(shrunk(row["wins"], row["games"]))
             used += 1
-    syn_used = bool(syn_ally and syn_enemy and syn_ally["games"] >= MIN_GAMES_USED
-                    and syn_enemy["games"] >= MIN_GAMES_USED)
-    syn = (logit(shrunk(syn_ally["wins"], syn_ally["games"])) - logit(shrunk(syn_enemy["wins"], syn_enemy["games"]))
-           if syn_used else 0.0)
+    # A duo counts with at least MIN_GAMES_USED games; when only one side counts it is set against a
+    # neutral 50% (logit 0) instead of dropping the whole term.
+    ally_ok = bool(syn_ally and syn_ally["games"] >= MIN_GAMES_USED)
+    enemy_ok = bool(syn_enemy and syn_enemy["games"] >= MIN_GAMES_USED)
+    syn = ((logit(shrunk(syn_ally["wins"], syn_ally["games"])) if ally_ok else 0.0)
+           - (logit(shrunk(syn_enemy["wins"], syn_enemy["games"])) if enemy_ok else 0.0))
+    syn_sides = int(ally_ok) + int(enemy_ok)
     rank_used = ally_rank is not None and enemy_rank is not None
     rank = max(-RANK_LIMIT, min(RANK_LIMIT, (ally_rank - enemy_rank) / RANK_UNIT)) if rank_used else 0.0
     return {"lane": round(lane_sum, 5), "syn": round(syn, 5), "rank": round(rank, 5),
-            "lanes_used": used, "syn_used": syn_used, "rank_used": rank_used}
+            "lanes_used": used, "syn_used": syn_sides > 0, "syn_sides": syn_sides, "rank_used": rank_used}
 
 
 def raw_probability(f: dict, weights: dict) -> float:

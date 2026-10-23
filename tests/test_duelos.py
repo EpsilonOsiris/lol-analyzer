@@ -277,7 +277,7 @@ def test_probability_is_shown_stored_and_uses_ranks_and_lanes(rig):
     out = rig.build()
     prob = out["prob"]
     assert 0.25 <= prob["value"] <= 0.75 and prob["text"] == f"{round(100 * prob['value'])}%"
-    assert prob["lanes_used"] == 5 and prob["rank_used"] and prob["syn_used"]          # the 150-game lane counts, shrunk
+    assert prob["lanes_used"] == 5 and prob["rank_used"] and prob["syn_used"] and prob["syn_sides"] == 2          # the 150-game lane counts, shrunk
     assert prob["label"] == "estimación con datos de OP.GG; aún sin calibrar" and not prob["calibrated"]
     store = Store(rig.db)
     row = store.pending_predictions()[0]

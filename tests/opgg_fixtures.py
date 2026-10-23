@@ -28,7 +28,9 @@ MATCHUPS = {
     ("adc", "Jinx", "Kai'Sa"): (1113, 602),            # 54.1%
     ("support", "Lulu", "Thresh"): (150, 90),          # few games: no % shown
 }
+# my champion -> [(partner, games, wins)]: an ADC's most played supports and a support's most played ADCs
 SYNERGIES = {"Jinx": [("Thresh", 708, 378), ("Lulu", 607, 305)], "Kai'Sa": [("Thresh", 900, 441), ("Lulu", 300, 150)]}
+SUPPORT_SYNERGIES = {"Lux": [("Jinx", 120, 66), ("Kai'Sa", 90, 41)], "Thresh": [("Jinx", 708, 378), ("Kai'Sa", 900, 441)]}
 
 
 class FakeResponse:
@@ -63,9 +65,12 @@ def lane_meta_text() -> str:
             f"LolListLaneMetaChampions(Data(Positions({','.join(lists)})))")
 
 
-def synergies_text(champion: str) -> str:
-    rows = ",".join(f'Synergie("{champion}","ADC","{n}","SUPPORT",0,{g},{w},{w / g:.2f})'
-                    for n, g, w in SYNERGIES.get(champion, []))
+def synergies_text(champion: str, support: bool = False) -> str:
+    """The list of an ADC (its supports) or, with `support`, of a support (its ADCs)."""
+    mine, other = ("SUPPORT", "ADC") if support else ("ADC", "SUPPORT")
+    table = SUPPORT_SYNERGIES if support else SYNERGIES
+    rows = ",".join(f'Synergie("{champion}","{mine}","{n}","{other}",0,{g},{w},{w / g:.2f})'
+                    for n, g, w in table.get(champion, []))
     return ("class LolGetChampionSynergies: data\nclass Data: synergies\n"
             "class Synergie: champion_name,position,synergy_champion_name,synergy_position,score,play,win,win_rate\n\n"
             f"LolGetChampionSynergies(Data([{rows}]))")
@@ -162,7 +167,9 @@ class FakeMcp:
             mine = arg_name(args["champion"])
             if not mine:
                 return self._reject(rid)
-            return self._text(rid, synergies_text(mine))
+            if (args.get("my_position"), args.get("synergy_position")) not in (("adc", "support"), ("support", "adc")):
+                return self._reject(rid)
+            return self._text(rid, synergies_text(mine, support=args["my_position"] == "support"))
         return self._reject(rid)
 
     def count(self, tool) -> int:

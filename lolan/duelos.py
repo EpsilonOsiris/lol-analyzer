@@ -315,7 +315,7 @@ class DuelosService:
                 f"({calib['n']} partidas, Brier {calib['brier_text']})")
             prob = {"value": p, "text": pct_text(p), "model": model_name, "label": label,
                     "calibrated": bool(calib), "lanes_used": f["lanes_used"], "rank_used": f["rank_used"],
-                    "syn_used": f["syn_used"]}
+                    "syn_used": f["syn_used"], "syn_sides": f["syn_sides"]}
         known = sum(1 for m in lane_data if m)
         status = "ok" if known == 5 else "partial" if known else "nodata"
         return {"status": status, "message": NO_DATA_MESSAGE if status == "nodata" else "", "source": "OP.GG",

@@ -180,8 +180,42 @@ def test_synergy_comes_from_the_adc_list(tmp_path):
     data, fake = make_data(tmp_path)
     assert data.synergy(222, 412) == {"games": 708, "wins": 378}        # Jinx + Thresh
     assert data.synergy(222, 117) == {"games": 607, "wins": 305}
-    assert data.synergy(222, 266) is None                                # not among the listed supports
-    assert fake.count("lol_get_champion_synergies") == 1                # one list per ADC
+    assert fake.count("lol_get_champion_synergies") == 1                # one list per ADC, no fallback needed
+    assert fake.tool_calls[-1][1]["my_position"] == "adc"
+
+
+def test_synergy_falls_back_to_the_support_list(tmp_path):
+    data, fake = make_data(tmp_path)
+    assert data.synergy(222, 99) == {"games": 120, "wins": 66}          # Jinx + Lux: only in Lux's list
+    assert fake.count("lol_get_champion_synergies") == 2
+    assert [(a["champion"], a["my_position"], a["synergy_position"]) for _t, a in fake.tool_calls
+            if _t == "lol_get_champion_synergies"] == [("JINX", "adc", "support"), ("LUX", "support", "adc")]
+
+
+def test_synergy_missing_on_both_sides_is_none_and_remembered(tmp_path):
+    data, fake = make_data(tmp_path)
+    assert data.synergy(222, 266) is None                                # Jinx + Aatrox: in neither list
+    assert data.synergy(222, 266) is None
+    assert fake.count("lol_get_champion_synergies") == 2                # the ADC's and the support's, once each
+
+
+def test_support_synergy_list_is_cached_per_support(tmp_path):
+    data, fake = make_data(tmp_path)
+    assert data.synergy(222, 99) == {"games": 120, "wins": 66}          # Jinx list (miss) + Lux list
+    assert data.synergy(145, 99) == {"games": 90, "wins": 41}           # Kai'Sa list (miss) + cached Lux list
+    assert fake.count("lol_get_champion_synergies") == 3
+    assert data.synergy(222, 99) == {"games": 120, "wins": 66}
+    assert fake.count("lol_get_champion_synergies") == 3
+
+
+def test_support_list_rejected_is_remembered_as_empty(tmp_path):
+    data, fake = make_data(tmp_path)
+    fake.fail_tools["lol_get_champion_synergies"] = lambda a: (
+        FakeResponse(200, {"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "Invalid position or champion"}})
+        if a["my_position"] == "support" else None)
+    assert data.synergy(222, 99) is None                                 # the ADC list misses, the support one is refused
+    assert data.synergy(222, 99) is None
+    assert fake.count("lol_get_champion_synergies") == 2
 
 
 def test_answers_are_cached_in_sqlite_for_24_hours(tmp_path):

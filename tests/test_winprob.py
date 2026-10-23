@@ -45,6 +45,7 @@ def test_probability_follows_the_documented_formula():
     syn = wp.logit(wp.shrunk(540, 1000)) - wp.logit(wp.shrunk(480, 1000))
     assert f["lane"] == pytest.approx(lane_sum, abs=1e-4) and f["syn"] == pytest.approx(syn, abs=1e-4)
     assert f["rank"] == pytest.approx(0.5) and f["lanes_used"] == 5 and f["syn_used"] and f["rank_used"]
+    assert f["syn_sides"] == 2
     w = wp.DEFAULT_WEIGHTS
     expected = wp.sigmoid(w["w0"] + w["w_lane"] * lane_sum + w["w_syn"] * syn + w["w_rank"] * 0.5)
     assert wp.predict(f) == pytest.approx(expected, abs=1e-4)
@@ -64,7 +65,29 @@ def test_probability_is_clamped_to_25_75():
 
 def test_pairs_with_very_few_games_do_not_count():
     f = wp.features([lane(10, 9)] * 5, lane(10, 9), lane(10, 1), None, None)
-    assert f["lanes_used"] == 0 and not f["syn_used"] and f["syn"] == 0
+    assert f["lanes_used"] == 0 and not f["syn_used"] and f["syn"] == 0 and f["syn_sides"] == 0
+
+
+def test_one_sided_duo_is_set_against_a_neutral_50():
+    lanes = [lane(2000, 1000)] * 5
+    ally = wp.features(lanes, lane(1000, 540), None, None, None)
+    assert ally["syn_used"] and ally["syn_sides"] == 1
+    assert ally["syn"] == pytest.approx(wp.logit(wp.shrunk(540, 1000)), abs=1e-4) and ally["syn"] > 0
+    enemy = wp.features(lanes, None, lane(1000, 540), None, None)
+    assert enemy["syn_used"] and enemy["syn_sides"] == 1
+    assert enemy["syn"] == pytest.approx(-ally["syn"], abs=1e-4)
+    thin = wp.features(lanes, lane(1000, 540), lane(10, 1), None, None)        # the enemy duo is too thin to count
+    assert thin["syn_sides"] == 1 and thin["syn"] == pytest.approx(ally["syn"], abs=1e-4)
+    both = wp.features(lanes, lane(1000, 540), lane(1000, 540), None, None)
+    assert both["syn_sides"] == 2 and both["syn"] == pytest.approx(0.0, abs=1e-4)
+    assert wp.predict(ally) > wp.predict(wp.features(lanes, None, None, None, None))
+
+
+def test_stored_features_without_syn_sides_still_work():
+    old = {"lane": 0.4, "syn": 0.2, "rank": 0.1, "lanes_used": 5, "syn_used": True, "rank_used": True}
+    assert wp.predict(old) is not None and wp._vector(old) == [1.0, 0.4, 0.2, 0.1]
+    rows = [{"features": old, "outcome": i % 2} for i in range(40)]
+    assert set(wp.fit_weights(rows)) == set(wp.WEIGHT_KEYS)
 
 
 def test_rank_points_and_team_average():

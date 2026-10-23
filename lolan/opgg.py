@@ -30,7 +30,11 @@ What was verified against the live endpoint (October 2026) and why the code does
   `lol_list_champions` also gives `champion_id` = Riot's numeric champion id (Spectator), so the
   names are found from the id without Data Dragon. (Entries with ids >= 60000 are skins.)
 * Synergy: `lol_get_champion_synergies(champion=ADC, my_position=adc, synergy_position=support)`
-  lists the ~10 most played supports with `play` and `win` of the duo (names, not ids).
+  lists the ~10 most played supports with `play` and `win` of the duo (names, not ids). The same
+  tool with `my_position=support, synergy_position=adc` lists the ~10 most played ADCs of a support
+  (`synergy_champion_name` is the ADC; checked October 2026: Rell lists Xayah with 112 games / 70
+  wins, a pair absent from Xayah's own list), so a pair missing on one side is looked up on the
+  other.
 * Roles: `lol_list_lane_meta_champions` has, per lane, each champion's `role_rate` (share of its
   games played in that lane) and `play`, by English name.
 
@@ -426,24 +430,33 @@ class OpggData:
         found = self._cached(f"mu:{position}:{my_id}:{opp_id}", fetch)
         return None if found == UNKNOWN else found
 
-    def synergy(self, adc_id: int, support_id: int) -> dict | None:
-        """{"games", "wins"} of the ADC + support duo (from the ADC's list of most played supports)."""
-        mine, theirs = self.name_of(adc_id), self.name_of(support_id)
-        if not mine or not theirs:
-            return None
-
+    def _synergy_list(self, key: str, champion: str, my_position: str, synergy_position: str) -> list:
+        """The ~10 most played partners of `champion` in the other bot lane position (cached, fail-soft)."""
         def fetch():
             fields = [f"data.synergies[].{x}" for x in ("champion_name", "synergy_champion_name", "play", "win")]
             try:
                 text = self.client.call("lol_get_champion_synergies", {
-                    "champion": champion_arg(mine), "my_position": "adc", "synergy_position": "support",
-                    "lang": "en_US", "desired_output_fields": fields})
+                    "champion": champion_arg(champion), "my_position": my_position,
+                    "synergy_position": synergy_position, "lang": "en_US", "desired_output_fields": fields})
             except OpggRejected:
                 return []
             rows = ((parse_tool_text(text) or {}).get("data") or {}).get("synergies") or []
             return [{"name": r.get("synergy_champion_name"), "games": int(_num(r.get("play"))), "wins": int(_num(r.get("win")))}
                     for r in rows if isinstance(r, dict) and r.get("synergy_champion_name")]
-        for row in self._cached(f"syn:adc:{adc_id}", fetch):
-            if _norm(row.get("name")) == _norm(theirs) and row.get("games", 0) > 0:
-                return {"games": row["games"], "wins": min(row["wins"], row["games"])}
+        return self._cached(key, fetch)
+
+    def synergy(self, adc_id: int, support_id: int) -> dict | None:
+        """{"games", "wins"} of the ADC + support duo.
+
+        The ADC's list of most played supports first; when the pair is not there, the support's
+        list of most played ADCs (a rare ADC with a popular support shows up on one side only)."""
+        mine, theirs = self.name_of(adc_id), self.name_of(support_id)
+        if not mine or not theirs:
+            return None
+        for key, champion, position, other, wanted in (
+                (f"syn:adc:{adc_id}", mine, "adc", "support", theirs),
+                (f"syn:sup:{support_id}", theirs, "support", "adc", mine)):
+            for row in self._synergy_list(key, champion, position, other):
+                if _norm(row.get("name")) == _norm(wanted) and row.get("games", 0) > 0:
+                    return {"games": row["games"], "wins": min(row["wins"], row["games"])}
         return None
