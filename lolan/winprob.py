@@ -41,7 +41,9 @@ L2 = 10.0
 MIN_GAIN = 0.002                 # the fit must beat the defaults by this much log-loss per game on the hold-out
 MIN_Z = 1.64                     # ... and by at least this many standard errors (one-sided 95%: noise rarely switches it)
 PENDING_KEEP_S = 30 * 24 * 3600  # predictions with no stored game after this long are dropped
-REMAKE_S = 300
+# Before 15 min a game can only end by a remake or an early surrender with someone AFK; neither says
+# anything about the draft, so its prediction is dropped instead of counted.
+SHORT_GAME_S = 15 * 60
 
 TIER_INDEX = {"IRON": 0, "BRONZE": 1, "SILVER": 2, "GOLD": 3, "PLATINUM": 4, "EMERALD": 5, "DIAMOND": 6,
               "MASTER": 7, "GRANDMASTER": 7, "CHALLENGER": 7}
@@ -297,8 +299,8 @@ def resolve_outcomes(store, now: float | None = None) -> int:
             continue
         info = (got[0] or {}).get("info") or {}
         duration = info.get("gameDuration") or 0
-        if duration and duration < REMAKE_S:
-            store.drop_prediction(pred["match_id"])      # a remake says nothing about the estimate
+        if duration and duration < SHORT_GAME_S:
+            store.drop_prediction(pred["match_id"])      # remake / AFK surrender: says nothing about the draft
             continue
         part, _info = find_participant(got[0], riot_id=pred["scouted"])
         if part is None or not isinstance(part.get("win"), bool):

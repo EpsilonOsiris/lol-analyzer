@@ -121,6 +121,20 @@ def test_outcome_is_recorded_when_the_game_is_stored(tmp_path):
     store.close()
 
 
+def test_games_shorter_than_15_minutes_are_dropped_not_counted(tmp_path):
+    store = Store(tmp_path / "lol.db")
+    put(store, 1)
+    put(store, 2)
+    put(store, 3)
+    store.save_match("LA1_1", played("LA1_1", False, duration=465))         # surrender at 7:45 with an AFK
+    store.save_match("LA1_2", played("LA1_2", False, duration=16 * 60))     # a normal (short) game
+    store.save_match("LA1_3", played("LA1_3", True, duration=wp.SHORT_GAME_S - 1))
+    assert wp.resolve_outcomes(store, now=5000) == 1
+    assert {r["match_id"]: r["outcome"] for r in store.resolved_predictions()} == {"LA1_2": 0}
+    assert store.pending_predictions() == []                                # the short ones were deleted
+    store.close()
+
+
 def test_games_that_never_get_stored_are_dropped_after_30_days(tmp_path):
     store = Store(tmp_path / "lol.db")
     put(store, 9, at=1000)
