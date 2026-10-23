@@ -145,6 +145,27 @@ Para las partidas con timeline (las que no se descargaron con `--no-timeline`) e
 
 **Mapa e íconos.** La primera vez que abres una partida con timeline, el panel descarga una sola vez, de Data Dragon (el CDN público de Riot, sin enviar nada tuyo), el mapa, los íconos de los campeones de esa partida y sus nombres de habilidades en español (es_MX), y los guarda en `data/ddragon/`. Usa la versión del parche de la partida cuando existe. La descarga corre en segundo plano y una página nunca espera más de unos segundos: sin conexión (o mientras baja) se ve un mapa esquemático y las iniciales de cada campeón, y se reintenta más tarde.
 
+## Líneas (cómo va cada cruce)
+
+Para cada línea con un solo jugador por equipo (top, jungla, mid, ADC, soporte) se compara a cada campeón con su rival directo y se mide **la línea, no la partida**, con el timeline. Se calcula desde `data/lol.db`, sin la API de Riot, y se guarda en archivos JSON en `data/lineas/` (sin base de datos; se puede borrar y se regenera).
+
+- **Gana la línea**: oro + experiencia propios menos los del rival en el minuto 14. Más de +300 es «gana», menos de −300 «pierde» y entre medias «pareja» (constante `LANE_EVEN`). El porcentaje de línea cuenta las parejas como media victoria.
+- **En qué niveles ganas o pierdes**: lo que ganas por minuto, según tu nivel, en los tramos 1-2, 3-5, 6-8 y 9+; y por cada nivel de 1 a 11 (picos de poder).
+- **Quién llega antes** al nivel 2 y al 6; **picos con los items** (cuánto ganas por minuto 3 minutos antes y después de completar tu 1.º, 2.º y 3.er item legendario; salen de los datos de Data Dragon de ese parche, sin ellos queda vacío) y el **winrate de la partida según su duración** (<25, 25-30, 30-35, 35+).
+- Con pocas partidas el porcentaje se acerca al promedio del campeón («ajustado») y el texto avisa «pocas partidas».
+
+```bash
+python -m lolan lineas --reconstruir                          # calcula las líneas de todas tus partidas guardadas
+python -m lolan lineas Diana --vs Akali --linea mid           # una línea concreta
+python -m lolan lineas Diana --linea mid                      # el campeón contra todos y sus mejores / peores cruces
+python -m lolan lineas Diana --persona Osiris --parches todos # solo las partidas de un miembro del clan
+python -m lolan lineas --personas                             # miembros del clan con líneas calculadas
+```
+
+`--reconstruir` es idempotente. Después de cada `sync` se calculan solas las partidas nuevas. La muestra incluye ambos lados de cada línea (tus partidas y las de todos los demás jugadores que salieron en ellas); por defecto se usan los 3 parches más recientes (`--parches N` o `--parches todos`). Cada fila solo nombra a los miembros del clan (el prefijo y los alias de la configuración, igual que Composiciones); el resto queda anónimo y no se guarda ningún puuid.
+
+Archivos: `filas/<parche>/<fuente>.jsonl` (una fila por lado, solo se agrega), `procesadas.json`, `duelos/<LÍNEA>/<id del campeón>.json` (los agregados que se pueden leer a mano, con las cifras contra todos y contra cada rival), `campeones.json` e `indice.json`.
+
 ## En vivo (tu partida mientras juegas)
 
 La página **En vivo** del menú muestra la partida que estás jugando, pensada sobre todo para **compartir la ventana con tu clan en Discord**. El punto rojo junto a «En vivo» en el menú indica que hay una partida en curso.
@@ -221,6 +242,7 @@ Para pruebas automáticas, la variable `LOLAN_TEST_RIOT_URL` cambia la direcció
 | `data/gold_model.json` | Coeficientes y errores del modelo de oro estimado de la página En vivo (se recalcula solo; se puede borrar) |
 | `data/capturas/` | Grabaciones de la selección de campeones del cliente de League (`seleccion-*.jsonl`, las 30 más recientes; se pueden borrar) |
 | `data/ddragon/` | Mapa, íconos y nombres (habilidades, hechizos de invocador, runas) en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
+| `data/lineas/` | Muestras de líneas en JSON (filas, agregados por campeón y rival; ver [Líneas](#líneas-cómo-va-cada-cruce)); se puede borrar y se regenera con `lineas --reconstruir` |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |
 | `reports/campeones/<Campeón>.md` | Promedios y qué separa tus victorias de tus derrotas con ese campeón |

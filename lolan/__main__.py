@@ -1,10 +1,11 @@
-"""Command line interface: python -m lolan {sync,rekey,analyze,game,campeon,jugadores,composiciones,rivales,web}."""
+"""Command line interface: python -m lolan {sync,rekey,analyze,game,campeon,jugadores,composiciones,rivales,lineas,web}."""
 from __future__ import annotations
 
 import argparse
 import sys
 import threading
 import time
+from collections import Counter
 import webbrowser
 from datetime import datetime
 
@@ -19,7 +20,7 @@ from .rekey import RekeyError
 from .rekey import rekey as run_rekey
 from .store import Store
 from .sync import sync as run_sync
-from .sync import sync_players
+from .sync import sync_players, update_lanes
 
 EMPTY_DB_MESSAGE = (
     "No hay partidas en la base de datos. Ejecuta primero: python -m lolan sync "
@@ -143,6 +144,22 @@ def build_parser() -> argparse.ArgumentParser:
                        help="muestra quién está en tu partida actual (Spectator de Riot): campeones, rango, maestría e historial")
     _add_player_arg(p, "busca la partida de este jugador registrado")
 
+    p = sub.add_parser("lineas",
+                       help="cómo van las líneas: tu campeón contra el rival de su línea (gana la línea, "
+                            "en qué niveles, picos de poder); --reconstruir las calcula de tus partidas")
+    p.add_argument("campeon", nargs="?", help="campeón a consultar (por ejemplo Diana)")
+    p.add_argument("--vs", metavar="Rival", help="el campeón rival de la línea (por ejemplo Akali)")
+    p.add_argument("--linea", metavar="LINEA",
+                   help="top, jungla, mid, adc o soporte (por defecto, la línea donde más sale el campeón)")
+    p.add_argument("--persona", metavar="Nombre",
+                   help="solo las partidas de este jugador registrado (por defecto, todas las muestras)")
+    p.add_argument("--personas", action="store_true",
+                   help="lista los miembros del clan que tienen líneas calculadas")
+    p.add_argument("--parches", metavar="N|todos", default=None,
+                   help="cuántos parches recientes usar (por defecto 3) o 'todos'")
+    p.add_argument("--reconstruir", action="store_true",
+                   help="vuelve a calcular las líneas de todas tus partidas guardadas (data/lineas/)")
+
     sub.add_parser("grabar-seleccion",
                    help="graba lo que muestra el cliente de League en la selección de campeones "
                         "(en data/capturas/); Ctrl+C para detenerlo")
@@ -256,6 +273,11 @@ def cmd_sync(args, cfg) -> int:
     finally:
         store.close()
     suffix = "" if is_main else f' --jugador "{riot_id}"'
+    store = Store(cfg.db_path)
+    try:
+        update_lanes(store, print)
+    finally:
+        store.close()
     print(f"Para analizar lo descargado ejecuta: python -m lolan analyze{suffix}")
     return 0
 
@@ -517,6 +539,138 @@ def cmd_rivales(args, cfg) -> int:
     return 0
 
 
+def _lineas_reconstruir(cfg) -> int:
+    from . import samples
+    from .lanephase import SKIP_LABELS
+
+    store = Store(cfg.db_path)
+    try:
+        total = store.count_matches()
+        if total == 0:
+            print(EMPTY_DB_MESSAGE)
+            return 0
+        started = time.monotonic()
+        done = samples.update_from_lol(store, cfg.data_dir, cfg.root, full=True)
+        elapsed = time.monotonic() - started
+    finally:
+        store.close()
+    skipped = done["skipped"]
+    print(f"Partidas guardadas: {total} | analizadas: {done['matches'] - sum(skipped.values())} "
+          f"| filas de línea: {done['rows']}")
+    for reason, n in sorted(skipped.items(), key=lambda kv: -kv[1]):
+        print(f"  omitidas ({SKIP_LABELS.get(reason, reason)}): {n}")
+    if done["sin_timeline"]:
+        print(f"  sin timeline: {done['sin_timeline']}")
+    print(f"Agregados: {done['index']['files']} archivos en {cfg.data_dir / 'lineas' / 'duelos'}")
+    print(f"Tiempo: {elapsed:.1f} s")
+    return 0
+
+
+def _patch_text(patches) -> str:
+    if len(patches) > 4:
+        return f"{patches[0]} a {patches[-1]} ({len(patches)} parches)"
+    return ", ".join(patches) or "-"
+
+
+def _lineas_personas(cfg) -> int:
+    from . import samples
+
+    people = samples.LineStore(cfg.data_dir / "lineas").people()
+    if not people:
+        print("Ningún miembro del clan tiene líneas calculadas. Ejecuta: python -m lolan lineas --reconstruir")
+        return 0
+    print(f"Miembros del clan con líneas ({len(people)}), filas de línea:")
+    for name, n in sorted(people.items(), key=lambda kv: (-kv[1], kv[0])):
+        print(f"  {name}: {n}")
+    return 0
+
+
+def cmd_lineas(args, cfg) -> int:
+    from . import samples
+
+    if args.reconstruir:
+        return _lineas_reconstruir(cfg)
+    if args.personas:
+        return _lineas_personas(cfg)
+    if not args.campeon:
+        print("Indica un campeón (por ejemplo: python -m lolan lineas Diana --vs Akali --linea mid) "
+              "o usa --reconstruir para calcular las líneas de tus partidas.")
+        return 0
+    store = samples.LineStore(cfg.data_dir / "lineas")
+    rows = store.read_rows()
+    if not rows:
+        print("Aún no hay líneas calculadas. Ejecuta primero: python -m lolan lineas --reconstruir")
+        return 0
+    champ = store.champion_id(args.campeon)
+    if champ is None:
+        raise ValueError(f"No conozco al campeón «{args.campeon}» en las muestras (solo los que han "
+                         "salido en las partidas analizadas).")
+    rival = None
+    if args.vs:
+        rival = store.champion_id(args.vs)
+        if rival is None:
+            raise ValueError(f"No conozco al campeón «{args.vs}» en las muestras.")
+    if args.linea:
+        role = samples.parse_role(args.linea)
+        if role is None:
+            raise ValueError("La línea debe ser top, jungla, mid, adc o soporte.")
+    else:
+        counts = Counter(r["role"] for r in rows if r["champ"] == champ)
+        if not counts:
+            print(f"No hay líneas de {store.champion_name(champ)} en las muestras.")
+            return 0
+        role = counts.most_common(1)[0][0]
+    person = None
+    if args.persona:
+        from .settings import read_settings
+        person = store.find_person(args.persona, read_settings(cfg.root).clan_prefix)
+        if person is None:
+            people = sorted(store.people())
+            raise ValueError(f"No hay muestras de «{args.persona}». Personas con muestras: "
+                             f"{', '.join(people) or '(ninguna)'}.")
+    patches, recent = None, samples.RECENT_PATCHES
+    if args.parches:
+        if args.parches.strip().casefold() == samples.ALL_PATCHES:
+            patches = samples.ALL_PATCHES
+        elif args.parches.strip().isdigit() and int(args.parches) > 0:
+            recent = int(args.parches)
+        else:
+            raise ValueError("--parches debe ser un número (por ejemplo 3) o 'todos'.")
+    options = dict(patches=patches, person=person, recent=recent)
+    name, label = store.champion_name(champ), samples.ROLE_LABELS[role]
+    who = f" · solo {person}" if person else ""
+    if rival is not None:
+        res = store.matchup(role, champ, rival, **options)
+        print(f"{name} vs {store.champion_name(rival)} ({label}) · parches "
+              f"{_patch_text(res['patches'])}{who}")
+        for line in samples.text_summary(res):
+            print(f"  {line}")
+        return 0
+    res = store.champion_overall(role, champ, **options)
+    print(f"{name} ({label}) contra todos · parches {_patch_text(res['patches'])}{who}")
+    for line in samples.text_summary(res):
+        print(f"  {line}")
+    ranked = store.matchups_of(role, champ, **options)
+    if not ranked:
+        print(f"  Sin cruces con al menos {samples.MIN_LIST_GAMES} partidas.")
+        return 0
+
+    def show(m):
+        return (f"  {store.champion_name(m['opp'])}: la ganas {round(m['lane_wr'] * 100)}% "
+                f"({m['games']} {'partida' if m['games'] == 1 else 'partidas'}, "
+                f"{samples.signed(m['avg_diff14'])} oro+exp al 14)")
+
+    print("Mejores cruces:")
+    for m in ranked[:5]:
+        print(show(m))
+    worst = list(reversed(ranked[5:]))[:5]
+    if worst:
+        print("Peores cruces:")
+        for m in worst:
+            print(show(m))
+    return 0
+
+
 def cmd_web(args, cfg) -> int:
     from .web import create_app, start_live  # Flask is only needed for this command
 
@@ -558,7 +712,7 @@ def cmd_grabar_seleccion(args, cfg) -> int:
     return 0
 
 
-COMMANDS = {"sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
+COMMANDS = {"lineas": cmd_lineas, "sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
             "campeon": cmd_campeon, "jugadores": cmd_jugadores, "composiciones": cmd_composiciones,
             "rivales": cmd_rivales, "web": cmd_web, "grabar-seleccion": cmd_grabar_seleccion}
 
