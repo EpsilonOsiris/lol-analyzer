@@ -186,6 +186,20 @@ def _close_predictions(store, out) -> None:
         out(f"Predicciones cerradas: {closed}.")
 
 
+def update_lanes(store, out) -> None:
+    """Lane rows for the matches just saved (data/lineas next to the database); never fails the sync."""
+    from pathlib import Path
+    if not isinstance(store.path, Path):
+        return                                   # in-memory database: nowhere to write
+    try:
+        from . import samples
+        done = samples.update_from_lol(store, store.path.parent, store.path.parent.parent)
+    except Exception:
+        return                                   # lane samples are optional: never break sync
+    if done["rows"]:
+        out(f"Líneas: {done['rows']} filas nuevas de {done['matches'] - sum(done['skipped'].values())} partidas.")
+
+
 def sync_players(client, store, riot_ids: list[str], main_riot_id: str = "", out=print,
                  **kwargs) -> list[PlayerOutcome]:
     """Sync several players one after another with the same client (one shared rate limiter).
@@ -219,4 +233,5 @@ def sync_players(client, store, riot_ids: list[str], main_riot_id: str = "", out
         for line in summary_lines(outcomes):
             out(line)
     _close_predictions(store, out)
+    update_lanes(store, out)
     return outcomes

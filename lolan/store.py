@@ -408,17 +408,21 @@ class Store:
                 "DELETE FROM predictions WHERE outcome IS NULL AND created_at < ?", (int(now - older_than_s),))
         return cur.rowcount
 
-    def iter_matches(self, puuid: str | None = None):
+    def iter_matches(self, puuid: str | None = None, only_timeline: bool = False, skip=None):
         """Yield (match_id, match_dict, timeline_dict_or_None) ordered by game_creation.
 
-        With `puuid`, only the matches that player took part in are read and parsed.
+        With `puuid`, only the matches that player took part in are read and parsed. With
+        `only_timeline`, only matches that have a timeline; ids in `skip` are not parsed.
         """
+        join = "JOIN" if only_timeline else "LEFT JOIN"
         sql = ("SELECT m.match_id, m.json, t.json FROM matches m "
-               "LEFT JOIN timelines t ON t.match_id = m.match_id ")
+               f"{join} timelines t ON t.match_id = m.match_id ")
         params: tuple = ()
         if puuid is not None:
             sql += "JOIN match_players mp ON mp.match_id = m.match_id AND mp.puuid = ? "
             params = (puuid,)
         sql += "ORDER BY m.game_creation, m.match_id"
         for match_id, mjson, tjson in self.conn.execute(sql, params):
+            if skip is not None and match_id in skip:
+                continue
             yield match_id, json.loads(mjson), (json.loads(tjson) if tjson else None)
