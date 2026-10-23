@@ -3,6 +3,8 @@
 `ScoutService` keeps the last report ("who is in my game") and runs the jobs that make it:
   * automatic: while the En vivo page is open and the game client says there is no game (or it is
     loading), ask the Spectator API for the main player's game every POLL_S seconds (1 request);
+    the moment the loading screen appears it asks at once and then every LOADING_POLL_S seconds
+    until the game is scouted (Spectator is sometimes not ready in the first second);
     when a game shows up the scout runs once and the report is pushed through the live stream;
   * manual: the "Buscar partida ahora" button, for the main player or any registered player.
 A scout never runs while a sync does (they share the same `ApiSlot`): the manual button answers with
@@ -26,6 +28,7 @@ from .settings import KeyHealth, read_settings
 from .store import Store
 
 POLL_S = 30.0
+LOADING_POLL_S = 5.0        # while the loading screen is up and this game has no report yet
 TICK_S = 1.0
 
 MISSING_KEY_MESSAGE = ("Falta tu key de Riot. Pégala en la página Configuración y vuelve a "
@@ -42,7 +45,8 @@ NO_RIOT_ID_MESSAGE = "Falta tu Riot ID (formato Nombre#TAG): escríbelo en la p�
 
 class ScoutService:
     def __init__(self, root, limiters: Limiters, slot: ApiSlot, client_factory, health: KeyHealth | None = None,
-                 notify=None, clock=time.time, poll_s: float = POLL_S, resolver: PuuidResolver | None = None,
+                 notify=None, clock=time.time, poll_s: float = POLL_S,
+                 loading_poll_s: float = LOADING_POLL_S, resolver: PuuidResolver | None = None,
                  duelos=None):
         """`client_factory(api_key, host) -> RiotClient-like` (host: the platform or the region)."""
         self.root = root
@@ -53,6 +57,7 @@ class ScoutService:
         self._notify = notify or (lambda: None)
         self._clock = clock
         self.poll_s = poll_s
+        self.loading_poll_s = loading_poll_s
         self.resolver = resolver or PuuidResolver()
         self.duelos = duelos                # DuelosService: lane matchups from OP.GG, built after the report
         self._duelos_thread: threading.Thread | None = None
@@ -63,6 +68,8 @@ class ScoutService:
         self._watcher: threading.Thread | None = None
         self._live = None
         self._last_poll = float("-inf")
+        self._prev_status: str | None = None     # live status seen by the previous tick
+        self._entry_due = False                  # loading screen appeared and has not been polled yet
         self.auto_on = False
         self._reported_error = False
         # ---- visible state
@@ -307,9 +314,22 @@ class ScoutService:
         """One step of the automatic search; True when it started a job."""
         self.reconcile(live_status, game_seq)
         now = time.monotonic() if now is None else now
+        if live_status == "loading" and self._prev_status != "loading":
+            self._entry_due = True              # the loading screen just appeared: poll at once
+        elif live_status != "loading":
+            self._entry_due = False
+        self._prev_status = live_status
         wanted = listeners > 0 and live_status != "playing"
         self.auto_on = wanted
-        if not wanted or now - self._last_poll < self.poll_s:
+        if not wanted:
+            return False
+        interval = self.poll_s
+        if live_status == "loading":
+            with self._lock:
+                scouted = self.report is not None and self._tied and self._attached is None
+            if not scouted:
+                interval = self.loading_poll_s      # a report of the previous game does not count
+        if not self._entry_due and now - self._last_poll < interval:
             return False
         try:
             cfg = load_config(self.root, override=True)
@@ -320,6 +340,7 @@ class ScoutService:
         if not self._begin():
             return False
         self._last_poll = now
+        self._entry_due = False
         self._spawn(cfg.riot_id, True, manual=False, live_status=live_status, game_seq=game_seq)
         return True
 

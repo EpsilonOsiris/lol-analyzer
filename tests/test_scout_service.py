@@ -212,6 +212,80 @@ def test_a_refused_key_silences_the_automatic_search(rig):
     assert len(rig.world.calls) == calls                              # no request every 30 s with a dead key
 
 
+# ------------------------------------------- fast search while the loading screen is up
+def test_loading_screen_polls_at_once_then_every_5_seconds_until_the_game_is_found(rig):
+    rig.world.games.clear()                                           # Spectator is not ready yet
+    assert rig.svc.tick("waiting", 0, 1, now=1000) is True
+    rig.svc.join(10)
+    assert rig.svc.tick("waiting", 0, 1, now=1002) is False           # 30 s while waiting
+    assert rig.svc.tick("loading", 0, 1, now=1003) is True            # transition: no waiting for the 30 s
+    rig.svc.join(10)
+    assert rig.svc.tick("loading", 0, 1, now=1007) is False
+    assert rig.svc.tick("loading", 0, 1, now=1008.5) is True          # 5 s later, still no report
+    rig.svc.join(10)
+    assert rig.svc.tick("loading", 0, 1, now=1012) is False
+    rig.world.stock(spectator_game())                                  # now Spectator knows the game
+    assert rig.svc.tick("loading", 0, 1, now=1014) is True
+    rig.svc.join(10)
+    assert rig.svc.snapshot()["status"] == "ready"
+    assert rig.world.names().count("spectator") == 4                   # 1 request per poll
+
+
+def test_no_fast_polling_once_this_game_has_a_report(rig):
+    assert rig.svc.tick("loading", 0, 1, now=1000) is True
+    rig.svc.join(10)
+    assert rig.svc.snapshot()["report"] is not None
+    assert rig.svc.tick("loading", 0, 1, now=1006) is False
+    assert rig.svc.tick("loading", 0, 1, now=1029) is False           # back to the 30 s cadence
+    assert rig.svc.tick("loading", 0, 1, now=1031) is True
+    rig.svc.join(10)
+    assert rig.world.names().count("spectator") == 2
+
+
+def test_back_to_waiting_goes_back_to_30_seconds(rig):
+    rig.world.games.clear()
+    rig.svc.tick("loading", 0, 1, now=1000)
+    rig.svc.join(10)
+    assert rig.svc.tick("waiting", 0, 1, now=1006) is False           # dodged: 30 s again
+    assert rig.svc.tick("waiting", 0, 1, now=1029) is False
+    assert rig.svc.tick("waiting", 0, 1, now=1031) is True
+    rig.svc.join(10)
+    assert rig.svc.tick("loading", 0, 1, now=1032) is True            # a new loading screen: at once
+
+
+def test_loading_seen_before_a_listener_polls_when_the_page_opens(rig):
+    assert rig.svc.tick("loading", 0, 0, now=1000) is False           # nobody is watching
+    assert rig.svc.tick("loading", 0, 1, now=1001) is True
+    rig.svc.join(10)
+    assert rig.svc.snapshot()["status"] == "ready"
+
+
+def test_a_report_of_the_previous_game_does_not_stop_the_fast_search(rig):
+    rig.svc.tick("loading", 0, 1, now=1000)
+    rig.svc.join(10)
+    rig.svc.reconcile("playing", 1)                                   # attached to game 1
+    rig.svc.tick("finished", 1, 1, now=1500)
+    rig.svc.join(10)
+    rig.world.games[ME_PUUID] = spectator_game(game_id=9)
+    assert rig.svc.tick("loading", 1, 1, now=1600) is True            # next loading screen
+    rig.svc.join(10)
+    assert rig.svc.snapshot()["report"]["game"]["game_id"] == 9
+
+
+def test_fast_polling_reports_a_failure_only_once(rig):
+    rig.world.games.clear()
+    rig.world.fail["spectator"] = scoutsvc.RiotError("Riot no responde")
+    rig.svc.tick("loading", 0, 1, now=1000)
+    rig.svc.join(10)
+    version = rig.svc.snapshot()["version"]
+    assert rig.svc.snapshot()["status"] == "error" and rig.notified == 1
+    for i in range(1, 5):
+        assert rig.svc.tick("loading", 0, 1, now=1000 + 6 * i) is True
+        rig.svc.join(10)
+    assert rig.world.names().count("spectator") == 5
+    assert rig.svc.snapshot()["version"] == version and rig.notified == 1
+
+
 # ------------------------------------------------- the report follows the live game
 def test_report_is_kept_for_the_whole_game_and_dropped_for_the_next(rig):
     rig.svc.tick("loading", 0, 1, now=1000)
