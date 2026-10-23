@@ -19,6 +19,10 @@ What was verified against the live endpoint (October 2026) and why the code does
   ASHE vs CAITLYN 63/124 (50.8% for Ashe, so 49.2% for Caitlyn); JINX vs EZREAL 292/570 (51.2%)
   against EZREAL vs JINX 143/283 (50.5%). The sample sizes of the two directions are not always
   identical (the server returns a smaller table for some opponents) but the rates agree.
+* The same answer carries `data.lane_advantage_champion` / `data.lane_solo_kill_advantage_champion` (the
+  English name of who wins the lane / the solo kills, or "EVEN"), `data.recommended_play_style`,
+  `data.opponent_champion_tip` (English text) and `data.game_lengths` ([{game_length: 0|25|30|35|40, rate}]:
+  the win rate of MY champion by game length, not of the pair). `matchup_full` keeps all of it.
 * Tiers: `lol_get_lane_matchup_guide` has NO tier parameter (a `tier` argument is ignored: same
   answer). `lol_get_champion_analysis` does accept `tier` (emerald, challenger, ...; "all" or
   omitted = every tier) but only for its top-3 counter lists. So pair matchups are always the
@@ -59,6 +63,7 @@ DOWN_PAUSE_S = 60.0              # after a transport failure, do not try again f
 CACHE_TTL_S = 24 * 3600
 POSITIONS = ("top", "jungle", "mid", "adc", "support")
 UNKNOWN = "unknown"              # cached "OP.GG has no row for this pair"
+MATCHUP_KEY = "mu2"              # cache key prefix of a matchup (v2: the whole guide extract, not only games + wins)
 _HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
 
 
@@ -369,6 +374,22 @@ class OpggData:
             self._memo[key] = value
         return value
 
+    def _peek(self, key: str) -> tuple[bool, object]:
+        """(cached?, value) of `key` without ever calling OP.GG: memory first, then the SQLite cache."""
+        with self._lock:
+            if key in self._memo:
+                return True, self._memo[key]
+        store = self._store_factory()
+        try:
+            hit = store.get_opgg_cache(key, self.ttl, self.patch, self._clock())
+        finally:
+            store.close()
+        if hit is None:
+            return False, None
+        with self._lock:
+            self._memo[key] = hit["v"]
+        return True, hit["v"]
+
     # ---- champions
     def champions(self) -> dict:
         """{"by_id": {id: english name}} from lol_list_champions."""
@@ -389,6 +410,11 @@ class OpggData:
     def name_of(self, champion_id) -> str | None:
         return self.champions()["by_id"].get(str(champion_id))
 
+    def peek_names(self) -> dict | None:
+        """{"id": english name} when the champion list is already cached, else None (no network)."""
+        cached, value = self._peek("champions")
+        return value if cached and isinstance(value, dict) else None
+
     # ---- lane meta (role rates)
     def lane_meta(self) -> dict:
         """{normalized english name: {"top": rate, ...}}: share of each champion's games per lane."""
@@ -406,12 +432,33 @@ class OpggData:
             return out
         return self._cached("lanemeta", fetch)
 
+    def peek_lane_meta(self) -> dict | None:
+        """The lane meta when it is already cached, else None (no network)."""
+        cached, value = self._peek("lanemeta")
+        return value if cached and isinstance(value, dict) else None
+
     # ---- matchups and synergies
-    def matchup(self, position: str, my_id: int, opp_id: int) -> dict | None:
-        """{"games", "wins"} of my champion against the opponent in `position`, or None (no row)."""
+    @staticmethod
+    def _matchup_key(position, my_id, opp_id) -> str:
+        return f"{MATCHUP_KEY}:{position}:{my_id}:{opp_id}"
+
+    def matchup_full(self, position: str, my_id: int, opp_id: int) -> dict | None:
+        """Everything the lane matchup guide says about my champion against the opponent, or None.
+
+        {"games", "wins" (my champion's; 0 when the pair has no row), "lane_winner" and "solo_winner"
+        ("mine" | "theirs" | "even" | None), "style" (OP.GG's recommended play style), "tip" (English text
+        about the opponent), "lengths" [{"from": minute, "rate"}] (MY champion's win rate by game length)}.
+        """
         mine, theirs = self.name_of(my_id), self.name_of(opp_id)
         if not mine or not theirs:
             return None
+
+        def side(name):
+            if not isinstance(name, str) or not name.strip():
+                return None
+            if _norm(name) == "even":
+                return "even"
+            return "mine" if _norm(name) == _norm(mine) else "theirs" if _norm(name) == _norm(theirs) else None
 
         def fetch():
             try:
@@ -420,15 +467,40 @@ class OpggData:
                     "lang": "en_US"})
             except OpggRejected:
                 return UNKNOWN
-            counters = (((parse_tool_text(text) or {}).get("data") or {}).get("counters")) or []
-            for row in counters:
+            data = (parse_tool_text(text) or {}).get("data") or {}
+            games = wins = 0
+            for row in data.get("counters") or []:
                 if isinstance(row, dict) and (row.get("champion_id") == opp_id or _norm(row.get("champion_name")) == _norm(theirs)):
                     games, wins = int(_num(row.get("play"))), int(_num(row.get("win")))
-                    if games > 0:
-                        return {"games": games, "wins": min(wins, games)}
-            return UNKNOWN
-        found = self._cached(f"mu:{position}:{my_id}:{opp_id}", fetch)
+                    break
+            lengths = [{"from": int(g["game_length"]), "rate": float(g["rate"])} for g in data.get("game_lengths") or []
+                       if isinstance(g, dict) and isinstance(g.get("game_length"), (int, float))
+                       and isinstance(g.get("rate"), (int, float))]
+            tip = data.get("opponent_champion_tip")
+            style = data.get("recommended_play_style")
+            out = {"games": games, "wins": min(wins, games), "lane_winner": side(data.get("lane_advantage_champion")),
+                   "solo_winner": side(data.get("lane_solo_kill_advantage_champion")),
+                   "style": style if isinstance(style, str) else None,
+                   "tip": tip.strip() if isinstance(tip, str) and tip.strip() else None, "lengths": lengths}
+            if not games and not (out["lane_winner"] or out["solo_winner"] or out["tip"] or lengths):
+                return UNKNOWN
+            return out
+        found = self._cached(self._matchup_key(position, my_id, opp_id), fetch)
         return None if found == UNKNOWN else found
+
+    def peek_matchup(self, position: str, my_id: int, opp_id: int) -> tuple[bool, dict | None]:
+        """(cached?, `matchup_full` value) without calling OP.GG: to answer at once from what is stored."""
+        cached, value = self._peek(self._matchup_key(position, my_id, opp_id))
+        if not cached:
+            return False, None
+        return True, (None if value == UNKNOWN or not isinstance(value, dict) else value)
+
+    def matchup(self, position: str, my_id: int, opp_id: int) -> dict | None:
+        """{"games", "wins"} of my champion against the opponent in `position`, or None (no row)."""
+        full = self.matchup_full(position, my_id, opp_id)
+        if not full or full["games"] <= 0:
+            return None
+        return {"games": full["games"], "wins": full["wins"]}
 
     def _synergy_list(self, key: str, champion: str, my_position: str, synergy_position: str) -> list:
         """The ~10 most played partners of `champion` in the other bot lane position (cached, fail-soft)."""

@@ -243,7 +243,47 @@ def test_a_new_patch_invalidates_the_cache(tmp_path):
     newer.matchup("adc", 222, 145)
     assert fake.count("lol_get_lane_matchup_guide") == 2
     store = Store(tmp_path / "lol.db")
-    assert store.get_opgg_cache("mu:adc:222:145", 99999, "16.22", 1_800_000_000) is not None
-    assert store.get_opgg_cache("mu:adc:222:145", 99999, "16.21", 1_800_000_000) is None
+    assert store.get_opgg_cache("mu2:adc:222:145", 99999, "16.22", 1_800_000_000) is not None
+    assert store.get_opgg_cache("mu2:adc:222:145", 99999, "16.21", 1_800_000_000) is None
     json.loads(store.conn.execute("SELECT json FROM opgg_cache WHERE key='champions'").fetchone()[0])
     store.close()
+
+
+# ------------------------------------------------------- the full guide extract
+def test_matchup_full_keeps_who_wins_the_lane_the_tip_and_the_game_lengths(tmp_path):
+    data, fake = make_data(tmp_path)
+    full = data.matchup_full("mid", 103, 238)                                  # Ahri vs Zed
+    assert full["games"] == 3000 and full["wins"] == 1530
+    assert full["lane_winner"] == "theirs" and full["solo_winner"] == "theirs"
+    assert full["tip"] == "Do not use Charm until Zed closes in." and full["style"] == "even"
+    assert [(g["from"], g["rate"]) for g in full["lengths"]] == [(0, 0.5), (25, 0.52), (30, 0.514), (35, 0.5), (40, 0.487)]
+    top = data.matchup_full("top", 86, 58)                                     # Garen vs Renekton
+    assert top["lane_winner"] == "mine" and top["solo_winner"] == "even" and top["style"] == "aggressive"
+    assert data.matchup("mid", 103, 238) == {"games": 3000, "wins": 1530}      # the old shape is a slice of it
+    assert fake.count("lol_get_lane_matchup_guide") == 2                       # one call each, whatever is asked after
+
+
+def test_matchup_full_without_a_pair_row_still_has_the_extras(tmp_path):
+    data, fake = make_data(tmp_path)
+    full = data.matchup_full("top", 222, 58)                                   # not in the table
+    assert full["games"] == 0 and full["lane_winner"] == "even" and full["tip"]
+    assert data.matchup("top", 222, 58) is None
+    assert data.matchup_full("top", 222, 999) is None                          # unknown champion: no call
+
+
+def test_peek_answers_only_from_the_cache_and_never_calls_opgg(tmp_path):
+    data, fake = make_data(tmp_path)
+    assert data.peek_matchup("mid", 103, 238) == (False, None) and data.peek_names() is None
+    assert data.peek_lane_meta() is None and fake.tool_calls == []
+    data.matchup_full("mid", 103, 238)
+    data.lane_meta()
+    calls = len(fake.tool_calls)
+    cached, value = data.peek_matchup("mid", 103, 238)
+    assert cached and value["games"] == 3000 and data.peek_names()["103"] == "Ahri"
+    assert data.peek_lane_meta()["zed"]["mid"] == 0.85
+    fresh, _ = make_data(tmp_path, fake)                                       # another process: SQLite
+    assert fresh.peek_matchup("mid", 103, 238)[1]["lane_winner"] == "theirs"
+    assert fresh.peek_names() and fresh.peek_lane_meta()
+    assert len(fake.tool_calls) == calls
+    data.matchup_full("top", 222, 999)
+    assert data.peek_matchup("top", 222, 999) == (False, None)
