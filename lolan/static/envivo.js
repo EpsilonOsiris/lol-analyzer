@@ -78,8 +78,18 @@
         (it.count > 1 ? '<i>' + it.count + '</i>' : '') + '</span>';
     }).join('');
   }
+  // The game reports CS rounded down to tens (for everybody) and the enemy jungler's camps only
+  // when this team sees them, so CS is shown as a range, and as a lower bound for that jungler.
+  var CS_HELP = 'El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.';
+  var CS_PARTIAL_HELP = 'El juego solo cuenta los campamentos de la jungla enemiga que tu equipo ve: ' +
+    'el real es mayor. Su oro se estima con su nivel.';
+  function csText(p) {
+    if (p.cs_partial) return '≥' + p.cs;
+    return p.cs_max != null && p.cs_max > p.cs ? p.cs + '–' + p.cs_max : String(p.cs);
+  }
   function playerRow(p, minutes, g) {
-    var csMin = minutes >= 1 ? (p.cs / minutes).toFixed(1) : '';
+    var csMid = p.cs_max != null ? (p.cs + p.cs_max) / 2 : p.cs;
+    var csMin = minutes >= 1 && !p.cs_partial ? (csMid / minutes).toFixed(1) : '';
     var who = p.champion_name + (p.is_me ? ' (tú)' : '');
     var sub = [p.role_label, p.name].filter(Boolean).join(' · ');
     var dead = p.dead
@@ -100,11 +110,20 @@
       '<i class="lvl" title="Nivel">' + p.level + '</i></span>' +
       '<span class="nm"><b>' + esc(who) + '</b><small>' + esc(sub) + '</small>' + dead + '</span></div>' +
       '<div class="kda" title="Asesinatos / muertes / asistencias">' + p.kills + '/' + p.deaths + '/' + p.assists + '</div>' +
-      '<div class="cs" title="Súbditos y monstruos">' + p.cs + (csMin ? '<small>' + csMin + '/min</small>' : '') +
+      '<div class="cs" title="' + esc(p.cs_partial ? CS_PARTIAL_HELP : CS_HELP) + '">' + csText(p) +
+      (p.cs_partial ? '<small class="rough">solo lo visto</small>' : '') +
+      (csMin ? '<small>≈' + csMin + '/min</small>' : '') +
       '<small class="vis" title="Puntuación de visión">visión ' + p.ward_score + '</small></div>' +
-      '<div class="gold" title="' + esc(legend) + '"><span class="gv">≈ ' + num(p.gold_est) + gdiff + '</span>' + goldSub + '</div>' +
+      '<div class="gold" title="' + esc(p.gold_by === 'nivel' ? levelLegend(g) : legend) + '"><span class="gv">≈ ' +
+      num(p.gold_est) + gdiff + '</span>' + (p.gold_by === 'nivel' ? '<small class="rough">por nivel</small>' : '') +
+      goldSub + '</div>' +
       '<div class="val" title="' + esc(VALUE_HELP) + '"><span class="gv">' + num(p.value) + diff + '</span></div>' +
       '<div class="its">' + itemsHtml(p.items) + '</div></div>';
+  }
+  function levelLegend(g) {
+    var err = g.gold_model && g.gold_model.error_level;
+    return 'Estimado con su nivel, kills, asistencias y el minuto, porque el juego no cuenta los ' +
+      'campamentos que hace en la niebla' + (err ? ' (error típico ±' + err + ' en esta fase).' : '.');
   }
   function teamHtml(team, minutes, g) {
     return '<h2>' + esc(team.label) + '</h2><div class="rows">' +
@@ -127,7 +146,8 @@
       '<div class="kvs">' +
       '<div class="kv big"><span>Oro actual</span><b>' + num(me.gold) + '</b></div>' +
       '<div class="kv big"><span>KDA</span><b>' + me.kills + '/' + me.deaths + '/' + me.assists + '</b></div>' +
-      '<div class="kv big"><span>CS</span><b>' + me.cs + (me.cs_per_min != null ? ' <small>' + me.cs_per_min + '/min</small>' : '') + '</b></div>' +
+      '<div class="kv big" title="' + esc(CS_HELP) + '"><span>CS</span><b>' + me.cs + '–' + (me.cs + 9) +
+      (me.cs_per_min != null ? ' <small>≈' + me.cs_per_min + '/min</small>' : '') + '</b></div>' +
       '<div class="kv" title="' + esc(legend) + '"><span>Oro total ≈</span><b>' + num(g.teams.ally.players.filter(function (p) { return p.is_me; }).map(function (p) { return p.gold_est; })[0]) + '</b></div>' +
       '<div class="kv" title="' + esc(VALUE_HELP) + '"><span>Valor en objetos</span><b>' + num(me.value) + '</b></div>' +
       '<div class="kv"><span>Visión</span><b>' + me.ward_score + '</b></div>' +

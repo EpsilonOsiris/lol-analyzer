@@ -7,7 +7,13 @@ Python) on every timeline frame of every stored solo/flex game:
     total_gold ~ 1 + minute + cs + kills + assists + is_support + is_support * minute
 
 `cs` is lane + jungle minions together, because that is what the Live Client reports
-(`scores.creepScore`). The fit is by-game holdout validated: 80% of the games fit the model and the
+(`scores.creepScore`). Two quirks of that number, verified against Riot's timeline of the same game:
+it is rounded DOWN to a multiple of 10 for all ten players (so the live code adds LIVE_CS_OFFSET,
+the middle of the 0-9 gap), and the enemy jungler's camps only count when the player's team sees
+them, so for that player a second model uses the champion level (exact, shown on TAB) instead:
+
+    total_gold ~ 1 + minute + level + kills + assists + is_support + is_support * minute
+ The fit is by-game holdout validated: 80% of the games fit the model and the
 other 20% give the typical error per phase of the game (shown to the user as a "±" figure).
 
 The coefficients live in data/gold_model.json (not in git). They are refitted in a background
@@ -44,6 +50,11 @@ PHASES = (("early", "min 2-10", 10.0), ("mid", "min 10-20", 20.0), ("late", "min
 # Conservative starting point (fit on the author's own games, CS combined) used until the first fit.
 DEFAULT_COEF = [-101.0, 135.9, 26.5, 380.0, 102.0, 185.0, 53.0]
 DEFAULT_ERRORS = {"early": 183.0, "mid": 265.0, "late": 462.0, "end": 734.0}
+# Same, with the level in place of CS (for the enemy jungler, whose CS the client under-reports).
+DEFAULT_COEF_LEVEL = [-259.0, 316.8, 31.2, 403.1, 68.0, 253.6, -93.8]
+DEFAULT_ERRORS_LEVEL = {"early": 201.0, "mid": 383.0, "late": 687.0, "end": 1029.0}
+LIVE_CS_STEP = 10               # the Live Client reports creepScore rounded down to tens
+LIVE_CS_OFFSET = 4.5            # middle of the 0-9 CS hidden by that rounding
 
 
 def phase_of(minute: float) -> str:
@@ -60,6 +71,11 @@ def phase_label(key: str) -> str:
 def features(minute, cs, kills, assists, support) -> tuple:
     s = 1.0 if support else 0.0
     return (1.0, float(minute), float(cs), float(kills), float(assists), s, s * float(minute))
+
+
+def features_level(minute, level, kills, assists, support) -> tuple:
+    s = 1.0 if support else 0.0
+    return (1.0, float(minute), float(level), float(kills), float(assists), s, s * float(minute))
 
 
 def round_to(value: float, step: int) -> int:
@@ -129,49 +145,74 @@ def is_holdout(game_id) -> bool:
 
 
 def fit(games) -> dict:
-    """Model dict from `games`: iterable of (game_id, [(minute, cs, kills, assists, support, total_gold)]).
+    """Model dict from `games`: iterable of (game_id, rows) with rows
+    (minute, cs, kills, assists, support, total_gold[, level]).
 
     Raises ValueError with too little data. The holdout games measure the error of a model fitted
-    only on the others; the saved coefficients are then fitted on all games.
+    only on the others; the saved coefficients are then fitted on all games. When the rows carry the
+    level, the level-based model (see the module docstring) is fitted the same way.
     """
-    train, test = NormalEquations(), NormalEquations()
-    held: list[tuple] = []
+    cs_fit, lvl_fit = _Fit(), _Fit()
     n_games = n_held = 0
     for game_id, rows in games:
         held_out = is_holdout(game_id)
         n_games += 1
         n_held += held_out
-        for minute, cs, kills, assists, support, gold in rows:
+        for row in rows:
+            minute, cs, kills, assists, support, gold = row[:6]
             if minute < MIN_FIT_MINUTE:
                 continue
-            x = features(minute, cs, kills, assists, support)
-            if held_out:
-                test.add(x, gold)
-                held.append((x, gold, minute))
-            else:
-                train.add(x, gold)
-    total = train.merge(test)
+            cs_fit.add(features(minute, cs, kills, assists, support), gold, minute, held_out)
+            if len(row) > 6 and isinstance(row[6], (int, float)):
+                lvl_fit.add(features_level(minute, row[6], kills, assists, support), gold, minute, held_out)
+    total = cs_fit.train.merge(cs_fit.test)
     if n_games < MIN_FIT_GAMES or total.rows < MIN_FIT_ROWS:
         raise ValueError("muy pocas partidas guardadas con línea de tiempo para calibrar")
-    coef = total.solve()
-    errors, counts = {k: [] for k, _, _ in PHASES}, 0
-    if n_held and train.rows >= MIN_FIT_ROWS:
-        holdout_coef = train.solve()
-        for x, gold, minute in held:
-            errors[phase_of(minute)].append(abs(gold - sum(c * v for c, v in zip(holdout_coef, x))))
-            counts += 1
-    mae = {k: (sum(v) / len(v) if v else DEFAULT_ERRORS[k]) for k, v in errors.items()}
-    all_abs = [e for v in errors.values() for e in v]
-    return {"version": 1, "coef": coef, "errors": mae, "games": n_games, "held_out_games": n_held,
-            "rows": total.rows, "mae": (sum(all_abs) / len(all_abs)) if all_abs else None,
-            "median_abs": sorted(all_abs)[len(all_abs) // 2] if all_abs else None,
-            "feature_names": FEATURE_NAMES}
+    coef, mae, all_abs = cs_fit.result(DEFAULT_ERRORS)
+    out = {"version": 2, "coef": coef, "errors": mae, "games": n_games, "held_out_games": n_held,
+           "rows": total.rows, "mae": (sum(all_abs) / len(all_abs)) if all_abs else None,
+           "median_abs": sorted(all_abs)[len(all_abs) // 2] if all_abs else None,
+           "feature_names": FEATURE_NAMES}
+    if lvl_fit.train.merge(lvl_fit.test).rows >= MIN_FIT_ROWS:
+        try:
+            out["coef_level"], out["errors_level"], _ = lvl_fit.result(DEFAULT_ERRORS_LEVEL)
+        except ValueError:
+            pass
+    return out
+
+
+class _Fit:
+    """Train/holdout normal equations for one model, plus the held-out rows to measure its error."""
+
+    def __init__(self):
+        self.train, self.test = NormalEquations(), NormalEquations()
+        self.held: list[tuple] = []
+
+    def add(self, x, gold, minute, held_out) -> None:
+        if held_out:
+            self.test.add(x, gold)
+            self.held.append((x, gold, minute))
+        else:
+            self.train.add(x, gold)
+
+    def result(self, default_errors):
+        coef = self.train.merge(self.test).solve()
+        errors = {k: [] for k, _, _ in PHASES}
+        if self.held and self.train.rows >= MIN_FIT_ROWS:
+            holdout_coef = self.train.solve()
+            for x, gold, minute in self.held:
+                errors[phase_of(minute)].append(abs(gold - sum(c * v for c, v in zip(holdout_coef, x))))
+        mae = {k: (sum(v) / len(v) if v else default_errors[k]) for k, v in errors.items()}
+        return coef, mae, [e for v in errors.values() for e in v]
 
 
 class GoldModel:
-    def __init__(self, coef=None, errors=None, games=0, source="default", stored_matches=None, fitted_at=None):
+    def __init__(self, coef=None, errors=None, games=0, source="default", stored_matches=None, fitted_at=None,
+                 coef_level=None, errors_level=None):
         self.coef = list(coef or DEFAULT_COEF)
         self.errors = dict(errors or DEFAULT_ERRORS)
+        self.coef_level = list(coef_level or DEFAULT_COEF_LEVEL)
+        self.errors_level = dict(errors_level or DEFAULT_ERRORS_LEVEL)
         self.games = games
         self.source = source
         self.stored_matches = stored_matches
@@ -185,8 +226,16 @@ class GoldModel:
                 or not all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in coef)
                 or not isinstance(errors, dict)):
             raise ValueError("gold_model.json no tiene el formato esperado")
+        coef_level, errors_level = data.get("coef_level"), data.get("errors_level")
+        if (not isinstance(coef_level, list) or len(coef_level) != N_FEATURES
+                or not all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in coef_level)
+                or not isinstance(errors_level, dict)):
+            coef_level, errors_level = None, None          # older file: defaults until the next fit
+        else:
+            errors_level = {k: float(errors_level.get(k, DEFAULT_ERRORS_LEVEL[k])) for k in DEFAULT_ERRORS_LEVEL}
         return cls(coef, {k: float(errors.get(k, DEFAULT_ERRORS[k])) for k in DEFAULT_ERRORS},
-                   int(data.get("games") or 0), "fit", data.get("stored_matches"), data.get("fitted_at"))
+                   int(data.get("games") or 0), "fit", data.get("stored_matches"), data.get("fitted_at"),
+                   coef_level, errors_level)
 
     def raw(self, minute, cs, kills, assists, support) -> float:
         return sum(c * v for c, v in zip(self.coef, features(minute, cs, kills, assists, support)))
@@ -195,8 +244,13 @@ class GoldModel:
         """Estimated total gold earned so far (starting gold included), rounded to 50."""
         return round_to(max(float(START_GOLD), self.raw(minute, cs, kills, assists, support)), EST_STEP)
 
-    def error_at(self, minute) -> int:
-        return int(round(self.errors[phase_of(minute)]))
+    def estimate_by_level(self, minute, level, kills, assists, support) -> int:
+        """Like `estimate` but from the champion level, for players whose CS the client under-reports."""
+        raw = sum(c * v for c, v in zip(self.coef_level, features_level(minute, level, kills, assists, support)))
+        return round_to(max(float(START_GOLD), raw), EST_STEP)
+
+    def error_at(self, minute, by_level=False) -> int:
+        return int(round((self.errors_level if by_level else self.errors)[phase_of(minute)]))
 
     def legend(self, minute) -> str:
         err = self.error_at(minute)
@@ -217,7 +271,7 @@ def unspent_estimate(estimate: int, item_value) -> int | None:
 
 # ---------------------------------------------------------------- stored games
 def rows_from_timeline(match: dict, timeline: dict) -> list[tuple]:
-    """(minute, cs, kills, assists, is_support, total_gold) for every player and frame of a game."""
+    """(minute, cs, kills, assists, is_support, total_gold, level) for every player and frame of a game."""
     info = (match or {}).get("info") or {}
     support = {p.get("participantId"): p.get("teamPosition") == "UTILITY"
                for p in info.get("participants") or []}
@@ -249,8 +303,10 @@ def rows_from_timeline(match: dict, timeline: dict) -> list[tuple]:
             if not isinstance(gold, (int, float)):
                 continue
             cs = (pf.get("minionsKilled") or 0) + (pf.get("jungleMinionsKilled") or 0)
+            level = pf.get("level")
             rows.append((minute, cs, kills.get(pid, 0), assists.get(pid, 0),
-                         bool(support.get(pid)), float(gold)))
+                         bool(support.get(pid)), float(gold),
+                         float(level) if isinstance(level, (int, float)) else None))
     return rows
 
 

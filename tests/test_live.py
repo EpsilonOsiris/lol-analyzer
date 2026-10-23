@@ -31,7 +31,7 @@ def test_me_is_found_and_has_real_gold_and_stats():
     st = state()
     me = st["me"]
     assert me["champion"] == "Jinx" and me["position"] == "BOTTOM" and me["role_label"] == "ADC"
-    assert me["gold"] == 1234 and me["cs"] == 112 and me["cs_per_min"] == pytest.approx(8.0)
+    assert me["gold"] == 1234 and me["cs"] == 112 and me["cs_per_min"] == pytest.approx(round((112 + 4.5) / (840 / 60), 1))  # middle of the rounded-down range
     assert me["keystone"] == "Dominio del cazador"
     assert {s["key"]: s["value"] for s in me["stats"]}["attackSpeed"] == "1.31"
     assert [p["name"] for p in st["teams"]["ally"]["players"] if p["is_me"]] == ["Zorro Azul"]
@@ -226,20 +226,37 @@ def test_enrich_gold_estimate_unspent_and_team_diffs():
     out = live.enrich(state(), item_cost=PRICES.get, prices_available=True, gold_model=model)
     ally, enemy = out["teams"]["ally"]["players"], out["teams"]["enemy"]["players"]
     adc = ally[3]
-    assert adc["gold_est"] == model.estimate(845 / 60, 112, 5, 4, False)
+    assert adc["gold_est"] == model.estimate(845 / 60, 112 + goldmodel.LIVE_CS_OFFSET, 5, 4, False)
     assert adc["gold_est"] % 50 == 0
     assert adc["unspent_est"] is None                              # the real current gold is shown instead
     other = enemy[3]
     assert other["unspent_est"] == goldmodel.unspent_estimate(other["gold_est"], other["value"])
     assert other["unspent_est"] % 100 == 0
     support = ally[4]
-    assert support["gold_est"] == model.estimate(845 / 60, 14, 0, 9, True)
+    assert support["gold_est"] == model.estimate(845 / 60, 14 + goldmodel.LIVE_CS_OFFSET, 0, 9, True)
     assert adc["gold_diff"] == adc["gold_est"] - other["gold_est"]
     assert out["teams"]["ally"]["totals"]["gold_est"] == sum(p["gold_est"] for p in ally)
     assert out["gold_diff"] == (out["teams"]["ally"]["totals"]["gold_est"]
                                 - out["teams"]["enemy"]["totals"]["gold_est"])
     assert "calibrado" not in out["gold_model"]["legend"] and "valores de referencia" in out["gold_model"]["legend"]
     assert "Riot solo da el oro real de quien está jugando" in out["gold_model"]["legend"]
+
+
+def test_cs_is_a_range_and_the_enemy_jungler_is_estimated_by_level():
+    # The client rounds CS down to tens and doesn't count the enemy jungler's camps in the fog.
+    model = goldmodel.GoldModel()
+    out = live.enrich(state(), item_cost=PRICES.get, prices_available=True, gold_model=model)
+    for role in ("ally", "enemy"):
+        for p in out["teams"][role]["players"]:
+            assert p["cs_max"] == p["cs"] + 9
+            assert p["cs_partial"] == (role == "enemy" and p["position"] == "JUNGLE")
+    jungler = next(p for p in out["teams"]["enemy"]["players"] if p["position"] == "JUNGLE")
+    assert jungler["gold_by"] == "nivel"
+    assert jungler["gold_est"] == model.estimate_by_level(845 / 60, jungler["level"], jungler["kills"],
+                                                          jungler["assists"], False)
+    ally_jungler = next(p for p in out["teams"]["ally"]["players"] if p["position"] == "JUNGLE")
+    assert ally_jungler["gold_by"] == "cs"                          # allies' camps are counted
+    assert out["gold_model"]["error_level"] >= out["gold_model"]["error"]
 
 
 def test_enrich_without_gold_model_has_no_estimate():

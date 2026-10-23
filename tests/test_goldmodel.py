@@ -237,3 +237,30 @@ def test_fit_from_db_uses_only_solo_flex_games_with_timeline(tmp_path):
     assert len(ids) == 40 and "LA1_ARAM" not in ids and "LA1_NOTL" not in ids
     model = gm.fit_from_db(db)
     assert model["games"] == 40 and len(model["coef"]) == gm.N_FEATURES
+
+
+
+def test_level_model_is_fitted_when_rows_carry_the_level():
+    rng = random.Random(3)
+    true = [-250.0, 310.0, 30.0, 400.0, 70.0, 250.0, -90.0]
+    games = []
+    for g in range(40):
+        rows = []
+        for minute in range(2, 30):
+            level, kills, assists = min(18, 1 + minute * 0.6 + rng.random()), rng.randint(0, 5), rng.randint(0, 8)
+            sup = g % 5 == 0
+            x = gm.features_level(minute, level, kills, assists, sup)
+            gold = sum(c * v for c, v in zip(true, x))
+            rows.append((float(minute), minute * 7.0 + rng.randint(0, 20), kills, assists, sup, gold, level))
+        games.append((f"G{g}", rows))
+    data = gm.fit(games)
+    assert all(abs(a - b) < 1e-6 for a, b in zip(data["coef_level"], true))
+    model = gm.GoldModel.from_dict(data)
+    assert model.coef_level == data["coef_level"]
+    assert model.estimate_by_level(10, 7, 1, 2, False) % 50 == 0
+
+
+def test_old_model_file_without_level_coefficients_uses_defaults():
+    model = gm.GoldModel.from_dict({"coef": gm.DEFAULT_COEF, "errors": gm.DEFAULT_ERRORS})
+    assert model.coef_level == gm.DEFAULT_COEF_LEVEL
+    assert model.error_at(5, by_level=True) == round(gm.DEFAULT_ERRORS_LEVEL["early"])

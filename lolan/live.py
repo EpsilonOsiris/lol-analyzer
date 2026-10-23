@@ -30,7 +30,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import InsecureRequestWarning
 
-from .goldmodel import unspent_estimate
+from .goldmodel import LIVE_CS_OFFSET, LIVE_CS_STEP, unspent_estimate
 
 DEFAULT_URL = "https://127.0.0.1:2999"
 # FOR TESTS ONLY (automated tests and the local smoke test with a fake game server). Normal use
@@ -545,7 +545,8 @@ def normalize(raw: dict, namer=None) -> dict | None:
         me = {**{k: pl[k] for k in ("name", "riot_id", "champion", "champion_name", "position", "role_label",
                                      "level", "kills", "deaths", "assists", "cs", "ward_score")},
               "gold": round(_num(active.get("currentGold"))),
-              "cs_per_min": round(pl["cs"] / minutes, 1) if minutes >= 1 else None,
+              # the client rounds CS down to tens: use the middle of the range
+              "cs_per_min": round((pl["cs"] + LIVE_CS_OFFSET) / minutes, 1) if minutes >= 1 else None,
               "stats": stats, "keystone": keystone or None, "checkpoints": {}}
     return {
         "time": round(now_s, 1), "clock": fmt_clock(now_s), "mode": mode,
@@ -602,10 +603,21 @@ def enrich(state: dict, *, champion_icon=None, item_icon=None, item_cost=None, i
                 value_sum += p["value"]
                 any_value = True
             approx = approx or p["value_approx"]
-            p["gold_est"], p["unspent_est"] = None, None
+            # The client rounds CS down to tens for everybody, and the enemy jungler's camps only
+            # count when this team sees them (verified against Riot's timeline of the same game).
+            p["cs_max"] = p["cs"] + LIVE_CS_STEP - 1
+            p["cs_partial"] = role == "enemy" and p["position"] == "JUNGLE"
+            p["gold_est"], p["unspent_est"], p["gold_by"] = None, None, None
             if gold_model is not None:
-                p["gold_est"] = gold_model.estimate(minute, p["cs"], p["kills"], p["assists"],
-                                                    p["position"] == "UTILITY")
+                support = p["position"] == "UTILITY"
+                if p["cs_partial"] and isinstance(p.get("level"), (int, float)) and p["level"] > 0:
+                    p["gold_est"] = gold_model.estimate_by_level(minute, p["level"], p["kills"],
+                                                                 p["assists"], support)
+                    p["gold_by"] = "nivel"
+                else:
+                    p["gold_est"] = gold_model.estimate(minute, p["cs"] + LIVE_CS_OFFSET, p["kills"],
+                                                        p["assists"], support)
+                    p["gold_by"] = "cs"
                 if not p["is_me"]:          # for the player themself the real current gold is shown
                     p["unspent_est"] = unspent_estimate(p["gold_est"], p["value"])
         team["totals"]["value"] = value_sum if any_value else None
@@ -630,7 +642,9 @@ def enrich(state: dict, *, champion_icon=None, item_icon=None, item_cost=None, i
     out["gold_diff"] = (a["gold_est"] - e["gold_est"]
                         if a["gold_est"] is not None and e["gold_est"] is not None else None)
     out["gold_model"] = ({"games": gold_model.games, "source": gold_model.source,
-                          "error": gold_model.error_at(minute), "legend": gold_model.legend(minute)}
+                          "error": gold_model.error_at(minute),
+                          "error_level": gold_model.error_at(minute, by_level=True),
+                          "legend": gold_model.legend(minute)}
                          if gold_model is not None else None)
     out["prices_available"] = prices_available
     if out["me"]:
