@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Partida{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='seleccion.css') }}">{% endblock %}
+{% block content %}
+<div id="sel" class="sel" data-view="esperando" data-stream-url="{{ url_for('api_selection_stream') }}"
+     data-live-url="{{ url_for('live_page') }}">
+  <h1>Partida <span id="sel-chip" class="chip">Conectando…</span></h1>
+  <p id="sel-conn" class="notice" hidden>Reconectando con el panel…</p>
+
+  <section class="card sel-view" data-for="esperando">
+    <h2>Esperando la selección de campeones</h2>
+    <p id="sel-phase-text" class="muted"></p>
+    <p>Esta página sigue al cliente de League en este equipo: cuando entres a la selección de campeones muestra el tablero y, en la Grieta del Invocador, las recomendaciones de <a href="{{ u('comps_page') }}">Composiciones</a> ya rellenadas con lo que ves en pantalla. Solo lee lo que el cliente te muestra a ti; no se envía nada a ningún lado.</p>
+  </section>
+
+  <section class="card sel-view" data-for="juego">
+    <h2>La partida ya empezó</h2>
+    <p id="sel-live-text">Te llevamos a En vivo.</p>
+    <p><a id="sel-go-live" class="btn primary" href="{{ url_for('live_page') }}">Ir a En vivo</a></p>
+  </section>
+
+  <section class="card sel-view" data-for="fin">
+    <h2>Partida terminada</h2>
+    <p>En unos minutos podrás sincronizarla para ver el análisis completo.</p>
+    <p class="btn-row"><a class="btn primary" href="{{ u('games_list') }}">Ver mis partidas</a>
+      <a class="btn" href="{{ u('sync_page') }}">Sincronizar</a></p>
+  </section>
+
+  <div class="sel-view" data-for="seleccion">
+    <section class="card sel-top" aria-label="Estado de la selección">
+      <div>
+        <strong id="sel-queue"></strong>
+        <span id="sel-custom" class="badge" hidden>Personalizada</span>
+        <div class="muted"><span id="sel-timer-phase"></span> <span id="sel-timer" class="sel-timer" aria-label="Tiempo restante"></span></div>
+      </div>
+      <div id="sel-role-box" class="sel-role" hidden>
+        <label class="field"><span>Tu línea</span>
+          <select id="sel-rol">
+            {% for value, label in role_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <span id="sel-role-src" class="muted"></span>
+      </div>
+    </section>
+
+    <div class="sel-board">
+      <section class="card sel-team ally" aria-label="Tu equipo">
+        <h2>Tu equipo</h2>
+        <div id="sel-allies"></div>
+      </section>
+      <section class="card sel-team enemy" aria-label="Equipo enemigo">
+        <h2>Equipo enemigo</h2>
+        <div id="sel-enemies"></div>
+      </section>
+    </div>
+
+    <section id="sel-bans-box" class="card" aria-label="Bans" hidden>
+      <h2>Bans</h2>
+      <div id="sel-bans" class="sel-bans"></div>
+    </section>
+    <section id="sel-bench-box" class="card" aria-label="Banca" hidden>
+      <h2>Banca</h2>
+      <div id="sel-bench" class="sel-bench"></div>
+      <p id="sel-rerolls" class="muted"></p>
+    </section>
+
+    <section class="card" id="sel-draft-box" aria-label="Recomendación">
+      <h2>Recomendación</h2>
+      <p id="sel-draft-msg" class="muted" hidden></p>
+      <div id="sel-draft"></div>
+    </section>
+  </div>
+  <p id="sel-error" class="notice error" hidden></p>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='seleccion.js') }}" defer></script>{% endblock %}

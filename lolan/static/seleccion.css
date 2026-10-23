@@ -1,0 +1,37 @@
+/* Partida: champion select followed from the League client. */
+.sel { --ally: var(--team-blue); --enemy: var(--team-red); }
+.sel .chip { vertical-align: middle; }
+.sel-view { display: none; }
+.sel[data-view=esperando] .sel-view[data-for=esperando],
+.sel[data-view=juego] .sel-view[data-for=juego],
+.sel[data-view=fin] .sel-view[data-for=fin],
+.sel[data-view=seleccion] .sel-view[data-for=seleccion] { display: block; }
+
+.sel-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6rem 1.5rem; align-items: center; }
+.sel-timer { font: 700 1.1rem/1 var(--mono); font-variant-numeric: tabular-nums; }
+.sel-role { display: flex; flex-wrap: wrap; align-items: end; gap: .3rem .8rem; }
+.sel-role .field { margin: 0; }
+
+.sel-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 0 1rem; }
+.sel-team { border-top: 3px solid var(--ally); min-width: 0; }
+.sel-team.enemy { border-top-color: var(--enemy); }
+.sel-team h2 { margin-bottom: .4rem; }
+.sel-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: .6rem; align-items: center; padding: .35rem .3rem; border-bottom: 1px solid var(--border); }
+.sel-row:last-child { border-bottom: 0; }
+.sel-row.me { background: var(--surface-2); border-radius: 8px; }
+.sel-row.is-empty .sel-champ { opacity: .5; }
+.sel-champ { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); border: 2px solid var(--ally); object-fit: cover; font-size: .7rem; font-weight: 700; color: var(--muted); }
+.enemy .sel-champ { border-color: var(--enemy); }
+.sel-champ.hover { opacity: .65; border-style: dashed; }
+.sel-who { display: grid; min-width: 0; line-height: 1.25; }
+.sel-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-who small { color: var(--muted); }
+.sel-state { font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.sel-state.locked { color: var(--win); font-weight: 600; }
+.sel-guess { font-style: italic; }
+
+.sel-bans, .sel-bench { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; align-items: center; }
+.sel-ban-side { display: flex; gap: .3rem; align-items: center; flex-wrap: wrap; }
+.sel-ban-side .lbl { font-size: .8rem; color: var(--muted); margin-right: .2rem; }
+.sel-ban-side .sel-champ { width: 32px; height: 32px; border-radius: 6px; filter: grayscale(.6); }
+.sel-bench .sel-champ { width: 44px; height: 44px; border-radius: 8px; border-color: var(--border); }

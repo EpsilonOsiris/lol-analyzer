@@ -165,14 +165,27 @@ La página **En vivo** del menú muestra la partida que estás jugando, pensada 
 
 **Certificado.** El juego usa un certificado propio. Se comprueba su cadena contra el certificado raíz de Riot incluido en `lolan/certs/riotgames.pem` (descargado de la documentación de Riot, ver `lolan/certs/LEEME.txt`) y solo para `127.0.0.1`; el nombre del servidor no se comprueba porque el certificado no está emitido para esa dirección. Nunca se desactiva la verificación en general. Algunos antivirus (Norton) reemplazan incluso los certificados locales: si Riot no valida, el panel prueba con el almacén de certificados de Windows (que sí confía en tu antivirus), también solo para `127.0.0.1`. Si ninguno valida, la página lo avisa. Para pruebas automáticas se puede cambiar la dirección con la variable `LOLAN_TEST_LIVE_URL` (solo acepta direcciones locales; no la uses normalmente).
 
-### Selección de campeones (grabación para la futura página «Partida»)
+### Selección de campeones (grabación)
 
-Mientras el panel está abierto, también escucha al **cliente de League** (no al juego): cuando entras a la selección de campeones guarda lo que el cliente expone en ese momento (baneos, picks, hechizos, tiempos, la sala y el estado de la partida) en `data/capturas/seleccion-AAAAMMDD-HHMMSS.jsonl`, una línea JSON por cambio y un archivo por selección (se conservan los 30 más recientes). Sirve para construir y probar una página de la selección con datos reales en lugar de adivinar los nombres de los campos. Todo se queda en tu PC: no usa tu key ni la API web de Riot, solo el cliente local (`lockfile` en `C:\Riot Games\League of Legends`; si instalaste el juego en otra carpeta, escribe `LOL_DIR=D:\Juegos\League of Legends` en `.env`). En Solo/Dúo clasificatoria el cliente anonimiza a aliados y enemigos, y **nada de esto se usa jamás para averiguar quién es un jugador anónimo**.
+Mientras el panel está abierto, también escucha al **cliente de League** (no al juego): cuando entras a la selección de campeones guarda lo que el cliente expone en ese momento (baneos, picks, hechizos, tiempos, la sala y el estado de la partida) en `data/capturas/seleccion-AAAAMMDD-HHMMSS.jsonl`, una línea JSON por cambio y un archivo por selección (se conservan los 30 más recientes). Sirve para probar la página **Partida** (más abajo) con datos reales en lugar de adivinar los nombres de los campos. Todo se queda en tu PC: no usa tu key ni la API web de Riot, solo el cliente local (`lockfile` en `C:\Riot Games\League of Legends`; si instalaste el juego en otra carpeta, escribe `LOL_DIR=D:\Juegos\League of Legends` en `.env`). En Solo/Dúo clasificatoria el cliente anonimiza a aliados y enemigos, y **nada de esto se usa jamás para averiguar quién es un jugador anónimo**.
 
 - Se enciende solo con el panel; para apagarlo define `LOLAN_GRABAR_SELECCION=off`.
 - Sin el panel: `python -m lolan grabar-seleccion` lo corre en la terminal (muestra cada cambio de fase; Ctrl+C para detenerlo).
 - Al terminar de grabar una selección avisa «Selección de campeones grabada: data/capturas/…». Si el cliente está cerrado no hace nada (revisa cada 5 segundos).
 - Usa el mismo certificado y las mismas reglas que el juego: solo `127.0.0.1`. Para pruebas, `LOLAN_LCU_LOCKFILE` apunta a otro `lockfile`.
+
+### Partida (la selección de campeones en vivo)
+
+La página **Partida** (`/partida`, en el menú) sigue al cliente de League y se actualiza sola. Usa el mismo sondeo del cliente que la grabación de arriba (no abre una conexión aparte) y funciona aunque apagues la grabación con `LOLAN_GRABAR_SELECCION=off`.
+
+- **Sin selección** (cliente cerrado, menú, sala, cola, partida encontrada): «Esperando la selección de campeones» y el estado en español.
+- **Selección de campeones**: tu equipo (línea, persona del clan o «Aleatorio», campeón, «eligiendo…» si solo lo tiene en pantalla o «elegido» si ya lo bloqueó; tú resaltado), el equipo rival (los campeones que el cliente ya reveló), los bans y la fase con su cuenta regresiva. En ARAM y otros modos con banca también la banca y los rerolls.
+- **Recomendación**: solo en la **Grieta del Invocador** (mapa 11, sin banca). Es el mismo draft de Composiciones con la alineación rellenada desde el cliente y recalculada con cada cambio (cada pick que se pasa por encima o se bloquea); lo que solo está en pantalla se usa como supuesto. Tu línea va primero. En otros modos (ARAM y cualquier modo con banca u otro mapa) se muestra el tablero y la nota «Composiciones solo aplica a la Grieta del Invocador (picks por línea)».
+- **Tu línea**: si el cliente no la dice (selección a ciegas, Herramienta de práctica), se usa la que más juegas; la cambias en el selector de la página (se guarda solo en la dirección, `?rol=`, y no se escribe en ningún lado). Con otra línea que no sea ADC, tus recomendaciones salen de tu historial en esa línea y el ADC se trata como cualquier otra posición (las reglas ADC×soporte solo aplican cuando tú eres el ADC).
+- **Quién es quién**: solo los miembros del clan registrados (prefijo o cuentas registradas) aparecen con su nombre; los demás son «Aleatorio». De un jugador que el cliente oculta (rival, o aliado anonimizado en Solo/Dúo) no se guarda ningún dato que lo identifique, solo el campeón.
+- **Al empezar la partida**: si Partida está abierta, te lleva sola a **En vivo** (si la abres con la partida ya en curso solo ofrece el enlace «Ir a En vivo»). Al terminar muestra «Partida terminada» y el enlace a tus partidas.
+
+Todavía no se ha visto con un draft real de la Grieta (solo Herramienta de práctica y ARAM): los valores de la línea asignada, cuándo se revelan los campeones rivales y el contenido de los bans se leen con cuidado y se confirmarán en la primera partida normal o flex.
 
 ### Rivales: quién está en tu partida
 

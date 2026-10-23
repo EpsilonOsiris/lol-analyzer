@@ -19,6 +19,7 @@ from . import analyze as an
 from . import comps
 from . import deaths as dx
 from . import deathsview
+from . import draft_live as dl
 from . import duelos as duelos_mod
 from . import mapview
 from . import goldmodel
@@ -48,6 +49,10 @@ PAGE_SIZE = 50
 NL2 = "\n\n"                # end of a server-sent event
 LIVE_HEARTBEAT_S = 10.0     # quiet time after which the live stream sends a keep-alive comment
 LIVE_ASSET_RETRY_S = 30.0   # how often missing live icons / prices are requested again
+QUEUE_COLA = {QUEUE_ALIASES["solo"]: "solo", QUEUE_ALIASES["flex"]: "flex"}    # game queue -> history to compare with
+NOT_RIFT_NOTE = "Composiciones solo aplica a la Grieta del Invocador (picks por línea)."
+ROLE_SOURCE_TEXT = {"elegido": "elegida por ti", "cliente": "asignada por el cliente",
+                    "historial": "tu línea más jugada", "supuesto": "supuesta: aún no tienes partidas"}
 SCOUT_BUSY_MESSAGE = ("Se está buscando la partida de tus rivales (usa el mismo cupo de peticiones "
                       "de tu key). Espera unos segundos y vuelve a pulsar Sincronizar.")
 MAX_LOG_LINES = 200
@@ -448,9 +453,14 @@ def start_live(app) -> None:
     if ext.get("scout") is not None:      # the rivals search follows the live poller
         ext["scout"].start(ext["live"])
     if ext.get("root") is not None and lcu.recorder_enabled():
-        # saves what the League client shows during champion select (LOLAN_GRABAR_SELECCION=off disables it)
-        ext["recorder"] = lcu.ChampSelectRecorder(out_dir=ext["root"] / "data" / "capturas", root=ext["root"])
+        # saves what the League client shows during champion select (LOLAN_GRABAR_SELECCION=off disables it);
+        # the same loop feeds the Partida page
+        ext["recorder"] = lcu.ChampSelectRecorder(out_dir=ext["root"] / "data" / "capturas", root=ext["root"],
+                                                  observer=ext.get("partida"))
         ext["recorder"].start()
+    elif ext.get("root") is not None and ext.get("partida") is not None:
+        ext["follower"] = lcu.LcuFollower(ext["partida"], root=ext["root"])      # no recording, same page
+        ext["follower"].start()
 
 
 def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
@@ -479,9 +489,10 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         root, limiters, slot, lambda key, host: RiotClient(key, region=host, limiter=limiters.for_host(host)),
         health=health, notify=lambda: getattr(live, "touch", lambda: None)(),
         duelos=duelos_mod.make_service(root, dd))
+    feed = dl.DraftFeed()
     app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
                                "health": health, "ddragon": dd, "live": live, "scout": scout,
-                               "limiters": limiters}
+                               "limiters": limiters, "partida": feed}
 
     def warm_up() -> None:
         """Load the main player's games and composition records so the first page isn't slow.
@@ -590,7 +601,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
                 "jugador": current, "picker_action": picker_action,
                 "show_picker": bool(roster) and len(roster) > 1
-                and request.endpoint not in ("clan_page", "players_page", "comps_page", "live_page"),
+                and request.endpoint not in ("clan_page", "players_page", "comps_page", "live_page",
+                                              "selection_page"),
                 "live_on": live.in_game,
                 "min_champion_games": an.MIN_CHAMPION_GAMES, "session_gap": an.SESSION_GAP_MIN}
 
@@ -982,6 +994,179 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
                         yield ": latido" + NL2
             finally:
                 live.remove_listener()
+
+        return Response(events(), mimetype="text/event-stream", headers={
+            "Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    # --------------------------------------------------- champion select (Partida)
+    sel_asset = {"sig": None, "at": 0.0, "lock": threading.Lock()}
+    sel_draft = {"key": None, "value": None, "lock": threading.Lock()}
+
+    def sel_champions(ids):
+        """{id: {"id", "name", "icon"}} for champion ids; downloads what Data Dragon still lacks."""
+        ids = sorted({i for i in ids if i})
+        assets = sc.Assets(dd, asset_url)
+        out = {}
+        for cid in ids:
+            name, icon = assets.champion(cid)
+            out[cid] = {"id": cid, "name": name, "icon": icon}
+        with sel_asset["lock"]:
+            sig = (assets.version, tuple(ids))
+            missing = not assets.version or any(c["icon"] is None for c in out.values())
+            now = time.monotonic()
+            if sig != sel_asset["sig"] or (missing and now - sel_asset["at"] > LIVE_ASSET_RETRY_S):
+                sel_asset["sig"], sel_asset["at"] = sig, now
+                dd.prepare((None,), (), minimap=False, champion_keys=ids)
+        return out
+
+    def sel_draft_html(draft_result, built):
+        main_role = built["main_role"]
+        order = [r for r in comps.LINE_ROLES if r in draft_result["draft"]["roles"]]
+        if main_role == "BOTTOM":
+            shown = [r for r in order if r != "BOTTOM"]
+        else:
+            shown = [main_role] + [r for r in order if r != main_role]
+        return render_template("_borrador.html", notes=draft_result["notes"], ranking=draft_result["ranking"],
+                               draft=draft_result["draft"], draft_roles=shown, adc_labels=comps.ADC_LABELS)
+
+    def sel_draft_for(built, records, records_sig):
+        """The recommender's answer for a lineup; recomputed only when the lineup, line or history change."""
+        key = (records_sig, built["main_role"], json.dumps(built["lineup"], sort_keys=True), tuple(built["enemies"]))
+        with sel_draft["lock"]:
+            if sel_draft["key"] == key:
+                return sel_draft["value"]
+        role = built["main_role"]
+        draft = comps.recommend_draft(built["lineup"], records, built["enemies"], main_role=role)
+        notes = comps.draft_notes(built["lineup"], records, built["enemies"], main_role=role)
+        ranking = comps.recommend(built["lineup"], records, built["enemies"]) if role == "BOTTOM" else None
+        value = {"draft": draft, "notes": notes, "ranking": ranking}
+        value["html"] = sel_draft_html(value, built)
+        with sel_draft["lock"]:
+            sel_draft["key"], sel_draft["value"] = key, value
+        return value
+
+    def sel_view(state, my_role, cola_arg):
+        """Board + draft of a champion-select state (JSON-able)."""
+        st = g.settings if g.get("settings") else read_settings(root)
+        main = open_roster().main
+        records_all = cache.comps(main.puuid, st.clan_prefix, st.clan_aliases) if main else []
+        cola = cola_arg if cola_arg in QUEUES else QUEUE_COLA.get(state["queue_id"], "todas")
+        records = comps.filter_queue(records_all, QUEUES[cola])
+        store = Store(db_path)
+        try:
+            tracked = {pl.puuid: pl.riot_id for pl in store.list_players()}
+        finally:
+            store.close()
+        clan = comps.ClanConfig.build(st.clan_prefix, st.clan_aliases, tracked)
+        main_label = comps.main_person(records_all) if records_all else None
+        allies = dl.attach_people(state, clan, main_label)
+
+        version = dd.latest()
+
+        def key_of(cid):
+            found = dd.champion_by_key(version, cid) if (cid and version) else None
+            return found[0] if found else None
+
+        for a in allies:
+            a["key"] = key_of(a["champion_id"] or a["hover_id"])
+        enemy_ids = [e["champion_id"] for e in state["enemies"]]
+        built, draft = None, None
+        if state["lanes"]:
+            built = dl.build_lineup(allies, records, [key_of(c) for c in enemy_ids], my_role)
+            if records:
+                result = sel_draft_for(built, records, (id(records_all), len(records_all), cola))
+                draft = {"status": "ok", "html": result["html"]}
+            else:
+                draft = {"status": "sin-datos", "html": "",
+                         "message": "Aún no hay partidas tuyas guardadas para esta cola: sincroniza para ver "
+                                    "recomendaciones, o cambia la cola arriba a la derecha."}
+            draft.update(main_role=built["main_role"], main_role_label=an.role_name(built["main_role"]),
+                         role_source=built["role_source"], role_source_text=ROLE_SOURCE_TEXT[built["role_source"]],
+                         hover_roles=built["hover_roles"])
+        else:
+            draft = {"status": "no-aplica", "html": "", "message": NOT_RIFT_NOTE}
+
+        bans = state["bans"]
+        bench = state["bench"]
+        every = ([a["champion_id"] for a in allies] + [a["hover_id"] for a in allies] + enemy_ids
+                 + bans["ally"] + bans["enemy"] + bench["champions"])
+        champs = sel_champions(every)
+        pick = lambda cid: champs.get(cid) if cid else None
+        roles = built["roles"] if built else {}
+        board_allies = []
+        for a in allies:
+            role = roles.get(a["cell_id"]) or (a["role"] if state["lanes"] else None)
+            board_allies.append({
+                "cell_id": a["cell_id"], "role": role, "role_label": an.role_name(role) if role else None,
+                "role_guess": bool(role and (built["role_source"] in ("historial", "supuesto") if a["is_me"]
+                                             else not a["role"])), "person": a["person"],
+                "name": a["person"] or "Aleatorio", "title": a["riot_id"] if a["visible"] else None,
+                "champion": pick(a["champion_id"]), "hover": pick(a["hover_id"]), "locked": a["locked"],
+                "is_me": a["is_me"]})
+        timer = state["timer"]
+        board = {
+            "queue_name": state["queue_name"] or state["game_mode"], "queue_id": state["queue_id"],
+            "lanes": state["lanes"], "is_custom": state["is_custom"],
+            "timer": {**timer, "text": dl.TIMER_TEXT.get(timer["phase"], timer["phase"] or "")},
+            "allies": board_allies,
+            "enemies": [{"champion": pick(c)} for c in enemy_ids],
+            "bans": {"ally": [pick(c) for c in bans["ally"]], "enemy": [pick(c) for c in bans["enemy"]]},
+            "bench": {"enabled": bench["enabled"], "champions": [pick(c) for c in bench["champions"]],
+                      "rerolls": bench["rerolls"], "can_reroll": bench["can_reroll"]}}
+        return {"board": board, "draft": draft, "cola": cola}
+
+    def selection_payload(snap, my_role=None, cola_arg=None) -> dict:
+        phase, state = snap["phase"], snap["state"]
+        if phase == dl.CHAMP_SELECT:
+            view = "seleccion"
+        elif phase in dl.GAME_PHASES:
+            view = "juego"
+        elif phase in dl.END_PHASES:
+            view = "fin"
+        else:
+            view = "esperando"
+        out = {"version": snap["version"], "phase": phase, "view": view, "board": None, "draft": None,
+               "phase_text": dl.PHASE_TEXT.get(phase, f"Fase del cliente: {phase}.")}
+        if view == "seleccion" and state is not None:
+            try:
+                out.update(sel_view(state, my_role, cola_arg))
+            except Exception as exc:            # a broken history must not take the page down
+                print(f"Aviso: no se pudo armar la selección de campeones: {exc!r}", file=sys.stderr)
+                traceback.print_exc()
+                out["error"] = "No se pudo armar la recomendación (mira la consola del panel)."
+        return out
+
+    def sel_args():
+        role = (request.args.get("rol") or "").upper()
+        return (role if role in comps.ROLES else None), request.args.get("cola")
+
+    @app.get("/partida")
+    def selection_page():
+        return render_template("seleccion.html", role_options=[(r, an.role_name(r)) for r in comps.ROLES])
+
+    @app.get("/api/partida")
+    def api_selection():
+        resp = jsonify(selection_payload(feed.snapshot(), *sel_args()))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.get("/api/partida/stream")
+    def api_selection_stream():
+        """Server-sent events: the champion-select payload each time it changes, a comment when quiet."""
+        heartbeat = app.config.get("LIVE_HEARTBEAT_S", LIVE_HEARTBEAT_S)
+        my_role, cola_arg = sel_args()
+
+        @stream_with_context
+        def events():
+            yield "retry: 2000" + NL2
+            last = -1
+            while not feed.is_stopped():
+                snap = feed.wait_for_change(last, heartbeat)
+                if snap["version"] != last:
+                    last = snap["version"]
+                    yield "data: " + json.dumps(selection_payload(snap, my_role, cola_arg), ensure_ascii=False) + NL2
+                else:
+                    yield ": latido" + NL2
 
         return Response(events(), mimetype="text/event-stream", headers={
             "Cache-Control": "no-store", "X-Accel-Buffering": "no"})
