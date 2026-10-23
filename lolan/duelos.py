@@ -54,8 +54,8 @@ LABEL_UNCALIBRATED = "estimación con datos de OP.GG; aún sin calibrar"
 
 
 # ------------------------------------------------------------------- roles
-def role_scores(player: dict, rates: dict | None, counts: Counter | None) -> dict:
-    """Log-likelihood of each role for one player."""
+def role_scores(player: dict, rates: dict | None, counts: Counter | None, smite_known: bool = True) -> dict:
+    """Log-likelihood of each role for one player (`smite_known` False: spells unknown, as for enemies in champion select)."""
     has_smite = SMITE_ID in (player.get("spell_ids") or [])
     n = sum(counts.values()) if counts else 0
     weight = 0.0 if n < PERSONAL_MIN else min(1.0, n / PERSONAL_FULL)
@@ -66,8 +66,8 @@ def role_scores(player: dict, rates: dict | None, counts: Counter | None) -> dic
         else:
             p = UNLISTED_RATE
         s = math.log(p)
-        jungle_ok = SMITE_MATCH if (role == "JUNGLE") == has_smite else SMITE_MISS
-        s += math.log(jungle_ok)
+        if smite_known:
+            s += math.log(SMITE_MATCH if (role == "JUNGLE") == has_smite else SMITE_MISS)
         if weight:
             s += weight * math.log(((counts.get(role, 0) + 0.5) / (n + 2.5)) / UNLISTED_RATE)
         scores[role] = s
@@ -88,6 +88,23 @@ def assign_roles(scores: list[dict]) -> tuple[list[str], list[float]]:
     for i, role in enumerate(chosen):
         conf.append(sum(w for perm, w in zip(perms, weights) if perm[i] == role) / z)
     return list(chosen), conf
+
+
+def infer_roles(champion_ids, rates_of) -> list[dict | None]:
+    """Roles of the champions already revealed by a team in champion select (0 = not revealed yet).
+
+    Same likelihood as the scout (OP.GG role rates, every lane once) but without Smite (spells are not
+    visible) and with the unrevealed slots as neutral players, so a lone champion is placed by its own
+    rates. `rates_of(champion_id)` -> {opgg position: share} or None. Returns, per input slot,
+    {"role", "conf", "low"} (conf: probability that the role is right; low: below LOW_CONFIDENCE) or None.
+    """
+    ids = list(champion_ids)[:len(ROLE_ORDER)]
+    neutral = {role: 0.0 for role in ROLE_ORDER}
+    scores = [role_scores({}, rates_of(cid), None, smite_known=False) if cid else dict(neutral) for cid in ids]
+    scores += [dict(neutral) for _ in range(len(ROLE_ORDER) - len(scores))]
+    roles, conf = assign_roles(scores)
+    return [{"role": roles[i], "conf": conf[i], "low": conf[i] < LOW_CONFIDENCE} if cid else None
+            for i, cid in enumerate(ids)]
 
 
 # --------------------------------------------------------- own history (DB)
@@ -321,6 +338,112 @@ class DuelosService:
         return {"status": status, "message": NO_DATA_MESSAGE if status == "nodata" else "", "source": "OP.GG",
                 "scope": SCOPE_TEXT, "note": SOURCE_NOTE, "patch": data.patch, "lanes": lanes, "duo": duo_out,
                 "prob": prob, "calibration": calib, "calls": self.client.calls - started_calls}
+
+
+class LaneOpgg:
+    """OP.GG for champion select: answers at once from the cache, fetches what is missing in the background.
+
+    `service` is a function returning the DuelosService (or None when OP.GG is off); it is called each
+    time so it can be swapped. `notify` runs in the worker thread whenever something new has arrived (the
+    page wakes its event stream). `enabled` starts False: start_live turns it on, so tests and imports
+    never call OP.GG by accident. Every failure is soft: the pair shows "error" for RETRY_S, then may be asked again.
+    """
+    RETRY_S = 60.0
+
+    def __init__(self, service, notify=None, clock=time.monotonic):
+        self._service, self._notify, self._clock = service, notify or (lambda: None), clock
+        self.enabled = False
+        self._lock = threading.Lock()
+        self._data: OpggData | None = None
+        self._data_for = None
+        self._busy: set = set()
+        self._failed: dict = {}
+        self.threads: list[threading.Thread] = []
+
+    # ---- plumbing
+    def _opgg(self) -> OpggData | None:
+        svc = self._service() if self.enabled else None
+        if svc is None:
+            return None
+        with self._lock:
+            stamp = (id(svc), svc._patch_func())
+            if self._data is None or self._data_for != stamp:
+                self._data, self._data_for = svc._data(), stamp
+            return self._data
+
+    def _start(self, key, job) -> None:
+        with self._lock:
+            if key in self._busy or self._clock() < self._failed.get(key, 0.0):
+                return
+            self._busy.add(key)
+        t = threading.Thread(target=self._run, args=(key, job), daemon=True, name="lolan-partida-opgg")
+        self.threads = [x for x in self.threads if x.is_alive()] + [t]
+        t.start()
+
+    def _run(self, key, job) -> None:
+        try:
+            job()
+        except Exception:                              # OpggError and anything unexpected: soft
+            with self._lock:
+                self._failed[key] = self._clock() + self.RETRY_S
+        finally:
+            with self._lock:
+                self._busy.discard(key)
+            try:
+                self._notify()
+            except Exception:
+                pass
+
+    def _failed_now(self, key) -> bool:
+        with self._lock:
+            return self._clock() < self._failed.get(key, 0.0)
+
+    # ---- enemy roles
+    def enemy_roles(self, champion_ids) -> list[dict | None] | None:
+        """`infer_roles` for the revealed champions of the enemy team; None while OP.GG's champion list and lane
+        meta are not cached (they are fetched in the background) or when OP.GG is off."""
+        data = self._opgg()
+        if data is None:
+            return None
+        names, meta = data.peek_names(), data.peek_lane_meta()
+        if names is None or meta is None:
+            if data.client.available():
+                self._start(("tables",), lambda: (data.champions(), data.lane_meta()))
+            return None
+        return infer_roles(champion_ids, lambda cid: meta.get(norm_name(names.get(str(cid)))))
+
+    def roles_pending(self) -> bool:
+        return self.enabled and ("tables",) in self._busy
+
+    # ---- pairs
+    def lookup(self, role: str, my_id: int, opp_id: int, fetch: bool) -> dict:
+        """{"status": "off" | "idle" | "pending" | "error" | "none" | "ok", **matchup_full}.
+
+        "idle": not cached and not asked for (`fetch` False); with `fetch` the call starts in the background
+        and the answer is "pending" until it lands in the cache (then `notify` runs)."""
+        data = self._opgg()
+        if data is None:
+            return {"status": "off"}
+        position = OPGG_POSITION[role]
+        cached, value = data.peek_matchup(position, my_id, opp_id)
+        if cached:
+            return {"status": "ok", **value} if value else {"status": "none"}
+        key = ("mu", position, my_id, opp_id)
+        if self._failed_now(key) or not data.client.available():
+            return {"status": "error"}
+        with self._lock:
+            if key in self._busy:
+                return {"status": "pending"}
+        if not fetch:
+            return {"status": "idle"}
+
+        def job():
+            data.matchup_full(position, my_id, opp_id)
+            if not data.peek_matchup(position, my_id, opp_id)[0]:          # unknown champion ids: nothing was stored
+                raise OpggError("OP.GG no conoce a alguno de los campeones")
+
+        self._start(key, job)
+        return {"status": "pending"}
 
 
 def make_service(root, dd=None, **kw) -> DuelosService | None:
