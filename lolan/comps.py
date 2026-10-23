@@ -960,10 +960,10 @@ def support_profile(records, lineup) -> dict:
     return {"source": "desconocido", "person": sup["person"], "dist": None, "champions": []}
 
 
-def _lineup_engage(lineup) -> int | None:
+def _lineup_engage(lineup, main_role="BOTTOM") -> int | None:
     """Engage count of the teammates already chosen; None when no champion was entered."""
     members = [{"champion": v["champion"], "role": role} for role, v in lineup.items()
-               if role != "BOTTOM" and v["champion"]]
+               if role != main_role and v["champion"]]
     return engage_count(members) if members else None
 
 
@@ -1034,19 +1034,28 @@ def _engage_reason(champion, adc_type, engage) -> str | None:
     return None
 
 
-def draft_notes(lineup, records, enemy=()) -> list[str]:
-    """Context lines for the draft form: what was assumed for the support, team engage, enemy CC."""
+def draft_notes(lineup, records, enemy=(), main_role="BOTTOM") -> list[str]:
+    """Context lines for the draft form: what was assumed for the support, team engage, enemy CC.
+
+    The support/ADC fit lines only make sense when the main player is the ADC; for any other
+    `main_role` one line says so instead.
+    """
+    main_role = _check_role(main_role)
     lu = normalize_lineup(lineup)
-    profile = support_profile(records, lu)
     notes = []
-    if profile["source"] == "champion":
-        notes.append(f"Soporte: {_support_phrase(profile)}.")
-    elif profile["source"] == "historial":
-        notes.append(f"Soporte: {_support_phrase(profile)} (según sus partidas contigo).")
+    if main_role == "BOTTOM":
+        profile = support_profile(records, lu)
+        if profile["source"] == "champion":
+            notes.append(f"Soporte: {_support_phrase(profile)}.")
+        elif profile["source"] == "historial":
+            notes.append(f"Soporte: {_support_phrase(profile)} (según sus partidas contigo).")
+        else:
+            notes.append("Soporte desconocido: se favorecen los ADC flexibles y los follow-up se "
+                         "consideran malos first picks.")
     else:
-        notes.append("Soporte desconocido: se favorecen los ADC flexibles y los follow-up se "
-                     "consideran malos first picks.")
-    engage = _lineup_engage(lu)
+        notes.append(f"Juegas {role_name(main_role)}: el ranking de ADC y el encaje ADC-soporte solo "
+                     f"aplican cuando eres el ADC; tus picks salen de tu historial en {role_name(main_role)}.")
+    engage = _lineup_engage(lu, main_role)
     if engage is not None:
         notes.append(f"Engage duro en tu equipo (sin contarte): {engage}.")
     enemies = [canonical_champion(e) for e in enemy if str(e or "").strip()]
@@ -1174,19 +1183,31 @@ def _union(*ps) -> float:
     return 1 - out
 
 
-def _slots(records, lu) -> dict:
+def _check_role(main_role) -> str:
+    if main_role not in ROLES:
+        raise ValueError(f"main_role debe ser una de {ROLES}, no {main_role!r}")
+    return main_role
+
+
+def _own_games(records, role):
+    """Games where the main player played `role`."""
+    return [r for r in records if r["main_role"] == role]
+
+
+def _slots(records, lu, main_role="BOTTOM") -> dict:
     """Per role: what we assume about who/what will be there.
 
     {"kind": "champion" | "historial" | "desconocido", "champs": [(champion, probability)]}.
     A typed champion is certain; a clan person without champion is their history in that role;
-    the main's ADC slot is his own ADC history (he is the one picking it).
+    the main's slot is his own history in `main_role` (he is the one picking it). A champion
+    typed for the main's slot counts only when he is not the ADC (legacy: the ADC form has none).
     """
     slots = {}
     for role in ROLES:
         v = lu[role]
         slot, hist = {"kind": "desconocido", "champs": []}, None
-        if role == "BOTTOM":
-            hist = Counter(r["main_champion"] for r in _bottom_games(records) if r["main_champion"])
+        if role == main_role and (main_role == "BOTTOM" or not v["champion"]):
+            hist = Counter(r["main_champion"] for r in _own_games(records, role) if r["main_champion"])
         elif v["champion"]:
             slot = {"kind": "champion", "champs": [(v["champion"], 1.0)]}
         elif v["person"]:
@@ -1283,10 +1304,10 @@ def _line_rules(role, kind, slots) -> list[tuple[float, str | None]]:
 def _members(slots, role=None, champion=None, adc=None) -> list[dict]:
     """Team for the plan prediction: typed champions + the candidate + the assumed ADC."""
     members = [{"champion": s["champs"][0][0], "role": r} for r, s in slots.items()
-               if s["kind"] == "champion" and r != role and r != "BOTTOM"]
+               if s["kind"] == "champion" and r != role]
     if role and champion:
         members.append({"champion": champion, "role": role})
-    if adc:
+    if adc and role != "BOTTOM":
         members.append({"champion": adc, "role": "BOTTOM"})
     return members
 
@@ -1314,8 +1335,11 @@ PAIR_RELATIONS = {"TOP": [("jg_top", "JUNGLE", False)],
 
 
 def _score_candidate(role, kind, champion, slots, tables, base_members, adc, stat, min_games,
-                     person=None):
-    """(raw score in [-1, 1], reasons, plan) of a type (champion None) or of a champion."""
+                     person=None, is_main=False):
+    """(raw score in [-1, 1], reasons, plan) of a type (champion None) or of a champion.
+
+    `is_main`: the candidate is for the main player's own slot (reasons say "tú", not "esta persona").
+    """
     champ_for_plan = champion or TYPE_REPRESENTATIVE.get(role, {}).get(kind)
     rule_parts = _line_rules(role, kind, slots)
     bonus, plan, plan_text = _plan_bonus(_members(slots, role, champ_for_plan, adc), base_members)
@@ -1332,12 +1356,13 @@ def _score_candidate(role, kind, champion, slots, tables, base_members, adc, sta
         num, den = num + w * sig, den + w
         if n >= min_games and stat["shrunk"] < UNCOMFORTABLE_WR:
             penalty = UNCOMFORTABLE_PENALTY
+            who = "Vas" if is_main else f"{person or 'Esta persona'} va"
             cands.append((abs(sig) * w + 0.5,
-                          f"{person or 'Esta persona'} va {stat['wins']}-{stat['losses']} con {champion}; "
-                          "poco cómodo."))
+                          f"{who} {stat['wins']}-{stat['losses']} con {champion}; poco cómodo."))
         elif n >= min_games:
+            with_ = "contigo" if is_main else "con esta persona"
             cands.append((abs(sig) * w + 0.1,
-                          f"{champion} en {role_name(role)} con esta persona: {stat['wins']}-{stat['losses']} "
+                          f"{champion} en {role_name(role)} {with_}: {stat['wins']}-{stat['losses']} "
                           f"({stat['winrate'] * 100:.0f}%, ajustado {stat['shrunk'] * 100:.0f}%)."))
 
     line = tables["lines"].get(role, {}).get(kind)
@@ -1367,39 +1392,65 @@ def _score_candidate(role, kind, champion, slots, tables, base_members, adc, sta
     return _clamp(num / den - penalty), [t for _m, t in cands], plan
 
 
+def _assumed_adc(slots, records, main_role) -> str | None:
+    """The ADC the other lines' rules assume (None when there is none or it is already a typed member)."""
+    if main_role == "BOTTOM":
+        adc_hist = Counter(r["main_champion"] for r in _bottom_games(records) if r["main_champion"])
+        return max(adc_hist, key=lambda c: (adc_hist[c], c)) if adc_hist else None
+    slot = slots["BOTTOM"]
+    if slot["kind"] != "historial":
+        return None
+    return max(slot["champs"], key=lambda cp: (cp[1], cp[0]))[0]
+
+
 def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
-                    max_picks=MAX_PICKS) -> dict:
+                    max_picks=MAX_PICKS, main_role="BOTTOM") -> dict:
     """Recommendations for EVERY line without a fixed champion, plus the resulting team plan.
 
-    `lineup`: role -> (person, champion) as in `recommend` (BOTTOM is the main player). Returns
-    {"roles": {role: {...}}, "plan": {...}}. Each role has `mode`: "fijo" (champion typed),
-    "campeones" (picks from that person's pool), "tipos" (type suggestions: Aleatorio, or a person
-    without enough games in the role) or "adc" (the existing ADC recommender); and `picks`, the
-    top `max_picks` with 1-3 Spanish reasons each.
+    `lineup`: role -> (person, champion) as in `recommend` (the `main_role` entry is the main
+    player). Returns {"roles": {role: {...}}, "plan": {...}}. Each role has `mode`: "fijo"
+    (champion typed), "campeones" (picks from that person's pool), "tipos" (type suggestions:
+    Aleatorio, or a person without enough games in the role) or "adc" (the existing ADC
+    recommender); and `picks`, the top `max_picks` with 1-3 Spanish reasons each.
+
+    `main_role`: the line the main player plays. The default "BOTTOM" is the original behaviour
+    (his slot is the ADC ranking; `include_all` applies). For any other line his slot is a normal
+    entry (`is_main` True) whose pool is his own games in that line, and BOTTOM behaves like any
+    other teammate's line (typed champion, or the person's ADC history, with ADC types).
     """
+    main_role = _check_role(main_role)
     lu = normalize_lineup(lineup)
-    slots = _slots(records, lu)
+    slots = _slots(records, lu, main_role)
     tables = {
         "lines": {x["role"]: {t["key"]: t for t in x["by_type"]} for x in by_line(records, min_games)},
         "pairs": {k: {(x["a"], x["b"]): x for x in v["rows"]}
                   for k, v in type_pairs(records, min_games).items()},
     }
-    adc_hist = Counter(r["main_champion"] for r in _bottom_games(records) if r["main_champion"])
-    adc = max(adc_hist, key=lambda c: (adc_hist[c], c)) if adc_hist else None
+    adc = _assumed_adc(slots, records, main_role)
     base_members = _members(slots, adc=adc)
 
     roles = {}
-    for role in DRAFT_ROLES:
+    for role in (DRAFT_ROLES if main_role == "BOTTOM" else LINE_ROLES):
         v = lu[role]
-        entry = {"role": role, "label": role_name(role), "person": v["person"], "fixed": v["champion"],
+        is_main = role == main_role
+        person = v["person"] or (main_person(records) if is_main else None)
+        entry = {"role": role, "label": role_name(role), "person": person, "fixed": v["champion"],
                  "picks": [], "note": None, "mode": "tipos"}
+        if is_main:
+            entry["is_main"] = True        # only when the main is not the ADC: the original output has no such key
         roles[role] = entry
         if v["champion"]:
             kind = role_type(role, v["champion"])
             entry.update(mode="fijo", fixed_type=kind, fixed_type_label=type_label(role, kind))
             continue
         pool = {}
-        if v["person"]:
+        if is_main:
+            by = defaultdict(list)
+            for r in _own_games(records, role):
+                if r["main_champion"]:
+                    by[r["main_champion"]].append(r)
+            pool = {c: rs for c, rs in by.items() if len(rs) >= min_games}
+        elif v["person"]:
             by = defaultdict(list)
             for r in records:
                 for m in r["team"]:
@@ -1413,7 +1464,7 @@ def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_
                 st = _stat(recs, min_games)
                 kind = role_type(role, champion)
                 raw, reasons, plan = _score_candidate(role, kind, champion, slots, tables, base_members,
-                                                      adc, st, min_games, v["person"])
+                                                      adc, st, min_games, person, is_main)
                 picks.append({"kind": "campeon", "champion": champion, "type": kind,
                               "type_label": type_label(role, kind), "source": role_source(role, champion),
                               "score": round((raw + 1) * 50), "raw_score": raw,
@@ -1421,7 +1472,10 @@ def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_
                               "games": st["games"], "wins": st["wins"], "winrate": st["winrate"],
                               "shrunk": st["shrunk"]})
         else:
-            if v["person"]:
+            if is_main:
+                entry["note"] = (f"Tienes menos de {min_games} partidas en {role_name(role)}: "
+                                 "se sugieren tipos de campeón.")
+            elif v["person"]:
                 entry["note"] = (f"{v['person']} no tiene {min_games} partidas en {role_name(role)} "
                                  "contigo: se sugieren tipos de campeón.")
             for kind in (k for k in ROLE_TYPE_ORDER[role] if k != "otro"):
@@ -1438,15 +1492,16 @@ def recommend_draft(lineup, records, enemy=(), include_all=False, min_games=MIN_
                 pick["reasons"] = ["Sin una regla clara ni datos suficientes: pick neutro."]
         entry["picks"] = picks[:max_picks]
 
-    adc_ranking = recommend(lineup, records, enemy, include_all=include_all, min_games=min_games)
-    roles["BOTTOM"] = {
-        "role": "BOTTOM", "label": role_name("BOTTOM"), "person": lu["BOTTOM"]["person"], "fixed": None,
-        "mode": "adc", "note": None,
-        "picks": [{"kind": "campeon", "champion": x["champion"], "type": x["adc_type"],
-                   "type_label": ADC_LABELS[x["adc_type"]], "source": x["adc_source"],
-                   "score": x["score"], "raw_score": x["raw_score"], "reasons": x["reasons"],
-                   "plan": None, "plan_label": None, "games": x["games"], "wins": x["wins"],
-                   "winrate": x["winrate"], "shrunk": x["shrunk"]} for x in adc_ranking[:max_picks]]}
+    if main_role == "BOTTOM":
+        adc_ranking = recommend(lineup, records, enemy, include_all=include_all, min_games=min_games)
+        roles["BOTTOM"] = {
+            "role": "BOTTOM", "label": role_name("BOTTOM"), "person": lu["BOTTOM"]["person"], "fixed": None,
+            "mode": "adc", "note": None,
+            "picks": [{"kind": "campeon", "champion": x["champion"], "type": x["adc_type"],
+                       "type_label": ADC_LABELS[x["adc_type"]], "source": x["adc_source"],
+                       "score": x["score"], "raw_score": x["raw_score"], "reasons": x["reasons"],
+                       "plan": None, "plan_label": None, "games": x["games"], "wins": x["wins"],
+                       "winrate": x["winrate"], "shrunk": x["shrunk"]} for x in adc_ranking[:max_picks]]}
     return {"roles": roles, "plan": _predicted_plan(roles, adc)}
 
 
