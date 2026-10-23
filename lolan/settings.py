@@ -45,6 +45,7 @@ class Settings:
     riot_key_permanent: bool = False
     clan_prefix: str = DEFAULT_CLAN_PREFIX  # game names starting with this belong to the clan
     clan_aliases: str = ""          # "Cuenta=Persona;Otra=Persona": accounts of the same person
+    lol_dir: str = ""               # League of Legends install folder (where `lockfile` lives); "" = default
     raw: dict | None = None         # values as read, keyed by .env name
 
     @property
@@ -69,7 +70,7 @@ def read_settings(root) -> Settings:
     except ValueError:
         saved_at = None
     names = ("RIOT_ID", "PLATFORM", "REGION", "RIOT_API_KEY", "GEMINI_API_KEY",
-             "RIOT_API_KEY_SAVED_AT", "RIOT_API_KEY_PERMANENT", "CLAN_PREFIX", "CLAN_ALIASES")
+             "RIOT_API_KEY_SAVED_AT", "RIOT_API_KEY_PERMANENT", "CLAN_PREFIX", "CLAN_ALIASES", "LOL_DIR")
     return Settings(
         riot_id=get("RIOT_ID"),
         platform=get("PLATFORM").lower() or DEFAULT_PLATFORM,
@@ -79,6 +80,7 @@ def read_settings(root) -> Settings:
         riot_key_permanent=get("RIOT_API_KEY_PERMANENT").lower() in ("1", "true", "si", "sí"),
         clan_prefix=get("CLAN_PREFIX") or DEFAULT_CLAN_PREFIX,
         clan_aliases=get("CLAN_ALIASES"),
+        lol_dir=get("LOL_DIR"),
         raw={n: get(n) for n in names},
     )
 

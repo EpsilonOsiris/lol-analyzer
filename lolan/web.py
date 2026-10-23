@@ -22,6 +22,7 @@ from . import deathsview
 from . import duelos as duelos_mod
 from . import mapview
 from . import goldmodel
+from . import lcu
 from . import live as lv
 from . import scout as sc
 from .ddragon import DDragon, champion_display
@@ -446,6 +447,10 @@ def start_live(app) -> None:
     ext["live"].start()
     if ext.get("scout") is not None:      # the rivals search follows the live poller
         ext["scout"].start(ext["live"])
+    if ext.get("root") is not None and lcu.recorder_enabled():
+        # saves what the League client shows during champion select (LOLAN_GRABAR_SELECCION=off disables it)
+        ext["recorder"] = lcu.ChampSelectRecorder(out_dir=ext["root"] / "data" / "capturas", root=ext["root"])
+        ext["recorder"].start()
 
 
 def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:

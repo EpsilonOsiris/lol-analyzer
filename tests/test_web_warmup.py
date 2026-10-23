@@ -66,7 +66,8 @@ def test_create_app_does_not_warm_up(root):
     assert spy.calls == []
 
 
-def test_start_live_warms_in_background(root):
+def test_start_live_warms_in_background(root, monkeypatch):
+    monkeypatch.setenv("LOLAN_GRABAR_SELECCION", "off")
     add_games(root)
     app = web.create_app(root, live=type("L", (), {"start": lambda self: None})())
     app.extensions["lolan"]["scout"] = None

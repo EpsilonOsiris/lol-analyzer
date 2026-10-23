@@ -188,6 +188,59 @@ def make_unverified_loopback_context() -> ssl.SSLContext:
     return ctx
 
 
+def build_loopback_sessions(base_url, ca_file=CA_FILE, system_fallback=True,
+                            unverified_fallback=True) -> list[tuple[str, requests.Session]]:
+    """The (mode, session) pairs, in the order tried, to talk to a local Riot client (the game on
+    2999, the League client's LCU): Riot's root, then the system store, then unverified.
+    Raises ValueError for anything but a loopback address."""
+    parts = urlsplit(base_url)
+    contexts = [("plain", None)]
+    if parts.scheme == "https":
+        if parts.hostname not in LOOPBACK_HOSTS:
+            raise ValueError("El cliente en vivo solo puede leer una dirección local.")
+        contexts = [("riot", make_ssl_context(ca_file))]
+        if system_fallback:
+            try:
+                contexts.append(("system", make_system_ssl_context()))
+            except Exception:           # no truststore: Riot's root is all we have
+                pass
+        if unverified_fallback:
+            contexts.append(("unverified", make_unverified_loopback_context()))
+    sessions = []
+    for mode, ctx in contexts:
+        session = requests.Session()
+        session.trust_env = False         # no proxies or .netrc for a loopback address
+        if ctx is not None:
+            session.mount(f"{parts.scheme}://{parts.netloc}/", LoopbackAdapter(ctx))
+        if mode == "unverified":
+            # urllib3 turns verification back on from `verify`; this session only ever talks
+            # to a loopback client (checked above).
+            session.verify = False
+        sessions.append((mode, session))
+    return sessions
+
+
+def get_loopback(sessions, url, timeout, **kwargs):
+    """GET `url` trying each session until one accepts the certificate; returns (response, mode).
+
+    The session that worked moves to the front (in place), so it is the first one next time.
+    Raises the last requests SSLError when every one of them refuses it."""
+    error = None
+    for i, (mode, session) in enumerate(sessions):
+        try:
+            with warnings.catch_warnings():
+                if mode == "unverified":
+                    warnings.simplefilter("ignore", InsecureRequestWarning)
+                resp = session.get(url, timeout=timeout, **kwargs)
+        except requests.exceptions.SSLError as exc:
+            error = exc
+            continue                      # certificate refused: try the next way of checking it
+        if i:
+            sessions.insert(0, sessions.pop(i))     # keep using what worked
+        return resp, mode
+    raise error
+
+
 class LiveClient:
     """Fetches /liveclientdata/allgamedata. Never raises: returns (kind, data).
 
@@ -204,51 +257,16 @@ class LiveClient:
         self.problem: str | None = None       # "tls" when the certificate was refused
         # "riot" | "system" | "unverified" | None (plain http / not yet connected)
         self.tls_mode: str | None = None
-        self._sessions: list[tuple[str, requests.Session]] = []
-        parts = urlsplit(self.base_url)
-        contexts = [("plain", None)]
-        if parts.scheme == "https":
-            if parts.hostname not in LOOPBACK_HOSTS:
-                raise ValueError("El cliente en vivo solo puede leer una dirección local.")
-            contexts = [("riot", make_ssl_context(ca_file))]
-            if system_fallback:
-                try:
-                    contexts.append(("system", make_system_ssl_context()))
-                except Exception:           # no truststore: Riot's root is all we have
-                    pass
-            if unverified_fallback:
-                contexts.append(("unverified", make_unverified_loopback_context()))
-        for mode, ctx in contexts:
-            session = requests.Session()
-            session.trust_env = False         # no proxies or .netrc for a loopback address
-            if ctx is not None:
-                session.mount(f"{parts.scheme}://{parts.netloc}/", LoopbackAdapter(ctx))
-            if mode == "unverified":
-                # urllib3 turns verification back on from `verify`; this session only ever talks
-                # to the loopback game client (checked above).
-                session.verify = False
-            self._sessions.append((mode, session))
+        self._sessions = build_loopback_sessions(self.base_url, ca_file, system_fallback, unverified_fallback)
 
     @property
     def session(self):
         return self._sessions[0][1]
 
     def _get(self):
-        error = None
-        for i, (mode, session) in enumerate(self._sessions):
-            try:
-                with warnings.catch_warnings():
-                    if mode == "unverified":
-                        warnings.simplefilter("ignore", InsecureRequestWarning)
-                    resp = session.get(f"{self.base_url}/liveclientdata/allgamedata", timeout=self.timeout)
-            except requests.exceptions.SSLError as exc:
-                error = exc
-                continue                      # certificate refused: try the next way of checking it
-            if i:
-                self._sessions.insert(0, self._sessions.pop(i))     # keep using what worked
-            self.tls_mode = mode if mode != "plain" else None
-            return resp
-        raise error
+        resp, mode = get_loopback(self._sessions, f"{self.base_url}/liveclientdata/allgamedata", self.timeout)
+        self.tls_mode = mode if mode != "plain" else None
+        return resp
 
     def fetch(self):
         """("down", None) nobody answers; ("loading", None) answers but no game data yet;

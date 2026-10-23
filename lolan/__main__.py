@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
+import time
 import webbrowser
 from datetime import datetime
 
@@ -141,6 +142,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("rivales",
                        help="muestra quién está en tu partida actual (Spectator de Riot): campeones, rango, maestría e historial")
     _add_player_arg(p, "busca la partida de este jugador registrado")
+
+    sub.add_parser("grabar-seleccion",
+                   help="graba lo que muestra el cliente de League en la selección de campeones "
+                        "(en data/capturas/); Ctrl+C para detenerlo")
 
     p = sub.add_parser("web", help="abre el panel web local (solo escucha en 127.0.0.1)")
     p.add_argument("--puerto", type=_port, metavar="N", default=8765,
@@ -531,9 +536,31 @@ def cmd_web(args, cfg) -> int:
     return 0
 
 
+def cmd_grabar_seleccion(args, cfg) -> int:
+    from . import lcu
+
+    def on_phase(phase):
+        print(f"[{time.strftime('%H:%M:%S')}] " + ("Cliente de League cerrado, esperando…" if phase is None
+                                                 else f"Fase: {phase}"))
+
+    recorder = lcu.ChampSelectRecorder(out_dir=cfg.root / "data" / "capturas", root=cfg.root,
+                                       on_phase=on_phase)
+    print(f"Esperando el cliente de League ({lcu.lockfile_path(cfg.root)}). "
+          "Graba la selección de campeones en data/capturas/. Ctrl+C para detener.")
+    try:
+        while True:
+            time.sleep(recorder.step())
+    except KeyboardInterrupt:
+        print()
+    finally:
+        recorder.close()
+    print("Grabación detenida.")
+    return 0
+
+
 COMMANDS = {"sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
             "campeon": cmd_campeon, "jugadores": cmd_jugadores, "composiciones": cmd_composiciones,
-            "rivales": cmd_rivales, "web": cmd_web}
+            "rivales": cmd_rivales, "web": cmd_web, "grabar-seleccion": cmd_grabar_seleccion}
 
 
 def main(argv=None) -> int:

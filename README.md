@@ -165,6 +165,15 @@ La página **En vivo** del menú muestra la partida que estás jugando, pensada 
 
 **Certificado.** El juego usa un certificado propio. Se comprueba su cadena contra el certificado raíz de Riot incluido en `lolan/certs/riotgames.pem` (descargado de la documentación de Riot, ver `lolan/certs/LEEME.txt`) y solo para `127.0.0.1`; el nombre del servidor no se comprueba porque el certificado no está emitido para esa dirección. Nunca se desactiva la verificación en general. Algunos antivirus (Norton) reemplazan incluso los certificados locales: si Riot no valida, el panel prueba con el almacén de certificados de Windows (que sí confía en tu antivirus), también solo para `127.0.0.1`. Si ninguno valida, la página lo avisa. Para pruebas automáticas se puede cambiar la dirección con la variable `LOLAN_TEST_LIVE_URL` (solo acepta direcciones locales; no la uses normalmente).
 
+### Selección de campeones (grabación para la futura página «Partida»)
+
+Mientras el panel está abierto, también escucha al **cliente de League** (no al juego): cuando entras a la selección de campeones guarda lo que el cliente expone en ese momento (baneos, picks, hechizos, tiempos, la sala y el estado de la partida) en `data/capturas/seleccion-AAAAMMDD-HHMMSS.jsonl`, una línea JSON por cambio y un archivo por selección (se conservan los 30 más recientes). Sirve para construir y probar una página de la selección con datos reales en lugar de adivinar los nombres de los campos. Todo se queda en tu PC: no usa tu key ni la API web de Riot, solo el cliente local (`lockfile` en `C:\Riot Games\League of Legends`; si instalaste el juego en otra carpeta, escribe `LOL_DIR=D:\Juegos\League of Legends` en `.env`). En Solo/Dúo clasificatoria el cliente anonimiza a aliados y enemigos, y **nada de esto se usa jamás para averiguar quién es un jugador anónimo**.
+
+- Se enciende solo con el panel; para apagarlo define `LOLAN_GRABAR_SELECCION=off`.
+- Sin el panel: `python -m lolan grabar-seleccion` lo corre en la terminal (muestra cada cambio de fase; Ctrl+C para detenerlo).
+- Al terminar de grabar una selección avisa «Selección de campeones grabada: data/capturas/…». Si el cliente está cerrado no hace nada (revisa cada 5 segundos).
+- Usa el mismo certificado y las mismas reglas que el juego: solo `127.0.0.1`. Para pruebas, `LOLAN_LCU_LOCKFILE` apunta a otro `lockfile`.
+
 ### Rivales: quién está en tu partida
 
 Dentro de **En vivo** (y también en el modo stream) hay una sección **Rivales y aliados** que se llena desde la **pantalla de carga**, con datos de Riot que se piden con tu key (API Spectator, league, champion-mastery y match-v5):
@@ -197,6 +206,7 @@ Para pruebas automáticas, la variable `LOLAN_TEST_RIOT_URL` cambia la direcció
 | `data/lol.db` | Base de datos SQLite con el JSON crudo de cada partida y timeline (y la caché de 6 horas del escaneo de Rivales, tabla `scout_cache`) |
 | `data/winprob_model.json` | Pesos reajustados de la probabilidad estimada de En vivo (solo existe tras 100 partidas con resultado; se puede borrar) |
 | `data/gold_model.json` | Coeficientes y errores del modelo de oro estimado de la página En vivo (se recalcula solo; se puede borrar) |
+| `data/capturas/` | Grabaciones de la selección de campeones del cliente de League (`seleccion-*.jsonl`, las 30 más recientes; se pueden borrar) |
 | `data/ddragon/` | Mapa, íconos y nombres (habilidades, hechizos de invocador, runas) en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |
