@@ -12,11 +12,15 @@ guessing them this module saves what the client really answers during your next 
 (JSON Lines in data/capturas/seleccion-YYYYMMDD-HHMMSS.jsonl, newest 30 kept), to build and test a
 draft page against real data.
 
-This module has three parts:
+This module has four parts:
   * lockfile helpers: where the lockfile is and how it is read (parsed defensively).
   * LcuClient: the HTTPS client (loopback only; same TLS handling as the game client, see live.py).
   * ChampSelectRecorder: a state machine that follows the gameflow phase and writes the capture,
     driven by a daemon thread (or step() by step() from tests and from the CLI).
+  * observer hook: the recorder's loop is the panel's single poller of the client; an observer
+    (see draft_live.DraftFeed) gets (phase, client, champ-select session) on every poll, so the
+    Partida page needs no second loop. LcuFollower is the same loop without the recording, for
+    when the recorder is switched off.
 
 Capture format, one JSON object per line, all with "t" (unix seconds):
   {"kind":"phase","phase":...}                 every phase change seen while a capture is open
@@ -236,8 +240,11 @@ class ChampSelectRecorder:
     """
 
     def __init__(self, client=None, out_dir=None, clock=time.time, keep=KEEP_FILES, say=print,
-                 warn=None, on_phase=None, fast_s=FAST_S, idle_s=IDLE_S, root=None):
+                 warn=None, on_phase=None, fast_s=FAST_S, idle_s=IDLE_S, root=None, observer=None):
+        """`observer(phase, client, session)`: called after every poll; `session` is the raw
+        champion-select session during ChampSelect (None otherwise, or when it could not be read)."""
         self._client = client
+        self._observer = observer
         self._root = root
         self.out_dir = Path(out_dir) if out_dir else Path("data") / "capturas"
         self._clock = clock
@@ -349,12 +356,14 @@ class ChampSelectRecorder:
         if phase is None:
             self._misses += 1
             if self._phase is None:
+                self._observe(None, client, None)
                 return self.idle_s
             if self._misses < DOWN_AFTER:
                 return self.fast_s              # one slow answer must not close a champion select
             self._changed(None)
             self._finish("closed")
             self._phase = None
+            self._observe(None, client, None)
             return self.idle_s
         self._misses = 0
         if phase != self._phase:
@@ -365,9 +374,20 @@ class ChampSelectRecorder:
             elif self._path is not None:
                 self._leave(phase, client)
             self._phase = phase
-        if phase == CHAMP_SELECT and self._path is not None:
-            self._snapshot(client)
+        session = None
+        if phase == CHAMP_SELECT and (self._path is not None or self._observer is not None):
+            session = client.champ_select()          # one read serves the capture and the observer
+        if session is not None and self._path is not None:
+            self._snapshot(session)
+        self._observe(phase, client, session)
         return self.fast_s
+
+    def _observe(self, phase, client, session) -> None:
+        if self._observer is not None:
+            try:
+                self._observer(phase, client, session)
+            except Exception as exc:            # an observer's bug must not stop the recording
+                self.warn("observador", f"falló el seguimiento de la selección de campeones: {exc!r}")
 
     def _changed(self, phase) -> None:
         if self._on_phase is not None:
@@ -382,10 +402,7 @@ class ChampSelectRecorder:
         self._write("gameflow_session", session=client.gameflow_session())
         self._write("lobby", lobby=client.lobby())
 
-    def _snapshot(self, client) -> None:
-        session = client.champ_select()
-        if session is None:
-            return
+    def _snapshot(self, session) -> None:
         form = stable_form(session)
         if form == self._last_session:
             return
@@ -420,6 +437,53 @@ class ChampSelectRecorder:
         """Finish a capture that is still open (the recorder is stopping)."""
         if self._path is not None:
             self._finish("stopped", self._phase)
+        if self._client is not None and hasattr(self._client, "close"):
+            self._client.close()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._stop.wait(self.step())
+
+
+# ------------------------------------------------------------------ follower
+class LcuFollower:
+    """The recorder's loop without the recording: polls the phase (and the champion-select session
+    during ChampSelect) and feeds `observer(phase, client, session)`. Used when the recorder is off."""
+
+    def __init__(self, observer, client=None, root=None, fast_s=FAST_S, idle_s=IDLE_S):
+        self._observer = observer
+        self._client = client
+        self._root = root
+        self.fast_s, self.idle_s = fast_s, idle_s
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def client(self):
+        if self._client is None:
+            self._client = LcuClient(lockfile=lambda: lockfile_path(self._root))
+        return self._client
+
+    def step(self) -> float:
+        try:
+            client = self.client()
+            phase = client.phase()
+            session = client.champ_select() if phase == CHAMP_SELECT else None
+            self._observer(phase, client, session)
+            return self.idle_s if phase is None else self.fast_s
+        except Exception:                      # nothing the client says may kill the thread
+            return self.idle_s
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="lolan-lcu-follow")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(3)
         if self._client is not None and hasattr(self._client, "close"):
             self._client.close()
 
