@@ -23,10 +23,11 @@ from . import draft_live as dl
 from . import duelos as duelos_mod
 from . import mapview
 from . import goldmodel
+from . import lanecards
 from . import lcu
 from . import live as lv
 from . import scout as sc
-from .ddragon import DDragon, champion_display
+from .ddragon import LANG, DDragon, champion_display, norm
 from .livectx import LiveContext
 from .__main__ import QUEUE_ALIASES
 from .config import ConfigError, load_config, project_root
@@ -450,6 +451,8 @@ def start_live(app) -> None:
     if ext.get("warm_up_async") is not None:
         ext["warm_up_async"]()
     ext["live"].start()
+    if ext.get("partida_opgg") is not None:      # champion select may ask OP.GG from now on
+        ext["partida_opgg"].enabled = True
     if ext.get("scout") is not None:      # the rivals search follows the live poller
         ext["scout"].start(ext["live"])
     if ext.get("root") is not None and lcu.recorder_enabled():
@@ -485,14 +488,19 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         return api_name if (name == champion_id and api_name) else name
 
     live = live or lv.LivePoller(namer=live_champion_name)
+    duelos_service = duelos_mod.make_service(root, dd)        # one OP.GG client for the loading screen and champion select
     scout = ScoutService(
         root, limiters, slot, lambda key, host: RiotClient(key, region=host, limiter=limiters.for_host(host)),
         health=health, notify=lambda: getattr(live, "touch", lambda: None)(),
-        duelos=duelos_mod.make_service(root, dd))
+        duelos=duelos_service)
     feed = dl.DraftFeed()
-    app.extensions["lolan"] = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
-                               "health": health, "ddragon": dd, "live": live, "scout": scout,
-                               "limiters": limiters, "partida": feed}
+    ext = {"cache": cache, "sync": job, "rekey": rekey_job, "root": root,
+           "health": health, "ddragon": dd, "live": live, "scout": scout,
+           "limiters": limiters, "partida": feed, "duelos": duelos_service,
+           "lines": lanecards.LaneBook(root / "data" / "lineas")}
+    # OP.GG for champion select: answers from the cache, fetches in the background (off until start_live)
+    ext["partida_opgg"] = duelos_mod.LaneOpgg(lambda: app.extensions["lolan"].get("duelos"), notify=feed.touch)
+    app.extensions["lolan"] = ext
 
     def warm_up() -> None:
         """Load the main player's games and composition records so the first page isn't slow.
@@ -1045,6 +1053,53 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             sel_draft["key"], sel_draft["value"] = key, value
         return value
 
+    lane_ids = {"version": None, "ids": {}}
+    sel_pools: dict = {}
+    lines, lane_opgg = ext["lines"], ext["partida_opgg"]
+
+    def champion_ids_by_name(version):
+        """{normalized Data Dragon id: numeric champion id} from the champion list of that version."""
+        if version and lane_ids["version"] != version:
+            data = (dd.read_json(f"{version}/data/{LANG}/champion.json") or {}).get("data") or {}
+            ids = {norm(cid): int(c["key"]) for cid, c in data.items() if str((c or {}).get("key", "")).isdigit()}
+            if ids:
+                lane_ids["version"], lane_ids["ids"] = version, ids
+        return lane_ids["ids"]
+
+    def sel_lanes(allies, built, enemy_ids, bans, records, records_sig, version):
+        """Lane cards (local samples at once, OP.GG as far as it is cached) and the enemy lines worked out.
+
+        Returns (lanes, enemy_roles); enemy_roles[i] is {"role", "conf", "low"} or None for enemy slot i."""
+        def name_of(cid):
+            found = dd.champion_by_key(version, cid) if version else None
+            return found[1] if found else f"Campeón {cid}"
+
+        ids = champion_ids_by_name(version)
+
+        def pool_of(person, role):
+            key = (records_sig, version, person, role)
+            if key not in sel_pools:
+                if len(sel_pools) > 256:
+                    sel_pools.clear()
+                sel_pools[key] = [(ids[norm(n)], g) for n, g in dl.person_pool(records, person, role) if norm(n) in ids]
+            return sel_pools[key]
+
+        inferred = lane_opgg.enemy_roles(enemy_ids) or [None] * len(enemy_ids)
+        enemies = [{"champion_id": cid, "role": r and r["role"], "role_conf": r and round(r["conf"], 2),
+                    "role_low": bool(r and r["low"])} for cid, r in zip(enemy_ids, inferred)]
+        lane_allies = [{"cell_id": a["cell_id"], "role": built["roles"].get(a["cell_id"]), "person": a["person"],
+                        "is_me": a["is_me"], "name": a["person"] or "Aleatorio", "champion_id": a["champion_id"],
+                        "hover_id": a["hover_id"]} for a in allies]
+        taken = [a["champion_id"] for a in allies] + enemy_ids + bans["ally"] + bans["enemy"]
+        lanes = lanecards.build_lanes(
+            lines, lane_allies, enemies, built["main_role"], name_of, opgg_lookup=lane_opgg.lookup, pool_of=pool_of,
+            taken={c for c in taken if c}, enemy_roles_state=lane_opgg.tables_state())
+        ids_shown = {c["ally"]["champion_id"] for c in lanes["cards"] if "ally" in c}
+        ids_shown |= {c["enemy"]["champion_id"] for c in lanes["cards"] if "enemy" in c}
+        ids_shown |= {i["champion_id"] for c in lanes["cards"] if c.get("best") for i in c["best"]["items"]}
+        lanes["champion_ids"] = sorted(i for i in ids_shown if i)
+        return lanes, inferred
+
     def sel_view(state, my_role, cola_arg):
         """Board + draft of a champion-select state (JSON-able)."""
         st = g.settings if g.get("settings") else read_settings(root)
@@ -1088,10 +1143,21 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
 
         bans = state["bans"]
         bench = state["bench"]
+        lanes, enemy_roles = None, [None] * len(enemy_ids)
+        if built:
+            try:
+                lanes, enemy_roles = sel_lanes(allies, built, enemy_ids, bans, records,
+                                               (id(records_all), len(records_all), cola), version)
+            except Exception as exc:            # the lane cards must not take the board and the draft down
+                print(f"Aviso: no se pudieron armar las líneas de la selección: {exc!r}", file=sys.stderr)
+                traceback.print_exc()
+                lanes = {"cards": [], "champion_ids": [], "error": "No se pudieron armar las líneas (mira la consola del panel)."}
         every = ([a["champion_id"] for a in allies] + [a["hover_id"] for a in allies] + enemy_ids
-                 + bans["ally"] + bans["enemy"] + bench["champions"])
+                 + bans["ally"] + bans["enemy"] + bench["champions"] + ((lanes or {}).get("champion_ids") or []))
         champs = sel_champions(every)
         pick = lambda cid: champs.get(cid) if cid else None
+        if lanes is not None:
+            lanes["champs"] = {str(c): pick(c) for c in lanes.pop("champion_ids")}
         roles = built["roles"] if built else {}
         board_allies = []
         for a in allies:
@@ -1109,11 +1175,13 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             "lanes": state["lanes"], "is_custom": state["is_custom"],
             "timer": {**timer, "text": dl.TIMER_TEXT.get(timer["phase"], timer["phase"] or "")},
             "allies": board_allies,
-            "enemies": [{"champion": pick(c)} for c in enemy_ids],
+            "enemies": [{"champion": pick(c), **({"role": r["role"], "role_label": an.role_name(r["role"]),
+                                                   "role_low": r["low"]} if r else {})}
+                        for c, r in zip(enemy_ids, enemy_roles)],
             "bans": {"ally": [pick(c) for c in bans["ally"]], "enemy": [pick(c) for c in bans["enemy"]]},
             "bench": {"enabled": bench["enabled"], "champions": [pick(c) for c in bench["champions"]],
                       "rerolls": bench["rerolls"], "can_reroll": bench["can_reroll"]}}
-        return {"board": board, "draft": draft, "cola": cola}
+        return {"board": board, "draft": draft, "lanes": lanes, "cola": cola}
 
     def selection_payload(snap, my_role=None, cola_arg=None) -> dict:
         phase, state = snap["phase"], snap["state"]
@@ -1125,7 +1193,7 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             view = "fin"
         else:
             view = "esperando"
-        out = {"version": snap["version"], "phase": phase, "view": view, "board": None, "draft": None,
+        out = {"version": snap["version"], "phase": phase, "view": view, "board": None, "draft": None, "lanes": None,
                "phase_text": dl.PHASE_TEXT.get(phase, f"Fase del cliente: {phase}.")}
         if view == "seleccion" and state is not None:
             try:

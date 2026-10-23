@@ -49,6 +49,7 @@ PHASE_TEXT = {
 }
 TIMER_TEXT = {"PLANNING": "Planeación", "BAN_PICK": "Elección y bans", "FINALIZATION": "Últimos ajustes",
               "GAME_STARTING": "La partida está por empezar"}
+POOL_MIN_GAMES = 2                  # games with a champion in a line before it counts as part of a person's pool
 GAME_PHASES = {"GameStart", "InProgress", "Reconnect"}
 END_PHASES = {"WaitingForStats", "PreEndOfGame", "EndOfGame"}
 
@@ -220,6 +221,12 @@ class DraftFeed:
             self._version += 1
             self._cond.notify_all()
 
+    def touch(self) -> None:
+        """Wake the page's event stream without a new state (OP.GG data arrived for the current draft)."""
+        with self._cond:
+            self._version += 1
+            self._cond.notify_all()
+
     def snapshot(self) -> dict:
         with self._cond:
             return {"version": self._version, "phase": self._phase, "state": self._state}
@@ -263,6 +270,15 @@ def role_ranking(records, person=None) -> list[str]:
         roles = Counter(m["role"] for r in records for m in r["team"]
                         if m["person"] == person and m["role"] in comps.ROLES)
     return sorted(roles, key=lambda k: (-roles[k], k))
+
+
+def person_pool(records, person, role, min_games=POOL_MIN_GAMES) -> list[tuple[str, int]]:
+    """[(Data Dragon champion name, games)] a clan person played in `role` in the records, most played first."""
+    if not person or role not in comps.ROLES:
+        return []
+    games = Counter(m["champion"] for r in records for m in r["team"]
+                    if m["person"] == person and m["role"] == role and m["champion"])
+    return [(c, n) for c, n in sorted(games.items(), key=lambda kv: (-kv[1], kv[0])) if n >= min_games]
 
 
 def usual_role(records, person=None) -> str | None:

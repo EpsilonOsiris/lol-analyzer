@@ -412,8 +412,14 @@ class LaneOpgg:
             return None
         return infer_roles(champion_ids, lambda cid: meta.get(norm_name(names.get(str(cid)))))
 
-    def roles_pending(self) -> bool:
-        return self.enabled and ("tables",) in self._busy
+    def tables_state(self) -> str:
+        """"off" | "ok" | "pending" | "error": whether the enemy roles can be worked out (no network)."""
+        data = self._opgg()
+        if data is None:
+            return "off"
+        if data.peek_names() is not None and data.peek_lane_meta() is not None:
+            return "ok"
+        return "error" if self._failed_now(("tables",)) or not data.client.available() else "pending"
 
     # ---- pairs
     def lookup(self, role: str, my_id: int, opp_id: int, fetch: bool) -> dict:

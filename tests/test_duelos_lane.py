@@ -68,7 +68,7 @@ class Rig:
 def test_disabled_or_without_service_nothing_is_called(tmp_path):
     rig = Rig(tmp_path, enabled=False)
     assert rig.opgg.lookup("MIDDLE", 103, 238, True) == {"status": "off"}
-    assert rig.opgg.enemy_roles([238]) is None and not rig.opgg.roles_pending()
+    assert rig.opgg.enemy_roles([238]) is None and rig.opgg.tables_state() == "off"
     rig.opgg.enabled = True
     rig.opgg._service = lambda: None                       # LOLAN_OPGG=off
     assert rig.opgg.lookup("MIDDLE", 103, 238, True) == {"status": "off"} and rig.fake.tool_calls == []
@@ -129,10 +129,22 @@ def test_unknown_champion_ids_are_an_error_not_an_endless_retry_loop(tmp_path):
 
 def test_enemy_roles_wait_for_the_tables_then_answer_at_once(tmp_path):
     rig = Rig(tmp_path)
+    assert rig.opgg.tables_state() == "pending" and rig.fake.tool_calls == []      # looking never calls
     assert rig.opgg.enemy_roles([238, 86]) is None
     rig.settle()
+    assert rig.opgg.tables_state() == "ok"
     roles = rig.opgg.enemy_roles([238, 86, 0, 0, 0])
     assert [r and r["role"] for r in roles] == ["MIDDLE", "TOP", None, None, None]
     assert rig.fake.count("lol_list_champions") == 1 and rig.fake.count("lol_list_lane_meta_champions") == 1
     rig.opgg.enemy_roles([238])
     assert rig.fake.count("lol_list_lane_meta_champions") == 1
+
+
+def test_tables_that_cannot_be_fetched_are_an_error_state_not_an_endless_wait(tmp_path):
+    import requests
+    rig = Rig(tmp_path)
+    rig.fake.raise_on_post = requests.ConnectionError("down")
+    assert rig.opgg.enemy_roles([238]) is None
+    rig.settle()
+    assert rig.opgg.tables_state() == "error"
+    assert rig.opgg.enemy_roles([238]) is None and rig.opgg.tables_state() == "error"

@@ -17,6 +17,7 @@ except the ranked list of the player's own champions against the revealed rival 
 from __future__ import annotations
 
 import threading
+import time
 
 from . import duelos as dl
 from .analyze import role_name
@@ -53,12 +54,14 @@ def tone_of_rate(rate, games) -> str:
 class LaneBook:
     """Read side of data/lineas with the Diamond+-first policy; remembers answers until the files change."""
 
-    def __init__(self, base):
+    def __init__(self, base, recheck_s=1.0, clock=time.monotonic):
         self.base = base
         self.store = LineStore(base)
+        self.recheck_s, self._clock = recheck_s, clock      # the files are looked at most this often
         self._lock = threading.Lock()
         self._memo: dict = {}
         self._sig = None
+        self._checked = -1e9
 
     # ---- invalidation
     def _signature(self) -> tuple:
@@ -74,11 +77,18 @@ class LaneBook:
         return tuple(out)
 
     def _cached(self, key, build):
-        sig = self._signature()
         with self._lock:
-            if sig != self._sig:
-                self._memo.clear()
-                self._sig = sig
+            now = self._clock()
+            stale = now - self._checked >= self.recheck_s
+        if stale:
+            sig = self._signature()
+            with self._lock:
+                self._checked = now
+                if sig != self._sig:
+                    self._memo.clear()
+                    self._sig = sig
+        with self._lock:
+            sig = self._sig
             if key in self._memo:
                 return self._memo[key]
         value = build()
@@ -379,7 +389,7 @@ def build_lanes(book, allies, enemies, my_role, name_of, opgg_lookup=None, pool_
     "hover_id"}] with the role the page decided; enemies: [{"champion_id", "role", "role_conf",
     "role_low"}] with the inferred role (None when unknown). `opgg_lookup(role, ally_id, enemy_id, locked)`
     -> LaneOpgg.lookup-like dict, `pool_of(person, role)` -> [(champion id, own games)], `taken`: champion
-    ids picked or banned. `enemy_roles_state`: "ok" | "pending" (OP.GG tables on their way) | "off".
+    ids picked or banned. `enemy_roles_state`: "ok" | "pending" (OP.GG tables on their way) | "off" | "error".
     Returns {"cards": [...], "my_role", "enemy_roles": state, "diamond": bool, "waiting": text | None}.
     """
     by_ally = {a["role"]: a for a in allies if a.get("role")}
@@ -408,6 +418,7 @@ def build_lanes(book, allies, enemies, my_role, name_of, opgg_lookup=None, pool_
         elif mine:
             why = ("Deduciendo las líneas del rival con OP.GG…" if enemy_roles_state == "pending" else
                    "Sin OP.GG no se pueden deducir las líneas del rival." if enemy_roles_state == "off" else
+                   "OP.GG no respondió: no se pueden deducir las líneas del rival." if enemy_roles_state == "error" else
                    "Aún no se ha revelado el rival de tu línea." if not enemy else "Elige un campeón para ver el cruce.")
             cards.append({"role": role, "role_label": role_name(role), "mine": True, "state": "waiting",
                           "message": why, "summary": why})

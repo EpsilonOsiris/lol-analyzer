@@ -20,7 +20,7 @@ def base(tmp_path):
 
 def book_of(base, *groups, **kw):
     write_lines(base, *groups, **kw)
-    return lc.LaneBook(base)
+    return lc.LaneBook(base, recheck_s=0)
 
 
 # --------------------------------------------------------------------- samples
@@ -63,6 +63,17 @@ def test_answers_are_remembered_until_the_files_change(base):
     assert book.matchup("MIDDLE", AHRI, ZED) is first                      # same object: remembered
     LineStore(base).append_rows(lane_rows(AHRI, ZED, 5, 5, source="diamante", prefix="N"))
     assert book.has_diamond() and book.matchup("MIDDLE", AHRI, ZED)["kind"] == "diamante"
+
+
+def test_the_files_are_looked_at_only_once_in_a_while(base):
+    now = [100.0]
+    write_lines(base, lane_rows(AHRI, ZED, 10, 7))
+    book = lc.LaneBook(base, recheck_s=5, clock=lambda: now[0])
+    assert not book.has_diamond()
+    LineStore(base).append_rows(lane_rows(AHRI, ZED, 5, 5, source="diamante", prefix="N"))
+    assert not book.has_diamond()                                          # not looked at yet
+    now[0] += 6
+    assert book.has_diamond()
 
 
 def test_an_empty_folder_is_not_an_error(tmp_path):
