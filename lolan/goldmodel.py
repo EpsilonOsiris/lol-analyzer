@@ -436,3 +436,14 @@ class GoldModelStore:
             except OSError:
                 pass
             raise
+        # Use the saved model right away: two saves can land on the same mtime, and then the
+        # reload-on-change check in model() would keep serving the previous one.
+        with self._lock:
+            try:
+                self._model = GoldModel.from_dict(data)
+            except ValueError:
+                self._model = None
+            try:
+                self._loaded_stamp = self.path.stat().st_mtime_ns
+            except OSError:
+                self._loaded_stamp = None
