@@ -164,7 +164,25 @@ python -m lolan lineas --personas                             # miembros del cla
 
 `--reconstruir` es idempotente. Después de cada `sync` se calculan solas las partidas nuevas. La muestra incluye ambos lados de cada línea (tus partidas y las de todos los demás jugadores que salieron en ellas); por defecto se usan los 3 parches más recientes (`--parches N` o `--parches todos`). Cada fila solo nombra a los miembros del clan (el prefijo y los alias de la configuración, igual que Composiciones); el resto queda anónimo y no se guarda ningún puuid.
 
-Archivos: `filas/<parche>/<fuente>.jsonl` (una fila por lado, solo se agrega), `procesadas.json`, `duelos/<LÍNEA>/<id del campeón>.json` (los agregados que se pueden leer a mano, con las cifras contra todos y contra cada rival), `campeones.json` e `indice.json`.
+Archivos: `filas/<parche>/<fuente>.jsonl` (una fila por lado, solo se agrega), `procesadas.json`, `duelos/<LÍNEA>/<id del campeón>.json` (los agregados que se pueden leer a mano, con las cifras contra todos y contra cada rival), `campeones.json` e `indice.json`. La descarga Diamante+ agrega `descarga.json` (su estado, para reanudar).
+
+### Muestra Diamante+ (qué pasa en las líneas de los campeones de tu clan)
+
+Con solo tus partidas hay pocas por cruce. `muestras` descarga con tu key partidas de jugadores Diamante+ y las convierte en filas de línea (fuente `diamante`) en la misma carpeta, de modo que `lineas` y el panel las usan igual que las tuyas.
+
+```bash
+python -m lolan muestras                                 # sigue hasta Ctrl+C
+python -m lolan muestras --horas 6 --regiones kr,euw     # 6 horas en Corea y Europa Oeste
+python -m lolan muestras --max-partidas 30 --solo-pool   # prueba corta, solo jugadores de tus campeones
+python -m lolan muestras --estado                        # resumen de data/lineas/descarga.json
+```
+
+- **A quién muestrea**: primero, por cada campeón del *pool* del clan (los que tú y cada miembro del clan juegan en una línea con 3 partidas o más), los ~10 mejores jugadores Master+ de ese campeón en cada región según la lista pública de OP.GG, un campeón tras otro para que todos tengan cobertura. Después, para tener variedad, jugadores al azar de Challenger, Grandmaster, Master y Diamante I a IV (ligas de Riot). `--solo-pool` se queda solo con lo primero. De cada jugador se toman sus últimas 20 partidas de solitario/dúo de los 3 parches más recientes; las ya procesadas no se vuelven a bajar.
+- **Regiones**: por defecto `kr` (Corea) y `euw` (Europa Oeste). Riot cuenta el límite de la key por servidor, así que estas regiones **no gastan la cuota** que usan la sincronización y Rivales en tu región (LA1 / americas). Se puede cambiar con `--regiones` (por ejemplo `na,br`). Ritmo típico: unas 1 000-1 500 partidas por hora y región con el límite de una key de desarrollo (100 peticiones cada 2 minutos; cada partida son 2 peticiones).
+- **Se pausa sola cuando juegas**: antes de cada paso mira el cliente de League; en selección de campeones o en partida no hace ninguna petición y espera (avisa una vez y reanuda al terminar). Sin cliente abierto, sigue.
+- **La key**: usa la `RIOT_API_KEY` de `.env`. Una key de desarrollo **expira a las 24 h**: si pasa en medio, el comando se detiene con un mensaje claro y deja todo guardado (filas, partidas procesadas y la cola en `descarga.json`); renueva la key y vuelve a ejecutar el mismo comando para continuar donde se quedó. Para dejarlo corriendo muchas horas conviene pedir una *Personal API Key* (ver [Cómo obtener la API key](#cómo-obtener-la-api-key)), que no expira.
+- **Privacidad**: no se guarda el JSON de las partidas ni el puuid o nombre de ningún desconocido en las filas; los jugadores de la cola solo aparecen en `descarga.json` hasta que se procesan. Los puuid que da OP.GG están cifrados para su propia key y no se usan: cada Riot ID se resuelve con la API de Riot.
+- Cada ~200 partidas nuevas (y al terminar) se recalculan los agregados de `duelos/` leyendo solo los 3 parches más recientes, así que sigue siendo rápido con decenas de miles de filas. Si quieres ver el avance mientras corre, cada tanda imprime partidas por hora, filas y los campeones del pool con menos cobertura.
 
 ## En vivo (tu partida mientras juegas)
 
@@ -242,7 +260,7 @@ Para pruebas automáticas, la variable `LOLAN_TEST_RIOT_URL` cambia la direcció
 | `data/gold_model.json` | Coeficientes y errores del modelo de oro estimado de la página En vivo (se recalcula solo; se puede borrar) |
 | `data/capturas/` | Grabaciones de la selección de campeones del cliente de League (`seleccion-*.jsonl`, las 30 más recientes; se pueden borrar) |
 | `data/ddragon/` | Mapa, íconos y nombres (habilidades, hechizos de invocador, runas) en español descargados de Data Dragon (se pueden borrar: se vuelven a bajar) |
-| `data/lineas/` | Muestras de líneas en JSON (filas, agregados por campeón y rival; ver [Líneas](#líneas-cómo-va-cada-cruce)); se puede borrar y se regenera con `lineas --reconstruir` |
+| `data/lineas/` | Muestras de líneas en JSON (filas, agregados por campeón y rival; ver [Líneas](#líneas-cómo-va-cada-cruce)); tus filas se regeneran con `lineas --reconstruir`; las `diamante` y `descarga.json` vienen de `muestras` (ver [Muestra Diamante+](#muestra-diamante-qué-pasa-en-las-líneas-de-los-campeones-de-tu-clan)) |
 | `data/games.csv` | Una fila por partida analizable con todas las métricas |
 | `reports/resumen.md` | Resumen general, tendencias y lo que decide tus partidas por campeón |
 | `reports/campeones/<Campeón>.md` | Promedios y qué separa tus victorias de tus derrotas con ese campeón |

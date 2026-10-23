@@ -1,4 +1,4 @@
-"""Command line interface: python -m lolan {sync,rekey,analyze,game,campeon,jugadores,composiciones,rivales,lineas,web}."""
+"""Command line interface: python -m lolan {sync,rekey,analyze,game,campeon,jugadores,composiciones,rivales,lineas,muestras,web}."""
 from __future__ import annotations
 
 import argparse
@@ -60,6 +60,26 @@ def _parse_queue(text: str) -> int:
     except ValueError:
         raise argparse.ArgumentTypeError(
             "la cola debe ser solo, flex, normal, blind, quickplay o un número de cola (por ejemplo, 420)")
+
+
+def _positive_float(text: str) -> float:
+    try:
+        value = float(text.replace(",", "."))
+    except ValueError:
+        value = 0.0
+    if value <= 0:
+        raise argparse.ArgumentTypeError("debe ser un número mayor que 0 (por ejemplo, 2 o 0.5)")
+    return value
+
+
+def _positive_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        raise argparse.ArgumentTypeError("debe ser un número entero mayor que 0")
+    return value
 
 
 def _port(text: str) -> int:
@@ -159,6 +179,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="cuántos parches recientes usar (por defecto 3) o 'todos'")
     p.add_argument("--reconstruir", action="store_true",
                    help="vuelve a calcular las líneas de todas tus partidas guardadas (data/lineas/)")
+
+    p = sub.add_parser("muestras",
+                       help="descarga una muestra Diamante+ (KR y EUW) con tu API key para saber cómo van las "
+                            "líneas de los campeones de tu clan; se puede interrumpir y reanudar")
+    p.add_argument("--horas", type=_positive_float, metavar="H",
+                   help="se detiene después de H horas (por defecto, sigue hasta Ctrl+C)")
+    p.add_argument("--regiones", metavar="kr,euw",
+                   help="regiones a muestrear, separadas por coma (por defecto kr,euw: así no se gasta la "
+                        "cuota de tu región)")
+    p.add_argument("--max-partidas", type=_positive_int, metavar="N", dest="max_partidas",
+                   help="se detiene después de descargar N partidas")
+    p.add_argument("--solo-pool", action="store_true", dest="solo_pool",
+                   help="solo jugadores de los campeones de tu clan (sin las ligas Diamante+ en general)")
+    p.add_argument("--estado", action="store_true",
+                   help="muestra el estado de la descarga (data/lineas/descarga.json) y termina")
 
     sub.add_parser("grabar-seleccion",
                    help="graba lo que muestra el cliente de League en la selección de campeones "
@@ -671,6 +706,45 @@ def cmd_lineas(args, cfg) -> int:
     return 0
 
 
+def cmd_muestras(args, cfg) -> int:
+    from . import ddragon, sampler, samples
+    from .lcu import LcuClient, lockfile_path
+
+    store = samples.LineStore(cfg.data_dir / "lineas")
+    if args.estado:
+        for line in sampler.status_lines(sampler.DownloadState(store.base / "descarga.json"), store):
+            print(line)
+        return 0
+    regions = sampler.parse_regions(args.regiones) if args.regiones else list(sampler.DEFAULT_REGIONS)
+    if not cfg.api_key:
+        raise MissingApiKeyError(
+            "Falta RIOT_API_KEY en el archivo .env. Copia .env.example a .env y pega tu API key "
+            "(se obtiene en developer.riotgames.com; las keys de desarrollo duran 24 h).")
+    pool: dict = {}
+    if cfg.db_path.is_file():
+        db = Store(cfg.db_path)
+        try:
+            pool = sampler.clan_pool(db, cfg.root)
+        finally:
+            db.close()
+    if not pool and args.solo_pool:
+        raise ValueError("No hay campeones en el pool del clan (hacen falta partidas guardadas: "
+                         "python -m lolan sync). Quita --solo-pool para muestrear las ligas en general.")
+    limiters = Limiters()                # one limiter per Riot host: the panel's LA1 quota is not touched
+    apis = {name: sampler.RiotRegionApi(sampler.Region(name), cfg.api_key, limiters) for name in regions}
+    lcu = LcuClient(lockfile=lambda: lockfile_path(cfg.root))
+    downloader = sampler.Downloader(
+        store, apis, pool=pool, opgg=sampler.OpggLeaderboards(), dd=ddragon.DDragon(cfg.data_dir / "ddragon"),
+        phase_fn=lcu.phase, solo_pool=args.solo_pool, hours=args.horas, max_matches=args.max_partidas)
+    print(f"Muestra Diamante+ en {', '.join(r.upper() for r in regions)} · pool del clan: {len(pool)} campeones"
+          + (" · solo el pool" if args.solo_pool else "") + ". Ctrl+C para detener; se puede reanudar.")
+    print("Se pausa sola mientras el cliente de League esté en selección de campeones o en partida.")
+    result = downloader.run()
+    for line in sampler.run_summary(result, downloader.state, downloader.coverage()):
+        print(line)
+    return 0 if result.ok else 1
+
+
 def cmd_web(args, cfg) -> int:
     from .web import create_app, start_live  # Flask is only needed for this command
 
@@ -712,7 +786,7 @@ def cmd_grabar_seleccion(args, cfg) -> int:
     return 0
 
 
-COMMANDS = {"lineas": cmd_lineas, "sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
+COMMANDS = {"lineas": cmd_lineas, "muestras": cmd_muestras, "sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
             "campeon": cmd_campeon, "jugadores": cmd_jugadores, "composiciones": cmd_composiciones,
             "rivales": cmd_rivales, "web": cmd_web, "grabar-seleccion": cmd_grabar_seleccion}
 
