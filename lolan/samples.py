@@ -43,7 +43,8 @@ ALL_PATCHES = "todos"     # patches= value that disables the window
 MIN_LIST_GAMES = 2        # matchups_of lists opponents seen at least this many times
 BRACKET_NOTABLE = 10      # gold+xp per minute from which a level range is called strong / weak
 BRACKET_MIN_MINUTES = 5   # a level range needs this many minutes of data to be mentioned
-SAVE_EVERY = 100          # rows are appended this many matches at a time
+REPLACE_TRIES = 8         # attempts at swapping a written file into place (Windows locks)
+SAVE_EVERY = 100         # rows are appended this many matches at a time
 SPIKE_LEVELS = 11         # level_spikes covers own levels 1..11 (minutes before 15)
 ITEM_WINDOW = 3           # minutes before / after an item completion compared in item_spikes
 ITEM_SPIKE_NOTABLE = 15   # gold+xp per minute gained after an item beyond the gain before it
@@ -88,7 +89,14 @@ def _write_atomic(path: Path, text: str) -> None:
         fh.write(text)
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, path)
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:                     # Windows: a reader or the antivirus holds the file
+            if attempt == REPLACE_TRIES - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _write_json(path: Path, data, indent=None) -> None:
