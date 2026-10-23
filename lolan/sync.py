@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 
+from . import winprob
 from .riot import InvalidApiKeyError, NotFoundError, PuuidFromOtherAppError, RiotError
 
 SECONDS_PER_REQUEST = 1.2  # 100 requests / 120 s on a development key
@@ -175,13 +176,24 @@ def summary_lines(outcomes: list[PlayerOutcome]) -> list[str]:
     return lines
 
 
+def _close_predictions(store, out) -> None:
+    """Record the outcome of the stored predictions whose game was just synced; never fails the sync."""
+    try:
+        closed = winprob.resolve_outcomes(store)
+    except Exception:
+        return                                   # a broken prediction history must not break sync
+    if closed:
+        out(f"Predicciones cerradas: {closed}.")
+
+
 def sync_players(client, store, riot_ids: list[str], main_riot_id: str = "", out=print,
                  **kwargs) -> list[PlayerOutcome]:
     """Sync several players one after another with the same client (one shared rate limiter).
 
     A player whose account can't be found (e.g. renamed) is skipped and the rest continue; an
     invalid/expired key, or any other API failure that is not about one account, aborts the run
-    (what was already downloaded stays saved). `kwargs` go to `sync` for every player.
+    (what was already downloaded stays saved). `kwargs` go to `sync` for every player. Whatever
+    was saved, the win-probability predictions of those games are closed at the end.
     """
     outcomes: list[PlayerOutcome] = []
     main = (main_riot_id or "").strip().casefold()
@@ -201,8 +213,10 @@ def sync_players(client, store, riot_ids: list[str], main_riot_id: str = "", out
         if outcomes:
             for line in summary_lines(outcomes):
                 out(line)
+        _close_predictions(store, out)
         raise
     if total > 1:
         for line in summary_lines(outcomes):
             out(line)
+    _close_predictions(store, out)
     return outcomes

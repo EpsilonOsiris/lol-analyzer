@@ -264,3 +264,53 @@ def test_registered_player_is_followed_by_puuid_after_a_rename(store):
     assert any("ahora se llama Amigo Nuevo#LAN" in line for line in lines)
     assert store.get_player(puuid="puuid-4").riot_id == "Amigo Nuevo#LAN"
     assert client.matches_fetched == ["LA1_1"]
+
+
+# ------------------------------------------------------- predictions closed by sync
+class NamedClient(ClanClient):
+    """Like ClanClient, but the default player carries a Riot ID, as in real matches."""
+
+    def get_match(self, match_id):
+        m = super().get_match(match_id)
+        me = next(p for p in m["info"]["participants"] if p["puuid"] == ME_PUUID)
+        me["riotIdGameName"], me["riotIdTagline"] = "Yo", "LAN"
+        return m
+
+
+def put_prediction(store, game_id):
+    from lolan import winprob
+    winprob.record_prediction(store, "LA1", game_id, "Yo#LAN",
+                              {"lane": 0.4, "syn": 0.0, "rank": 0.0, "lanes_used": 5}, 0.6, "v1-por-defecto")
+
+
+def test_sync_players_closes_the_predictions_of_the_games_it_saved(store):
+    put_prediction(store, 1)
+    put_prediction(store, 2)
+    put_prediction(store, 9)                                  # a game that is not synced
+    client = NamedClient(ACCOUNTS, {ME_PUUID: ["LA1_1", "LA1_2"]})
+    _, lines = clan_run(client, store, ["Yo#LAN"])
+    assert {r["match_id"] for r in store.resolved_predictions()} == {"LA1_1", "LA1_2"}
+    assert {r["match_id"] for r in store.pending_predictions()} == {"LA1_9"}
+    assert lines[-1] == "Predicciones cerradas: 2."
+
+
+def test_predictions_are_closed_even_when_the_run_aborts(store):
+    put_prediction(store, 1)
+    client = NamedClient(ACCOUNTS, {ME_PUUID: ["LA1_1"], "puuid-4": ["LA1_2"]}, bad_key_for="Amigo#LAN")
+    lines = []
+    with pytest.raises(InvalidApiKeyError):
+        sync_players(client, store, ["Yo#LAN", "Amigo#LAN"], main_riot_id="Yo#LAN", out=lines.append)
+    assert [r["match_id"] for r in store.resolved_predictions()] == ["LA1_1"]
+    assert lines[-1] == "Predicciones cerradas: 1."
+
+
+def test_a_broken_prediction_history_does_not_break_sync(store, monkeypatch):
+    from lolan import winprob
+
+    def boom(*_a, **_k):
+        raise RuntimeError("tabla rota")
+    monkeypatch.setattr(winprob, "resolve_outcomes", boom)
+    client = NamedClient(ACCOUNTS, {ME_PUUID: ["LA1_1"]})
+    outcomes, lines = clan_run(client, store, ["Yo#LAN"])
+    assert outcomes[0].result.downloaded == 1 and store.count_matches() == 1
+    assert not any("Predicciones" in line for line in lines)
