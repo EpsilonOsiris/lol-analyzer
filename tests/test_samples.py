@@ -433,3 +433,32 @@ def test_sync_players_updates_lanes_at_the_end(tmp_path):
     store.close()
     assert (tmp_path / "data" / "lol.db").is_file()
     assert not any("Líneas" in line for line in out)             # synthetic games carry no championIds
+
+
+# ------------------------------------------------------------------ rebuild windowing
+def test_rebuild_parses_only_the_window_folders_and_counts_the_rest_by_lines(ls, monkeypatch):
+    for patch in ("16.18", "16.19", "16.20", "16.21"):
+        add(ls, row(match_id=f"a{patch}", patch=patch), row(match_id=f"b{patch}", patch=patch, role="TOP"),
+            row(match_id=f"c{patch}", patch=patch, role="JUNGLE"), row(match_id=f"d{patch}", patch=patch, role="BOTTOM"),
+            row(match_id=f"e{patch}", patch=patch, role="UTILITY"))
+    opened = []
+    real = LineStore._read_file
+    monkeypatch.setattr(LineStore, "_read_file", lambda self, path: opened.append(path.parent.name) or real(self, path))
+    index = ls.rebuild()
+    assert sorted(set(opened)) == ["16.19", "16.20", "16.21"]
+    assert index["rows"] == {"propia": 20} and index["patches"][0] == "16.21"
+    assert index["recent_patches"]["MIDDLE"] == ["16.21", "16.20", "16.19"]
+
+
+def test_rebuild_window_is_per_role_even_when_a_role_lacks_the_newest_patches(ls):
+    add(ls, *[row(match_id=f"m{p}", patch=p) for p in ("16.18", "16.19", "16.20", "16.21")],
+        row(match_id="t17", patch="16.17", role="TOP", champ=4, opp=5), row(match_id="t21", patch="16.21", role="TOP", champ=4, opp=5))
+    index = ls.rebuild()
+    assert index["recent_patches"]["MIDDLE"] == ["16.21", "16.20", "16.19"]
+    assert index["recent_patches"]["TOP"] == ["16.21", "16.17"]
+    assert ls.read_duelo("TOP", 4)["overall"]["games"] == 2
+
+
+def test_add_matches_reports_rows_per_champion(ls):
+    done = add_matches(ls, lane_matches(2), legendary_for=lambda version: {3031})
+    assert done["champions"][103] == 2 and done["champions"][108] == 2 and sum(done["champions"].values()) == 20

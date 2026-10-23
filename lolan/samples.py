@@ -1,7 +1,7 @@
 """Lane samples: JSON files with how each lane matchup went, and the numbers computed from them.
 
 Nothing here uses a database. Everything lives under data/lineas/ (deletable, it grows with the
-Diamond+ sample that a later downloader will add):
+Diamond+ sample that `lolan.sampler` downloads):
 
   filas/<patch>/<source>.jsonl   one compact JSON row per perspective (two per lane pair), append-only
   procesadas.json                match ids already turned into rows (or skipped), so re-runs and the
@@ -354,30 +354,61 @@ class LineStore:
         return out
 
     # ---- precomputed aggregates
+    def _window(self, recent) -> tuple[dict, list[str]]:
+        """({role: its `recent` newest patches with rows}, patches read to find out).
+
+        Folders are read newest first and reading stops once every role has its window, so a store
+        that keeps many patches only parses the recent ones.
+        """
+        window = {role: [] for role in LANE_ROLES}
+        read: list[str] = []
+        for patch in self.patches():
+            if all(len(p) >= recent for p in window.values()):
+                break
+            read.append(patch)
+            for role in {r["role"] for r in self.read_rows([patch])}:
+                if role in window and len(window[role]) < recent:
+                    window[role].append(patch)
+        return {role: pts for role, pts in window.items() if pts}, read
+
+    def _count_lines(self, patch) -> Counter:
+        """Rows per source of a patch folder by counting lines (cheap; duplicates count twice)."""
+        counts: Counter = Counter()
+        for path in (self.rows_dir / patch).glob("*.jsonl"):
+            with open(path, "rb") as fh:
+                counts[path.stem] += sum(chunk.count(b"\n") for chunk in iter(lambda: fh.read(1 << 20), b""))
+        return counts
+
     def rebuild(self, recent=RECENT_PATCHES, now=None) -> dict:
         """Rewrite duelos/ and indice.json from the rows; returns the index.
 
-        Each role uses its `recent` newest patches (all sources, everybody). Files of champions
-        that no longer have rows in the window are removed.
+        Each role uses its `recent` newest patches (all sources, everybody) and only those patch
+        folders are parsed. Files of champions that no longer have rows in the window are removed.
+        The index counts rows per source: exact for the parsed patches, one per line for the rest.
         """
-        rows = self.read_rows()
-        by_role: dict = {}
-        for r in rows:
-            by_role.setdefault(r["role"], []).append(r)
+        window, read = self._window(recent)
         names = self.names()
         written: set = set()
-        window: dict = {}
-        for role, role_rows in by_role.items():
-            pts = sorted({r["patch"] for r in role_rows}, key=_patch_key, reverse=True)[:recent]
-            window[role] = pts
+        counts: Counter = Counter()
+        for patch in read:
+            counts.update(r["source"] for r in self.read_rows([patch]))
+        for patch in self.patches():
+            if patch not in read:
+                counts.update(self._count_lines(patch))
+        for role, pts in window.items():
             by_champ: dict = {}
-            for r in role_rows:
-                if r["patch"] in pts:
+            for r in self.read_rows(pts):
+                if r["role"] == role:
                     by_champ.setdefault(r["champ"], []).append(r)
             for champ, mine in by_champ.items():
+                overall = _overall_stats(mine)
+                by_opp: dict = {}
+                for r in mine:
+                    by_opp.setdefault(r["opp"], []).append(r)
+                prior = _prior(mine)
                 vs = {}
-                for opp in sorted({r["opp"] for r in mine}):
-                    entry = _matchup_stats(mine, opp)
+                for opp in sorted(by_opp):
+                    entry = _matchup_stats(mine, opp, prior=prior, vs=by_opp[opp])
                     if entry["games"] < SPIKE_MIN_GAMES:        # too few games for spikes: omit them
                         entry = {k: v for k, v in entry.items() if k not in SPIKE_KEYS}
                     entry = {"opp_name": champion_display(names.get(opp)) if opp in names else f"#{opp}",
@@ -387,7 +418,7 @@ class LineStore:
                         "champion_name": champion_display(names[champ]) if champ in names else f"#{champ}",
                         "role": role, "patches": pts,
                         "sources": sorted({r["source"] for r in mine}),
-                        "overall": _overall_stats(mine), "vs": vs}
+                        "overall": overall, "vs": vs}
                 path = self.duelo_path(role, champ)
                 _write_json(path, data, indent=1)
                 written.add(path)
@@ -395,7 +426,6 @@ class LineStore:
             for stale in self.duelos_dir.glob("*/*.json"):
                 if stale not in written:
                     stale.unlink()
-        counts = Counter(r["source"] for r in rows)
         index = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now or time.time())),
                  "patches": self.patches(), "recent_patches": window,
                  "rows": dict(sorted(counts.items())), "files": len(written)}
@@ -537,15 +567,27 @@ def _overall_stats(rows) -> dict:
     return stats
 
 
-def _matchup_stats(champ_rows, opp) -> dict:
+def _prior(champ_rows) -> float:
+    """The prior of a champion's matchups: its overall lane_wr pulled toward 50% (see `_matchup_stats`)."""
+    n = len(champ_rows)
+    if not n:
+        return 0.5
+    wins = sum(1 for r in champ_rows if r["result"] == "win")
+    losses = sum(1 for r in champ_rows if r["result"] == "loss")
+    return round((wins + 0.5 * (n - wins - losses) + PRIOR_GAMES * 0.5) / (n + PRIOR_GAMES), 3)
+
+
+def _matchup_stats(champ_rows, opp, prior=None, vs=None) -> dict:
     """Stats against `opp` out of all of a champion's rows, shrunk toward its overall rate.
 
     The prior is the champion's overall lane_wr itself pulled toward 50% (a champion seen in two
-    games, both in this matchup, would otherwise be its own prior and keep its 100%).
+    games, both in this matchup, would otherwise be its own prior and keep its 100%). `prior` and
+    `vs` (the rows against `opp`) can be given when they were already computed.
     """
-    overall = _stats(champ_rows)
-    stats = _stats([r for r in champ_rows if r["opp"] == opp])
-    stats["shrunk_lane_wr"] = _shrink(stats, _shrink(overall, 0.5) if overall["games"] else 0.5)
+    if vs is None:
+        vs = [r for r in champ_rows if r["opp"] == opp]
+    stats = _stats(vs)
+    stats["shrunk_lane_wr"] = _shrink(stats, _prior(champ_rows) if prior is None else prior)
     return stats
 
 
@@ -719,7 +761,8 @@ def add_matches(store: LineStore, matches, names=None, source=SOURCE_OWN, tier=N
                 legendary_for=None) -> dict:
     """Turn (match_id, match, timeline) items into rows, skipping match ids already processed.
 
-    Returns {"matches", "rows", "skipped": Counter(reason)}. The batch is held in memory (so
+    Returns {"matches", "rows", "skipped": Counter(reason), "champions": Counter(championId: rows
+    written)}. The batch is held in memory (so
     people can be labelled by their latest name), the rows are appended and then the ids marked
     as processed: an interruption in between only repeats work, rows are deduplicated on read.
     """
@@ -742,6 +785,7 @@ def add_matches(store: LineStore, matches, names=None, source=SOURCE_OWN, tier=N
                 champ_names[int(p["championId"])] = p["championName"]
     people = labeler.label_all(pairs) if labeler else {}
     count = 0
+    champions = Counter(v["champ"] for pair in pairs for v in pair["sides"])
     for i in range(0, len(pairs), SAVE_EVERY):
         chunk = pairs[i:i + SAVE_EVERY]
         rows = []
@@ -751,7 +795,7 @@ def add_matches(store: LineStore, matches, names=None, source=SOURCE_OWN, tier=N
         count += store.append_rows(rows)
     store.remember_names({**(names or {}), **champ_names})
     store.mark_processed(entries)
-    return {"matches": len(entries), "rows": count, "skipped": skipped}
+    return {"matches": len(entries), "rows": count, "skipped": skipped, "champions": champions}
 
 
 def update_from_lol(lol_store, data_dir, root=None, full=False, source=SOURCE_OWN) -> dict:

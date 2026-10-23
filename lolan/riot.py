@@ -21,6 +21,7 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # TLS handshake on the first request) could push a request into a window early -> 429.
 WINDOW_MARGIN = 0.5
 MAX_THROTTLE_RETRIES = 10
+APEX_TIERS = ("challenger", "grandmaster", "master")
 
 MISSING_KEY_MESSAGE = (
     "Falta RIOT_API_KEY. Copia .env.example a .env y pega tu API key "
@@ -290,6 +291,25 @@ class RiotClient:
             return []
         return data if isinstance(data, list) else []
 
+    def get_top_league(self, tier: str, queue: str = "RANKED_SOLO_5x5") -> dict:
+        """league-v4 apex league (tier "challenger" / "grandmaster" / "master"): {tier, queue, entries}.
+
+        Each entry has puuid, leaguePoints, wins, losses, inactive ... (the whole league in one answer).
+        """
+        tier = str(tier).strip().lower()
+        if tier not in APEX_TIERS:
+            raise ValueError(f"Liga desconocida: {tier}")
+        data = self._get(f"/lol/league/v4/{tier}leagues/by-queue/{quote(queue, safe='')}")
+        return data if isinstance(data, dict) else {"tier": tier.upper(), "queue": queue, "entries": []}
+
+    def get_league_page(self, tier: str, division: str, page: int = 1,
+                        queue: str = "RANKED_SOLO_5x5") -> list:
+        """league-v4 entries of one tier / division (e.g. DIAMOND, I), 205 per page; [] past the last page."""
+        path = (f"/lol/league/v4/entries/{quote(queue, safe='')}/{quote(str(tier).upper(), safe='')}"
+                f"/{quote(str(division).upper(), safe='')}")
+        data = self._get(path, {"page": int(page)})
+        return data if isinstance(data, list) else []
+
     def get_champion_mastery(self, puuid: str, champion_id: int) -> dict | None:
         """champion-mastery-v4 for one champion, or None when the account never played it (404)."""
         path = (f"/lol/champion-mastery/v4/champion-masteries/by-puuid/{quote(puuid, safe='')}"
@@ -300,13 +320,18 @@ class RiotClient:
             return None
 
     def get_match_ids(self, puuid: str, count: int = 10, type: str | None = None,
-                      queue: int | None = None) -> list[str]:
-        """ONE page of match ids (newest first); `type="ranked"` keeps solo/duo and flex games."""
+                      queue: int | None = None, start_time: int | None = None) -> list[str]:
+        """ONE page of match ids (newest first); `type="ranked"` keeps solo/duo and flex games.
+
+        start_time: epoch seconds, only games that started after it.
+        """
         params: dict = {"start": 0, "count": int(count)}
         if type:
             params["type"] = type
         if queue is not None:
             params["queue"] = int(queue)
+        if start_time is not None:
+            params["startTime"] = int(start_time)
         page = self._get(f"/lol/match/v5/matches/by-puuid/{quote(puuid, safe='')}/ids", params)
         return page if isinstance(page, list) else []
 

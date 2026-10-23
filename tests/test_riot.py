@@ -176,3 +176,23 @@ def test_match_id_pagination_stops_on_empty_page_and_passes_filters():
     assert [c["params"]["start"] for c in session.calls] == [0, 100, 102]
     assert session.calls[0]["params"]["startTime"] == 1700000000
     assert session.calls[0]["params"]["queue"] == 420 and session.calls[0]["params"]["count"] == 100
+
+
+# ------------------------------------------------------------ league lists and start_time
+def test_get_top_league_and_league_page_paths():
+    client, session, _ = make_client([FakeResponse(200, {"tier": "MASTER", "entries": [{"puuid": "p"}]}),
+                                      FakeResponse(200, [{"puuid": "q"}]), FakeResponse(200, [])])
+    assert client.get_top_league("Master")["entries"] == [{"puuid": "p"}]
+    assert client.get_league_page("diamond", "II", 3) == [{"puuid": "q"}]
+    assert client.get_league_page("DIAMOND", "I", 99) == []
+    assert session.calls[0]["url"].endswith("/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5")
+    assert session.calls[1]["url"].endswith("/lol/league/v4/entries/RANKED_SOLO_5x5/DIAMOND/II")
+    assert session.calls[1]["params"] == {"page": 3}
+    with pytest.raises(ValueError):
+        client.get_top_league("diamond")
+
+
+def test_get_match_ids_start_time():
+    client, session, _ = make_client([FakeResponse(200, ["KR_1"])])
+    assert client.get_match_ids("p", count=20, queue=420, start_time=1_700_000_000) == ["KR_1"]
+    assert session.calls[0]["params"] == {"start": 0, "count": 20, "queue": 420, "startTime": 1_700_000_000}
