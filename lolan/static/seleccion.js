@@ -1,5 +1,5 @@
 // Partida: follows the champion select of the League client through /api/partida/stream (server-sent events).
-// Everything shown comes from the client on this PC; nothing is sent anywhere.
+// Everything shown comes from the client on this PC; the panel only asks OP.GG about champion pairs (no player data).
 (function () {
   var root = document.getElementById('sel');
   if (!root) return;
@@ -48,8 +48,12 @@
   }
   function enemyRow(e, i) {
     var champ = e.champion;
+    var sub = e.role_label
+      ? esc(e.role_label) + ' <span class="sel-guess" title="Deducida con los roles de OP.GG">(' +
+        (e.role_low ? 'posición dudosa' : 'supuesta') + ')</span>'
+      : 'Rival ' + (i + 1);
     return '<div class="sel-row' + (champ ? '' : ' is-empty') + '">' + icon(champ, '') +
-      '<div class="sel-who"><b>' + (champ ? esc(champ.name) : 'Sin revelar') + '</b><small>Rival ' + (i + 1) + '</small></div>' +
+      '<div class="sel-who"><b>' + (champ ? esc(champ.name) : 'Sin revelar') + '</b><small>' + sub + '</small></div>' +
       '<span class="sel-state' + (champ ? ' locked' : '') + '">' + (champ ? 'elegido' : '—') + '</span></div>';
   }
   function banSide(label, list) {
@@ -77,6 +81,110 @@
       : '<span class="muted">Banca vacía.</span>');
     el('sel-rerolls').textContent = bench.can_reroll || bench.rerolls ? 'Rerolls disponibles: ' + bench.rerolls : '';
   }
+
+  // ---- lane cards: local samples at once, OP.GG as it arrives (the server fills those parts in)
+  var openLanes = {};         // role -> the compact card was opened by the viewer (survives re-renders)
+
+  function laneIcon(champs, id, cls) { return icon(champs[String(id)] || null, cls); }
+  function toneBold(text, tone) { return '<b class="lane-tone ' + esc(tone || 'none') + '">' + esc(text) + '</b>'; }
+  function laneRow(label, html) {
+    return html ? '<dt>' + esc(label) + '</dt><dd>' + html + '</dd>' : '';
+  }
+
+  function sampleHtml(s) {
+    if (!s) return '';
+    if (!s.games) return '<span class="muted">' + esc(s.note || 'sin partidas de este cruce') + '</span>';
+    return toneBold(s.wr_text, s.tone) + ' de líneas ganadas <span class="muted">(real ' + esc(s.raw_text) + ' · ' +
+      s.games + (s.games === 1 ? ' partida · ' : ' partidas · ') + esc(s.label) +
+      (s.diff14_text ? ' · ' + esc(s.diff14_text) : '') + ')</span>' +
+      (s.thin ? ' <span class="badge">pocas partidas</span>' : '') +
+      (s.note ? '<div class="muted lane-note">' + esc(s.note) + ': se usa ' + esc(s.label) + '</div>' : '');
+  }
+  function spikesHtml(sp) {
+    if (!sp) return '';
+    var side = function (x) { return '<div><b>' + esc(x.label) + '</b> ' + esc(x.text) + '</div>'; };
+    return '<div class="lane-spikes">' + side(sp.ally) + side(sp.enemy) + '</div>' +
+      (sp.duel ? '<div>' + esc(sp.duel) + '</div>' : '') +
+      '<div class="muted lane-note">' + esc(sp.ally.source) + (sp.enemy.source !== sp.ally.source ? ' / ' + esc(sp.enemy.source) : '') + '</div>';
+  }
+  function opggHtml(c) {
+    var o = c.opgg;
+    if (!o) return '';
+    if (o.status === 'pending') return '<span class="muted">consultando OP.GG…</span>';
+    if (o.status === 'idle') return '<span class="muted">' + (c.ally.hover ? 'se consulta al fijar el campeón' : '—') + '</span>';
+    if (o.status === 'error') return '<span class="muted">OP.GG no respondió</span>';
+    if (o.status === 'none') return '<span class="muted">sin datos de este cruce en OP.GG</span>';
+    var parts = [];
+    if (o.wr_text) parts.push(toneBold(o.wr_text, o.tone) + ' de victorias del cruce <span class="muted">(' + o.games + ' partidas, todos los rangos)</span>');
+    else if (o.games) parts.push('<span class="muted">pocos datos (' + o.games + ' partidas)</span>');
+    if (o.lane) parts.push(esc(o.lane));
+    if (o.solo) parts.push(esc(o.solo));
+    var out = parts.join(' · ');
+    if (o.tip) out += '<div class="lane-tip"><span class="badge">OP.GG</span> ' + esc(o.tip) + '</div>';
+    return out;
+  }
+  function lengthHtml(l) {
+    if (!l) return '';
+    var parts = [];
+    if (l.ours) parts.push(esc(l.label) + ': ' + esc(l.ours));
+    if (l.opgg) parts.push('OP.GG: ' + esc(l.opgg));
+    return parts.join('<br>');
+  }
+  function bestHtml(c, champs) {
+    var b = c.best;
+    if (!b) return '';
+    var items = b.items.map(function (i) {
+      return '<li class="lane-best-item">' + laneIcon(champs, i.champion_id, '') + '<span><b>' + esc(i.name) + '</b> ' +
+        (i.games ? toneBold(i.wr_text, i.tone) + '<small class="muted"> ' + i.games + (i.games === 1 ? ' partida' : ' partidas')
+          : '<small class="muted"> ' + esc(i.wr_text) + ' en general · sin partidas contra él') +
+        (i.own_games ? ' · ' + i.own_games + ' tuyas' : '') + '</small></span></li>';
+    }).join('');
+    return '<ul class="lane-best">' + items + '</ul><div class="muted lane-note">' + esc(b.label) +
+      (b.note ? ' (' + esc(b.note) + ')' : '') + '</div>';
+  }
+
+  function laneBody(c, champs) {
+    if (c.state === 'waiting') return '<p class="muted">' + esc(c.message) + '</p>';
+    var rows = '';
+    if (c.state === 'pair') {
+      rows += laneRow('Línea', sampleHtml(c.sample));
+      rows += laneRow('Picos', spikesHtml(c.spikes));
+      rows += laneRow(c.person ? c.person.name : '', c.person ? esc(c.person.text) + ' <span class="muted">(partidas propias)</span>' : '');
+      rows += laneRow('OP.GG', opggHtml(c));
+      rows += laneRow('Duración', lengthHtml(c.length));
+    }
+    rows += laneRow(c.state === 'picking' ? 'Mejores contra ' + (c.enemy.name || '') : 'Mejores contra', bestHtml(c, champs));
+    return '<dl class="lane-rows">' + rows + '</dl>';
+  }
+  function laneHead(c, champs) {
+    var enemy = laneIcon(champs, c.enemy ? c.enemy.champion_id : 0, 'foe');
+    var ally = c.ally && c.ally.champion_id ? laneIcon(champs, c.ally.champion_id, c.ally.hover ? 'hover' : '') : '';
+    var who = c.state === 'waiting' ? '' : ally + '<b>' + esc(c.ally.name || 'sin elegir') + '</b>' +
+      (c.ally.hover ? ' <small class="muted">(eligiendo)</small>' : '') + ' <span class="lane-vs">vs</span> ' + enemy +
+      '<b>' + esc(c.enemy.name) + '</b>' + (c.enemy.role_low ? ' <small class="sel-guess">(línea del rival dudosa)</small>' : '');
+    return '<span class="lane-role">' + esc(c.role_label) + (c.mine ? ' · tú' : '') + '</span>' + who;
+  }
+  function laneCard(c, champs) {
+    var head = laneHead(c, champs), body = laneBody(c, champs);
+    if (c.mine) return '<article class="lane mine"><div class="lane-head">' + head + '</div>' + body + '</article>';
+    return '<details class="lane" data-role="' + esc(c.role) + '"' + (openLanes[c.role] ? ' open' : '') + '><summary><span class="lane-head">' +
+      head + '</span> <span class="muted lane-sum">' + esc(c.summary || '') + '</span></summary>' + body + '</details>';
+  }
+  function renderLanes(data) {
+    var L = data.lanes, box = el('sel-lanes-box');
+    if (!L) { box.hidden = true; put('sel-lanes', ''); return; }
+    box.hidden = false;
+    var msg = L.error || (!L.data ? 'Aún no hay muestra de líneas en este equipo (carpeta data/lineas): las cifras de abajo vendrán de OP.GG.' : '');
+    el('sel-lanes-msg').textContent = msg;
+    el('sel-lanes-msg').hidden = !msg;
+    el('sel-lanes-sub').textContent = L.data ? (L.diamond ? '· muestra Diamante+' : '· aún sin muestra Diamante+') : '';
+    var champs = L.champs || {};
+    put('sel-lanes', (L.cards || []).map(function (c) { return laneCard(c, champs); }).join(''));
+  }
+  el('sel-lanes').addEventListener('toggle', function (ev) {
+    var t = ev.target;
+    if (t && t.dataset && t.dataset.role) openLanes[t.dataset.role] = !!t.open;
+  }, true);
 
   function renderDraft(data) {
     var d = data.draft || {};
@@ -113,6 +221,7 @@
     err.hidden = !data.error;
     if (view === 'seleccion' && data.board) {
       renderBoard(data);
+      renderLanes(data);
       renderDraft(data);
     }
     if (view === 'juego' && prevView !== null && prevView !== 'juego') {

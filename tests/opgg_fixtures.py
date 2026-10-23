@@ -28,6 +28,17 @@ MATCHUPS = {
     ("adc", "Jinx", "Kai'Sa"): (1113, 602),            # 54.1%
     ("support", "Lulu", "Thresh"): (150, 90),          # few games: no % shown
 }
+# (position, my champion, opponent) -> overrides of the extras of the guide ("lane" / "solo": English name or "EVEN")
+LANE_EXTRAS = {
+    ("mid", "Ahri", "Zed"): {"lane": "Zed", "solo": "Zed", "tip": "Do not use Charm until Zed closes in."},
+    ("top", "Garen", "Renekton"): {"lane": "Garen", "solo": "EVEN", "style": "aggressive"},
+}
+# win rate of MY champion by game length in OP.GG's buckets (game_length: minute the bucket starts at)
+GAME_LENGTHS = [{"game_length": 0, "rate": 0.5, "average": 0.5, "rank": 28},
+                {"game_length": 25, "rate": 0.52, "average": 0.5, "rank": 8},
+                {"game_length": 30, "rate": 0.514, "average": 0.5, "rank": 17},
+                {"game_length": 35, "rate": 0.5, "average": 0.5, "rank": 23},
+                {"game_length": 40, "rate": 0.487, "average": 0.5, "rank": 35}]
 # my champion -> [(partner, games, wins)]: an ADC's most played supports and a support's most played ADCs
 SYNERGIES = {"Jinx": [("Thresh", 708, 378), ("Lulu", 607, 305)], "Kai'Sa": [("Thresh", 900, 441), ("Lulu", 300, 150)]}
 SUPPORT_SYNERGIES = {"Lux": [("Jinx", 120, 66), ("Kai'Sa", 90, 41)], "Thresh": [("Jinx", 708, 378), ("Kai'Sa", 900, 441)]}
@@ -84,9 +95,14 @@ def guide_json(position: str, mine: str, opponent: str, table=None) -> str:
     if row:
         ident = next((cid for cid, n in NAMES.items() if n == opponent), 0)
         counters.insert(0, {"champion_id": ident, "champion_name": opponent, "play": row[0], "win": row[1]})
+    extra = LANE_EXTRAS.get((position, mine, opponent), {})
     return json.dumps({"lang": "en_US", "position": position, "my_champion": mine, "opponent_champion": opponent,
                        "data": {"summary": {"id": 1, "average_stats": {"play": 10000}}, "counters": counters,
-                                "opponent_champion_tip": "texto"}})
+                                "game_lengths": GAME_LENGTHS,
+                                "opponent_champion_tip": extra.get("tip", "texto"),
+                                "lane_solo_kill_advantage_champion": extra.get("solo", opponent),
+                                "lane_advantage_champion": extra.get("lane", "EVEN"),
+                                "recommended_play_style": extra.get("style", "even")}})
 
 
 def arg_name(arg: str, names=None) -> str | None:

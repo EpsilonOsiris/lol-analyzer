@@ -35,3 +35,37 @@
 .sel-ban-side .lbl { font-size: .8rem; color: var(--muted); margin-right: .2rem; }
 .sel-ban-side .sel-champ { width: 32px; height: 32px; border-radius: 6px; filter: grayscale(.6); }
 .sel-bench .sel-champ { width: 44px; height: 44px; border-radius: 8px; border-color: var(--border); }
+
+/* Lane cards: my lane detailed, the others compact (closed <details>). */
+
+.lane { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 8px; padding: .55rem .8rem; margin: 0 0 .6rem; background: var(--surface); }
+.lane.mine { border-left-color: var(--accent); background: var(--surface-2); padding: .7rem .9rem; }
+.lane summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .7rem; }
+.lane summary { list-style: none; }
+.lane summary::-webkit-details-marker { display: none; }
+.lane summary::before { content: "\25B8"; color: var(--muted); }
+.lane[open] > summary::before { content: "\25BE"; }
+.lane-head { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .15rem .45rem; }
+.lane.mine .lane-head { margin-bottom: .4rem; font-size: 1.02rem; }
+.lane-head .sel-champ { width: 28px; height: 28px; }
+.lane-role { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); min-width: 4.5rem; }
+.lane-vs { color: var(--muted); font-size: .85rem; }
+.lane-sum { font-size: .85rem; }
+.lane-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .35rem .9rem; margin: .5rem 0 0; }
+.lane-rows dt { color: var(--muted); font-size: .82rem; font-weight: 600; padding-top: .1rem; }
+.lane-rows dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.lane-note { font-size: .78rem; }
+.lane-spikes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: .2rem 1rem; }
+.lane-tip { margin-top: .25rem; font-size: .88rem; }
+.lane-tone { font-variant-numeric: tabular-nums; }
+.lane-tone.fav { color: var(--win); }
+.lane-tone.unfav { color: var(--loss); }
+.lane-tone.few, .lane-tone.none { color: var(--muted); }
+.lane-best { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; }
+.lane-best-item { display: flex; align-items: center; gap: .4rem; }
+.lane-best-item .sel-champ { width: 30px; height: 30px; }
+@media (max-width: 560px) {
+  .lane-rows { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .lane-rows dd { margin-bottom: .45rem; }
+}
+.sel-champ.foe { border-color: var(--enemy); }
