@@ -135,7 +135,8 @@
     if (!b) return '';
     var items = b.items.map(function (i) {
       return '<li class="lane-best-item">' + laneIcon(champs, i.champion_id, '') + '<span><b>' + esc(i.name) + '</b> ' +
-        toneBold(i.wr_text, i.tone) + '<small class="muted"> ' + (i.games ? i.games + ' partidas' : 'sin partidas contra él') +
+        (i.games ? toneBold(i.wr_text, i.tone) + '<small class="muted"> ' + i.games + (i.games === 1 ? ' partida' : ' partidas')
+          : '<small class="muted"> ' + esc(i.wr_text) + ' en general · sin partidas contra él') +
         (i.own_games ? ' · ' + i.own_games + ' tuyas' : '') + '</small></span></li>';
     }).join('');
     return '<ul class="lane-best">' + items + '</ul><div class="muted lane-note">' + esc(b.label) +

@@ -106,7 +106,7 @@ class LaneBook:
 
     def _all_label(self, sources) -> str:
         names = [SOURCE_LABELS.get(s, s) for s in sorted(sources, key=lambda s: s != SOURCE_DIAMOND)]
-        return " + ".join(names) if names else "todas las fuentes"
+        return " y ".join(names) if names else "todas las fuentes"
 
     # ---- aggregates
     def _all_matchup(self, role, champ, opp) -> tuple[dict, str]:
@@ -223,7 +223,7 @@ def spike_profile(stats, thin=False) -> dict:
         parts.append(length["text"])
     text = " · ".join(parts) if parts else ("sin datos suficientes" if not stats.get("games") else "sin picos claros")
     if thin and parts:
-        text += " (pocas partidas)"
+        text += " · pocas partidas"
     return {"levels": levels, "item": item, "length": length, "parts": parts, "text": text}
 
 
@@ -263,7 +263,7 @@ def sample_block(view) -> dict:
         block["note"] = NO_DIAMOND_PAIR_NOTE if view["diamond"] else NO_DIAMOND_NOTE
     if not games:
         block.update(wr=None, wr_text=None, raw_text=None, tone="none", diff14_text=None, thin=True,
-                     note=(block["note"] + "; " if block["note"] else "") + "sin partidas de este cruce")
+                     note="sin partidas de este cruce " + ("en ninguna muestra" if view["diamond"] else f"({NO_DIAMOND_NOTE})"))
         return block
     shrunk = stats["shrunk_lane_wr"]
     block.update(wr=shrunk, wr_text=pct(shrunk), raw_text=pct(stats["lane_wr"]),

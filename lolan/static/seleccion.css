@@ -41,7 +41,10 @@
 .lane { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 8px; padding: .55rem .8rem; margin: 0 0 .6rem; background: var(--surface); }
 .lane.mine { border-left-color: var(--accent); background: var(--surface-2); padding: .7rem .9rem; }
 .lane summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .7rem; }
-.lane summary::marker { color: var(--muted); }
+.lane summary { list-style: none; }
+.lane summary::-webkit-details-marker { display: none; }
+.lane summary::before { content: "\25B8"; color: var(--muted); }
+.lane[open] > summary::before { content: "\25BE"; }
 .lane-head { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .15rem .45rem; }
 .lane.mine .lane-head { margin-bottom: .4rem; font-size: 1.02rem; }
 .lane-head .sel-champ { width: 28px; height: 28px; }
