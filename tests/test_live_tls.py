@@ -144,7 +144,7 @@ def test_a_certificate_from_another_root_is_refused(game_server):
     other_key, other_ca = make_ca("Otra raiz")
     path = game_server["dir"] / "other.pem"
     path.write_bytes(pem_cert(other_ca))
-    client = live.LiveClient(game_server["url"], ca_file=path, system_fallback=False)
+    client = live.LiveClient(game_server["url"], ca_file=path, system_fallback=False, unverified_fallback=False)
     assert client.fetch() == ("down", None)
     assert client.problem == "tls"                       # the page tells the user the certificate did not match
 
@@ -153,7 +153,7 @@ def test_poller_reports_the_certificate_problem(game_server):
     other_key, other_ca = make_ca("Otra raiz")
     path = game_server["dir"] / "other.pem"
     path.write_bytes(pem_cert(other_ca))
-    poller = live.LivePoller(live.LiveClient(game_server["url"], ca_file=path, system_fallback=False))
+    poller = live.LivePoller(live.LiveClient(game_server["url"], ca_file=path, system_fallback=False, unverified_fallback=False))
     poller.poll_once()
     assert poller.snapshot()["status"] == "waiting" and poller.snapshot()["problem"] == "tls"
 
@@ -248,7 +248,7 @@ def test_system_store_fallback_when_the_antivirus_replaces_the_certificate():
             return Resp()
 
     client = live.LiveClient("https://127.0.0.1:2999")
-    assert [m for m, _ in client._sessions] == ["riot", "system"]
+    assert [m for m, _ in client._sessions] == ["riot", "system", "unverified"]
     riot, system = Session(True), Session(False)
     client._sessions = [("riot", riot), ("system", system)]
     kind, _ = client.fetch()
@@ -260,8 +260,37 @@ def test_system_store_fallback_when_the_antivirus_replaces_the_certificate():
     assert client.fetch() == ("down", None) and client.problem == "tls"  # both refuse: a certificate problem
 
 
+def test_unverified_fallback_is_last_and_only_for_loopback():
+    # Norton signs the game's certificate with its "Untrusted Root" (trusted by nobody): then the
+    # loopback-only unverified context is the one that works.
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"allPlayers": [{"championName": "Jinx"}]}
+
+    class Session:
+        def __init__(self, refuse):
+            self.refuse, self.calls = refuse, 0
+
+        def get(self, *a, **k):
+            self.calls += 1
+            if self.refuse:
+                raise requests.exceptions.SSLError("raiz no confiable")
+            return Resp()
+
+    client = live.LiveClient("https://127.0.0.1:2999")
+    client._sessions = [("riot", Session(True)), ("system", Session(True)), ("unverified", Session(False))]
+    kind, _ = client.fetch()
+    assert client.tls_mode == "unverified" and client.problem is None and kind != "down"
+    ctx = live.make_unverified_loopback_context()
+    assert ctx.verify_mode == ssl.CERT_NONE and ctx.check_hostname is False
+    with pytest.raises(ValueError):
+        live.LiveClient("https://example.com:2999")                      # never for a remote host
+
+
 def test_fallback_can_be_disabled_and_checks_chain_not_name():
-    assert [m for m, _ in live.LiveClient("https://127.0.0.1:2999", system_fallback=False)._sessions] == ["riot"]
+    assert [m for m, _ in live.LiveClient("https://127.0.0.1:2999", system_fallback=False, unverified_fallback=False)._sessions] == ["riot"]
     ctx = live.make_system_ssl_context()
     assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname is False
 

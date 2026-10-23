@@ -21,12 +21,14 @@ import os
 import ssl
 import sys
 import threading
+import warnings
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
+from urllib3.exceptions import InsecureRequestWarning
 
 from .goldmodel import unspent_estimate
 
@@ -172,19 +174,36 @@ def make_system_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
+def make_unverified_loopback_context() -> ssl.SSLContext:
+    """Last resort for the game on 127.0.0.1 when no store accepts the certificate.
+
+    Norton re-signs even loopback TLS, and when it can't validate the game's self-signed
+    certificate it signs it with its "Untrusted Root", which neither Riot's root nor Windows
+    trust. Riot's docs allow ignoring the certificate for this local API; the connection never
+    leaves the PC (LiveClient refuses non-loopback addresses), so this is only ever used there.
+    """
+    ctx = _LoopbackContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 class LiveClient:
     """Fetches /liveclientdata/allgamedata. Never raises: returns (kind, data).
 
     TLS: first the chain is checked against Riot's root (lolan/certs/riotgames.pem). If that is
     refused (an antivirus in between replaced the certificate), the operating system store is
-    tried before giving up; `tls_mode` says which one worked.
+    tried, and as a last resort the certificate is not checked (loopback only, see
+    make_unverified_loopback_context); `tls_mode` says which one worked.
     """
 
-    def __init__(self, base_url=None, ca_file=CA_FILE, timeout=TIMEOUT_S, system_fallback=True):
+    def __init__(self, base_url=None, ca_file=CA_FILE, timeout=TIMEOUT_S, system_fallback=True,
+                 unverified_fallback=True):
         self.base_url = (base_url or live_base_url()).rstrip("/")
         self.timeout = timeout
         self.problem: str | None = None       # "tls" when the certificate was refused
-        self.tls_mode: str | None = None      # "riot" | "system" | None (plain http / not yet connected)
+        # "riot" | "system" | "unverified" | None (plain http / not yet connected)
+        self.tls_mode: str | None = None
         self._sessions: list[tuple[str, requests.Session]] = []
         parts = urlsplit(self.base_url)
         contexts = [("plain", None)]
@@ -197,11 +216,17 @@ class LiveClient:
                     contexts.append(("system", make_system_ssl_context()))
                 except Exception:           # no truststore: Riot's root is all we have
                     pass
+            if unverified_fallback:
+                contexts.append(("unverified", make_unverified_loopback_context()))
         for mode, ctx in contexts:
             session = requests.Session()
             session.trust_env = False         # no proxies or .netrc for a loopback address
             if ctx is not None:
                 session.mount(f"{parts.scheme}://{parts.netloc}/", LoopbackAdapter(ctx))
+            if mode == "unverified":
+                # urllib3 turns verification back on from `verify`; this session only ever talks
+                # to the loopback game client (checked above).
+                session.verify = False
             self._sessions.append((mode, session))
 
     @property
@@ -212,7 +237,10 @@ class LiveClient:
         error = None
         for i, (mode, session) in enumerate(self._sessions):
             try:
-                resp = session.get(f"{self.base_url}/liveclientdata/allgamedata", timeout=self.timeout)
+                with warnings.catch_warnings():
+                    if mode == "unverified":
+                        warnings.simplefilter("ignore", InsecureRequestWarning)
+                    resp = session.get(f"{self.base_url}/liveclientdata/allgamedata", timeout=self.timeout)
             except requests.exceptions.SSLError as exc:
                 error = exc
                 continue                      # certificate refused: try the next way of checking it
