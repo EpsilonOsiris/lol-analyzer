@@ -39,7 +39,7 @@ def test_regenerate_golden(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("fixture", sorted(FIXTURES))
-@pytest.mark.parametrize("how", ["auto"])
+@pytest.mark.parametrize("how", ["auto", "explicit"])
 def test_adc_main_gets_the_same_page_and_command_output(root, capsys, fixture, how):
     suffix, extra = ("", ()) if how == "auto" else ("&linea=BOTTOM", ("--linea", "adc"))
     got = capture_all(root, capsys, fixture, suffix, extra)

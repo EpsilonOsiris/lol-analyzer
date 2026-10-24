@@ -51,6 +51,14 @@ def queue_slug(queue: int) -> str:
     return QUEUE_SLUGS.get(queue, f"cola-{queue}")
 
 
+def _parse_line(text: str) -> str:
+    from .comps import parse_line
+    role = parse_line(text)
+    if role is None:
+        raise argparse.ArgumentTypeError("la línea debe ser auto, top, jungla, mid, adc o soporte")
+    return role
+
+
 def _parse_queue(text: str) -> int:
     key = text.strip().casefold()
     if key in QUEUE_ALIASES:
@@ -154,11 +162,13 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("riot_id", metavar="Nombre#TAG")
 
     p = sub.add_parser("composiciones",
-                       help="analiza qué compones con tu clan (por línea, duplas, plan de pelea) y recomienda picks (escribe reports/composiciones.md)")
+                       help="analiza qué compones con tu clan (por línea, duplas, plan de pelea) desde tu línea y recomienda picks (escribe reports/composiciones.md)")
     p.add_argument("--cola", type=_parse_queue, metavar="COLA",
                    help="solo esa cola: solo, flex, normal, blind, quickplay o un número (por defecto, todas)")
+    p.add_argument("--linea", type=_parse_line, metavar="LINEA",
+                   help="tu línea: top, jungla, mid, adc o soporte (por defecto, auto: la que más juegas en esa cola)")
     p.add_argument("--todos-los-adc", action="store_true",
-                   help="la recomendación incluye todos los ADC clasificados, no solo los de tu pool")
+                   help="si juegas de ADC, la recomendación incluye todos los ADC clasificados, no solo los de tu pool")
 
     p = sub.add_parser("rivales",
                        help="muestra quién está en tu partida actual (Spectator de Riot): campeones, rango, maestría e historial")
@@ -503,12 +513,14 @@ def cmd_composiciones(args, cfg) -> int:
         print("No hay partidas analizables" + (f" de la cola {queue_slug(args.cola)}" if args.cola else "")
               + ". Ejecuta primero: python -m lolan sync")
         return 0
-    analysis = comps.analyze_all(records)
+    main_role = args.linea if args.linea not in (None, "auto") else comps.main_line(records)
+    analysis = comps.analyze_all(records, main_role=main_role)
     lineup = analysis["common_lineup"]
-    draft = {role: (person, None) for role, person in lineup.items() if role != "BOTTOM"}
-    ranking = comps.recommend(draft, records, include_all=args.todos_los_adc)
-    notes = comps.draft_notes(draft, records)
-    plan_draft = comps.recommend_draft(draft, records, include_all=args.todos_los_adc)
+    draft = {role: (person, None) for role, person in lineup.items() if role != main_role}
+    ranking = (comps.recommend(draft, records, include_all=args.todos_los_adc)
+               if main_role == "BOTTOM" else None)
+    notes = comps.draft_notes(draft, records, main_role=main_role)
+    plan_draft = comps.recommend_draft(draft, records, include_all=args.todos_los_adc, main_role=main_role)
     cola_text = f"cola {queue_slug(args.cola)}" if args.cola else "todas las colas"
     print(comps.render_summary(analysis, ranking, lineup, notes, cola_text, plan_draft))
     reports_dir = cfg.reports_dir / queue_slug(args.cola) if args.cola else cfg.reports_dir
