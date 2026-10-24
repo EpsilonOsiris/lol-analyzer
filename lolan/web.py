@@ -1080,7 +1080,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         else:
             shown = [main_role] + [r for r in order if r != main_role]
         return render_template("_borrador.html", notes=draft_result["notes"], ranking=draft_result["ranking"],
-                               draft=draft_result["draft"], draft_roles=shown, adc_labels=comps.ADC_LABELS)
+                               draft=draft_result["draft"], draft_roles=shown, adc_labels=comps.ADC_LABELS,
+                               source_labels=comps.SOURCE_LABELS)
 
     def sel_draft_for(built, records, records_sig):
         """The recommender's answer for a lineup; recomputed only when the lineup, line or history change."""

@@ -60,11 +60,11 @@ def test_adc_archetypes_and_sources():
     assert comps.adc_archetype("Kaisa") == "followup"
     assert comps.adc_archetype("Vayne") == "kiting"
     assert comps.adc_archetype("Jinx") == "flexible"
-    assert comps.adc_archetype("Hwei") == "otro"
+    assert comps.adc_archetype("Hwei") == "mago" and comps.adc_archetype("Zzz") == "otro"
     assert comps.adc_source("Kaisa") == "video"
-    assert comps.adc_source("Jhin") == "propia"
-    assert comps.adc_source("Hwei") is None
-    assert comps.adc_archetype("Xayah") == "kiting" and comps.adc_source("Xayah") == "propia"
+    assert comps.adc_source("Jhin") == "criterio"           # the previous classification, kept
+    assert comps.adc_source("Hwei") == "oficial" and comps.adc_source("Zzz") is None
+    assert comps.adc_archetype("Xayah") == "kiting" and comps.adc_source("Xayah") == "criterio"
 
 
 def test_lookups_accept_typed_names():
@@ -80,7 +80,7 @@ def test_support_archetypes():
     assert comps.support_archetype("Leona") == "engage"
     assert comps.support_archetype("Taric") == "peel" and comps.support_source("Taric") == "video"
     assert comps.support_archetype("TahmKench") == "peel"
-    assert comps.support_archetype("Lulu") == "peel" and comps.support_source("Lulu") == "propia"
+    assert comps.support_archetype("Lulu") == "peel" and comps.support_source("Lulu") == "oficial"
     assert comps.support_archetype("Thresh") == "mixto"
     assert comps.support_archetype("Brand") == "poke"
     assert comps.support_archetype("Senna") == "poke"       # as a support; as ADC it is flexible
@@ -185,7 +185,7 @@ def test_duo_bot_aggregation(duo_records):
     assert [r["key"] for r in duo["by_person"]][0] == "Epsilon Alfa"       # ranked by shrunk
     by_champ = {r["key"]: r for r in duo["by_champion"]}
     assert by_champ["Taric"]["games"] == 7 and by_champ["Taric"]["archetype"] == "peel"
-    assert by_champ["Taric"]["source"] == "video" and by_champ["Leona"]["source"] == "propia"
+    assert by_champ["Taric"]["source"] == "video" and by_champ["Leona"]["source"] == "oficial"
     by_arch = {r["key"]: r for r in duo["by_archetype"]}
     assert by_arch["peel"]["games"] == 10 and by_arch["peel"]["wins"] == 6
     assert by_arch["engage"]["games"] == 3
@@ -480,7 +480,7 @@ def test_role_tables_are_keyed_by_role():
     assert comps.role_type("TOP", "Sylas") == "split"
     assert comps.role_type("JUNGLE", "Sylas") == "farm"
     assert comps.role_type("MIDDLE", "Sylas") == "melee"
-    assert comps.role_type("TOP", "Ekko") == "split" and comps.role_type("JUNGLE", "Ekko") == "farm"
+    assert comps.role_type("TOP", "Ekko") == "split" and comps.role_type("JUNGLE", "Ekko") == "early"
     assert comps.role_type("MIDDLE", "Ekko") == "asesino"
     assert comps.role_type("TOP", "Malphite") == "tanque" and comps.role_type("MIDDLE", "Malphite") == "melee"
     assert comps.role_type("JUNGLE", "Nunu") == "tanque" and comps.role_type("MIDDLE", "Nunu") == "melee"
@@ -498,15 +498,17 @@ def test_role_tables_reuse_support_and_adc_and_accept_typed_names():
     assert comps.canonical_champion("aurelion sol") == "AurelionSol"
 
 
-def test_role_sources_are_own_and_no_champion_sits_in_two_types_of_a_role():
-    assert comps.role_source("TOP", "Ornn") == "propia" and comps.role_source("MIDDLE", "Zed") == "propia"
-    assert comps.role_source("JUNGLE", "Viego") == "propia" and comps.role_source("TOP", "Zzz") is None
-    assert comps.role_source("UTILITY", "Taric") == "video" and comps.role_source("BOTTOM", "Jhin") == "propia"
-    assert all(e["source"] == "propia" for t in comps.ROLE_CLASS.values() for e in t.values())
-    # 16 + 19 + 22, 20 + 15 + 19 and 23 + 18 + 13 distinct champions: a duplicate across types
-    # would silently shrink these numbers.
-    assert [len(comps.ROLE_CLASS[r]) for r in ("TOP", "JUNGLE", "MIDDLE")] == [57, 54, 54]
-    assert {e["type"] for e in comps.ROLE_CLASS["TOP"].values()} == {"tanque", "bruiser", "split"}
+def test_role_sources_come_from_the_json_and_each_champion_has_one_type_per_role():
+    assert comps.role_source("TOP", "Ornn") == "oficial" and comps.role_source("MIDDLE", "Zed") == "oficial"
+    assert comps.role_source("JUNGLE", "Viego") == "oficial" and comps.role_source("TOP", "Zzz") is None
+    assert comps.role_source("UTILITY", "Taric") == "video" and comps.role_source("BOTTOM", "Jhin") == "criterio"
+    assert comps.role_source("MIDDLE", "Galio") == "criterio" and comps.role_source("TOP", "Zaahen") == "pendiente"
+    assert {e["source"] for t in comps.ROLE_CLASS.values() for e in t.values()} <= set(comps.SOURCE_LABELS)
+    assert {e["type"] for e in comps.ROLE_CLASS["TOP"].values()} == {"tanque", "bruiser", "split", "mago"}
+    assert {e["type"] for e in comps.ROLE_CLASS["JUNGLE"].values()} == {"early", "tanque", "farm"}
+    assert {e["type"] for e in comps.ROLE_CLASS["MIDDLE"].values()} == {"control", "asesino", "melee"}
+    assert {e["type"] for e in comps.ADC_CLASS.values()} == {"followup", "kiting", "flexible", "mago"}
+    assert {e["type"] for e in comps.SUPPORT_CLASS.values()} == {"engage", "peel", "mixto", "poke"}
     assert comps.type_label("MIDDLE", "asesino") == "Asesino/roamer" and comps.type_label("TOP", "x") == "x"
 
 
@@ -679,7 +681,7 @@ def test_analyze_all_includes_the_new_tables(line_records):
     assert len(a["lines"]) == 5 and set(a["type_pairs"]) == {"jg_mid", "jg_top", "sup_adc"}
     assert a["plans"]["games"] == 11
     md = comps.render_markdown(a, [], {}, "todas las colas", [])
-    for needle in ("## Por línea", "## Duplas de tipos", "## Plan de pelea", "no son datos oficiales de Riot"):
+    for needle in ("## Por línea", "## Duplas de tipos", "## Plan de pelea", "no un dato de Riot"):
         assert needle in md
     summary = comps.render_summary(a, [], {}, [])
     assert "Por línea" in summary and "Duplas Jungla × Mid" in summary and "Plan de pelea de tu equipo" in summary
@@ -734,7 +736,7 @@ def test_draft_rules_dominate_with_thin_data():
     assert picks(draft, "JUNGLE") == ["LeeSin", "Zac"]
     top = draft["roles"]["JUNGLE"]["picks"][0]
     assert top["type"] == "early" and any("asesino" in r for r in top["reasons"]) and 1 <= len(top["reasons"]) <= 3
-    assert top["source"] == "propia" and top["games"] == 3
+    assert top["source"] == "oficial" and top["games"] == 3
 
 
 def test_draft_data_shifts_the_ranking_with_enough_games():
@@ -774,13 +776,13 @@ def test_draft_mid_rules_control_is_safe_melee_needs_engage():
 
 
 def test_draft_top_rules():
-    plain = {x["type"]: x for x in comps.recommend_draft({}, [])["roles"]["TOP"]["picks"]}
+    plain = {x["type"]: x for x in comps.recommend_draft({}, [], max_picks=4)["roles"]["TOP"]["picks"]}
     assert plain["split"]["raw_score"] < plain["bruiser"]["raw_score"]            # split needs peel/control
     held = {x["type"]: x for x in comps.recommend_draft(
-        {"UTILITY": (None, "Lulu"), "MIDDLE": (None, "Orianna")}, [])["roles"]["TOP"]["picks"]}
+        {"UTILITY": (None, "Lulu"), "MIDDLE": (None, "Orianna")}, [], max_picks=4)["roles"]["TOP"]["picks"]}
     assert held["split"]["raw_score"] > plain["split"]["raw_score"]
     frontline = {x["type"]: x for x in comps.recommend_draft(
-        {"JUNGLE": (None, "Zac"), "UTILITY": (None, "Leona")}, [])["roles"]["TOP"]["picks"]}
+        {"JUNGLE": (None, "Zac"), "UTILITY": (None, "Leona")}, [], max_picks=4)["roles"]["TOP"]["picks"]}
     assert frontline["tanque"]["raw_score"] < plain["tanque"]["raw_score"]       # frontline already there
 
 

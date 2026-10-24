@@ -7,19 +7,21 @@ The ADC framework comes from a coaching video by a Challenger support:
   * follow-up ADCs need engage on their team (bad first picks);
   * kiting ADCs shine when chased and want peel/enchanter supports;
   * flexible ADCs work with any support and are safe first picks.
-Champions that the video names carry `source == "video"`; the ones added by us carry "propia".
-
-The other roles (top, jungle, mid) and the team-level "plan de pelea" use classifications of our
-own (`source == "propia"`), put together from public guides (EarlyGame, LoLTheory, WeCoach,
-Mobalytics); they are NOT official Riot data. Everything is seen from the main player's seat:
-only games he played, with his team's result.
+Every classification comes from lolan/data/champion_classes.json (Riot's official class and
+subclasses plus a proposed type per lane, see docs/arquetipos.md). The champions the video names
+carry `source == "video"`; the others "oficial" (a rule on Riot's subclass), "criterio" (a manual
+call), "datos" (decided by the Diamond+ sample) or "pendiente" (a judgment call waiting for the
+data). The type `mago` exists in TOP and BOTTOM. The team-level "plan de pelea" is a heuristic of
+our own. Everything is seen from the main player's seat: only games he played, with his team's result.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .analyze import mean, normalize_name, role_name
 from .metrics import extract_game_metrics, find_participant
@@ -35,45 +37,106 @@ RANDOM = "Aleatorio"            # label of a support who is not part of the clan
 ROLES = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 ENGAGE_BUCKETS = ("0", "1", "2", "3+")
 
-ADC_LABELS = {"followup": "Follow-up", "kiting": "Kiting", "flexible": "Flexible", "otro": "Sin clasificar"}
+ADC_LABELS = {"followup": "Follow-up", "kiting": "Kiting", "flexible": "Flexible", "mago": "Mago",
+              "otro": "Sin clasificar"}
 SUPPORT_LABELS = {"engage": "Engage", "peel": "Peel/enchanter", "mixto": "Engage + peel",
                   "poke": "Poke/mago", "otro": "Sin clasificar"}
-ADC_ORDER = ("followup", "kiting", "flexible", "otro")
+ADC_ORDER = ("followup", "kiting", "flexible", "mago", "otro")
 SUPPORT_ORDER = ("engage", "peel", "mixto", "poke", "otro")
 
 
 # ---------------------------------------------------------- classification tables
-def _build(groups: dict) -> dict:
-    """{type: {source: [champions]}} -> {champion: {"type": type, "source": source}}."""
-    table = {}
-    for kind, by_source in groups.items():
-        for source, champions in by_source.items():
+# Single source: lolan/data/champion_classes.json (Riot's class and subclasses, plus a proposed
+# type per lane; see docs/arquetipos.md). The tables are built from it when this module loads.
+# Where an entry comes from (`source` of every table entry, shown in plain Spanish by SOURCE_LABELS):
+#   video      the coaching video (only ADCs and supports, see VIDEO_ADC / VIDEO_SUPPORT); wins over the JSON
+#   oficial    a rule applied to Riot's official subclass (basis "regla")
+#   criterio   a manual mapping in the proposal, or a previous classification kept (basis "manual"/"actual")
+#   datos      decided by the Diamond+ sample (basis "datos", written by `lolan arquetipos --decidir`)
+#   pendiente  a judgment call that the data has to decide (PENDING_DATA); keeps the proposal's value
+CLASSES_PATH = Path(__file__).with_name("data") / "champion_classes.json"
+SOURCE_LABELS = {"video": "del video", "oficial": "clase oficial de Riot", "criterio": "criterio",
+                 "datos": "por datos", "pendiente": "pendiente de datos"}
+BASIS_SOURCE = {"regla": "oficial", "manual": "criterio", "actual": "criterio", "datos": "datos"}
+
+# Keys are Data Dragon championName values (KSante, MonkeyKing, Kaisa, JarvanIV, FiddleSticks...).
+VIDEO_ADC = {
+    "followup": ["Kaisa", "Twitch", "Tristana", "Samira", "Lucian", "Draven"],
+    "kiting": ["Vayne", "Zeri", "Ezreal", "Sivir"],
+    "flexible": ["Ashe", "Jinx", "Aphelios", "Senna", "Varus", "Caitlyn", "KogMaw"],
+}
+# The video only names Taric, Tahm Kench and Braum (as peel).
+VIDEO_SUPPORT = {"peel": ["Taric", "TahmKench", "Braum"]}
+
+# Judgment calls that the Diamond+ data has to decide (`lolan arquetipos --decidir`): lane ->
+# champions. Until the data decides, they keep the proposal's value and carry source "pendiente".
+# Rules per lane in lolan/archetypes_data.py: JUNGLE early vs farm, TOP tanque / bruiser / split,
+# MIDDLE asesino vs melee. TOP: every Diver (bruiser vs split) with a real presence in the lane,
+# the manual calls (Specialists, Camille, Irelia...) plus Volibear, Zaahen and Singed. JUNGLE:
+# Diana, Ekko, Hecarim and the manual early/farm calls. MIDDLE: Locke and the burst/skirmisher mids.
+PENDING_DATA = {
+    "TOP": frozenset({
+        "Ambessa", "Camille", "Chogath", "Gangplank", "Gnar", "Irelia", "Kayle", "MonkeyKing", "Olaf",
+        "Pantheon", "Quinn", "Renekton", "Singed", "Teemo", "Vayne", "Volibear", "Warwick", "Zaahen"}),
+    "JUNGLE": frozenset({
+        "Diana", "Ekko", "FiddleSticks", "Graves", "Hecarim", "Nidalee", "Quinn", "Teemo", "Trundle",
+        "Zyra"}),
+    "MIDDLE": frozenset({"Ahri", "Locke", "Sylas", "TwistedFate", "Zoe"}),
+}
+TABLE_LANES = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+
+
+def load_classes(path=CLASSES_PATH) -> dict:
+    """The JSON of champion classes: {DataDragonId: {riot_class, ..., proposal: {lane: {...}}}}."""
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def table_key(name: str, entry: dict) -> str:
+    """The name the match data uses for a champion (its alias when it has one: FiddleSticks)."""
+    return (entry.get("aliases") or [name])[0]
+
+
+def build_tables(classes, video_adc=None, video_support=None, pending=None) -> dict:
+    """{lane: {champion: {"type", "source"}}} from the JSON content.
+
+    Entries typed "otro" are left out (unclassified). The video lists override the JSON.
+    """
+    video_adc = VIDEO_ADC if video_adc is None else video_adc
+    video_support = VIDEO_SUPPORT if video_support is None else video_support
+    pending = PENDING_DATA if pending is None else pending
+    tables = {lane: {} for lane in TABLE_LANES}
+    for name, entry in classes.items():
+        key = table_key(name, entry)
+        for lane, prop in (entry.get("proposal") or {}).items():
+            kind = prop.get("type")
+            if lane not in tables or not kind or kind == "otro":
+                continue
+            if prop.get("basis") == "datos":
+                source = "datos"
+            elif key in pending.get(lane, ()):
+                source = "pendiente"
+            else:
+                source = BASIS_SOURCE.get(prop.get("basis"), "criterio")
+            tables[lane][key] = {"type": kind, "source": source}
+    for lane, groups in (("BOTTOM", video_adc), ("UTILITY", video_support)):
+        for kind, champions in groups.items():
             for champion in champions:
-                table[champion] = {"type": kind, "source": source}
-    return table
+                tables[lane][champion] = {"type": kind, "source": "video"}
+    return tables
 
 
-# Keys are Data Dragon championName values (KSante, MonkeyKing, Kaisa, JarvanIV...).
-ADC_CLASS = _build({
-    "followup": {"video": ["Kaisa", "Twitch", "Tristana", "Samira", "Lucian", "Draven"],
-                 "propia": ["MissFortune", "Kalista", "Nilah"]},
-    "kiting": {"video": ["Vayne", "Zeri", "Ezreal", "Sivir"],
-               "propia": ["Xayah"]},
-    "flexible": {"video": ["Ashe", "Jinx", "Aphelios", "Senna", "Varus", "Caitlyn", "KogMaw"],
-                 "propia": ["Jhin", "Yunara", "Smolder", "Corki", "Mel"]},
-})
-
-# The video only names Taric, Tahm Kench and Braum (as peel); the rest is our own classification.
-SUPPORT_CLASS = _build({
-    "engage": {"propia": ["Leona", "Nautilus", "Alistar", "Rell", "Rakan", "Blitzcrank", "Pyke",
-                          "Maokai", "Poppy"]},
-    "peel": {"video": ["Taric", "TahmKench", "Braum"],
-             "propia": ["Lulu", "Janna", "Milio", "Nami", "Soraka", "Sona", "Yuumi", "Karma",
-                        "Renata", "Seraphine"]},
-    "mixto": {"propia": ["Thresh"]},
-    "poke": {"propia": ["Lux", "Morgana", "Zyra", "Brand", "Xerath", "Velkoz", "Hwei", "Swain",
-                        "Senna", "Neeko", "Zilean"]},
-})
+CLASSES = load_classes()
+_TABLES = build_tables(CLASSES)
+ADC_CLASS = _TABLES["BOTTOM"]
+SUPPORT_CLASS = _TABLES["UTILITY"]
+# Same champion, different role -> possibly different type, so the other lines are keyed by role.
+#   TOP:    tanque (tank / engage), bruiser (bruiser / juggernaut), split (duelist / split pusher),
+#           mago (mage: Vladimir, Rumble, Jayce, Kennen...)
+#   JUNGLE: early (early game / ganker), tanque (tank / engage), farm (carry / farm)
+#   MIDDLE: control (control mage / artillery), asesino (assassin / roamer), melee (melee duelist)
+# UTILITY and BOTTOM are SUPPORT_CLASS / ADC_CLASS above (the ADC also has "mago").
+ROLE_CLASS = {lane: _TABLES[lane] for lane in ("TOP", "JUNGLE", "MIDDLE")}
 
 # Clear hard engage in ANY role (used to count how much engage a team has). Deliberately short:
 # divers and champions whose engage is only situational (Camille, Yone, Kled, Briar, Ambessa...)
@@ -85,55 +148,8 @@ HARD_ENGAGE = frozenset({
     "KSante", "Sett",
 })
 
-# Classification of the other lines. Same champion, different role -> possibly different type, so
-# the tables are keyed by role (Sylas is "split" at top, "farm" in the jungle, "melee" in mid).
-# Everything here is our own ("propia"); UTILITY and BOTTOM reuse SUPPORT_CLASS / ADC_CLASS above.
-#   TOP:    tanque (tank / engage), bruiser (bruiser / juggernaut), split (duelist / split pusher)
-#   JUNGLE: early (early game / ganker), tanque (tank / engage), farm (carry / farm)
-#   MIDDLE: control (control mage / artillery), asesino (assassin / roamer), melee (melee duelist)
-ROLE_CLASS = {
-    "TOP": _build({
-        "tanque": {"propia": [
-            "Malphite", "Shen", "DrMundo", "KSante", "Ornn", "TahmKench", "Sion", "Poppy", "Zaahen",
-            "Volibear", "Kennen", "Gnar", "Chogath", "Maokai", "Sejuani", "Rammus"]},
-        "bruiser": {"propia": [
-            "Sett", "Garen", "Mordekaiser", "Nasus", "Illaoi", "Darius", "Aatrox", "Trundle",
-            "Renekton", "Olaf", "Ambessa", "Yorick", "MonkeyKing", "Pantheon", "JarvanIV", "Urgot",
-            "Udyr", "Warwick", "Skarner"]},
-        "split": {"propia": [
-            "Kayle", "Jax", "Gwen", "Gangplank", "Yone", "Tryndamere", "Jayce", "Riven", "Yasuo",
-            "Irelia", "Teemo", "Fiora", "Camille", "Akali", "Aurora", "Ekko", "Sylas", "Vladimir",
-            "Quinn", "Vayne", "Kled", "Rumble"]},
-    }),
-    "JUNGLE": _build({
-        "early": {"propia": [
-            "JarvanIV", "LeeSin", "XinZhao", "Nocturne", "Vi", "MonkeyKing", "Elise", "RekSai",
-            "Pantheon", "Briar", "Warwick", "Qiyana", "Trundle", "Naafiri", "Rengar", "Khazix",
-            "Evelynn", "Shyvana", "Nidalee", "Talon"]},
-        "tanque": {"propia": [
-            "Zac", "DrMundo", "Sejuani", "Amumu", "Nunu", "Skarner", "Chogath", "Poppy", "Shen",
-            "Volibear", "Ivern", "Zaahen", "Rammus", "Maokai", "Rell"]},
-        "farm": {"propia": [
-            "Viego", "Graves", "Kayn", "Sylas", "Ekko", "Lillia", "Kindred", "Karthus", "Belveth",
-            "Diana", "Aatrox", "FiddleSticks", "Gwen", "Nasus", "Darius", "Jayce", "MasterYi",
-            "Hecarim", "Udyr"]},
-    }),
-    "MIDDLE": _build({
-        "control": {"propia": [
-            "Xerath", "Orianna", "Veigar", "Lux", "Malzahar", "Syndra", "Lissandra", "AurelionSol",
-            "Viktor", "Anivia", "Hwei", "Mel", "Ziggs", "Azir", "Cassiopeia", "Vex", "Ryze",
-            "Vladimir", "Swain", "Zilean", "Velkoz", "Taliyah", "Corki"]},
-        "asesino": {"propia": [
-            "Ahri", "Akali", "Zoe", "Fizz", "Zed", "Ekko", "Diana", "Aurora", "Akshan", "Leblanc",
-            "Naafiri", "TwistedFate", "Qiyana", "Galio", "Talon", "Katarina", "Kassadin", "Neeko"]},
-        "melee": {"propia": [
-            "Yasuo", "Yone", "Sylas", "Irelia", "Gwen", "Locke", "Sion", "KSante", "Malphite",
-            "Chogath", "Nunu", "Vi", "Pantheon"]},
-    }),
-}
-
 TOP_LABELS = {"tanque": "Tanque", "bruiser": "Bruiser/juggernaut", "split": "Duelista/split pusher",
-              "otro": "Sin clasificar"}
+              "mago": "Mago", "otro": "Sin clasificar"}
 JUNGLE_LABELS = {"early": "Early/ganker", "tanque": "Tanque/engage", "farm": "Carry/farm",
                  "otro": "Sin clasificar"}
 MIDDLE_LABELS = {"control": "Control/artillería", "asesino": "Asesino/roamer",
@@ -141,7 +157,7 @@ MIDDLE_LABELS = {"control": "Control/artillería", "asesino": "Asesino/roamer",
 # role -> {type: label}, and the order in which the types are listed.
 ROLE_TYPE_LABELS = {"TOP": TOP_LABELS, "JUNGLE": JUNGLE_LABELS, "MIDDLE": MIDDLE_LABELS,
                     "UTILITY": SUPPORT_LABELS, "BOTTOM": ADC_LABELS}
-ROLE_TYPE_ORDER = {"TOP": ("tanque", "bruiser", "split", "otro"),
+ROLE_TYPE_ORDER = {"TOP": ("tanque", "bruiser", "split", "mago", "otro"),
                    "JUNGLE": ("early", "tanque", "farm", "otro"),
                    "MIDDLE": ("control", "asesino", "melee", "otro"),
                    "UTILITY": SUPPORT_ORDER, "BOTTOM": ADC_ORDER}
@@ -150,11 +166,11 @@ LINE_ROLES = ("TOP", "JUNGLE", "MIDDLE", "UTILITY", "BOTTOM")      # order of th
 # A neutral champion of each type (used when a recommendation is only a TYPE and we still need a
 # champion to predict the team plan). Chosen so they carry no special plan signal of their own.
 TYPE_REPRESENTATIVE = {
-    "TOP": {"tanque": "Gnar", "bruiser": "Garen", "split": "Fiora"},
+    "TOP": {"tanque": "Gnar", "bruiser": "Garen", "split": "Fiora", "mago": "Vladimir"},
     "JUNGLE": {"early": "LeeSin", "tanque": "Zac", "farm": "Viego"},
     "MIDDLE": {"control": "Orianna", "asesino": "Zed", "melee": "Yasuo"},
     "UTILITY": {"engage": "Leona", "peel": "Lulu", "mixto": "Thresh", "poke": "Lux"},
-    "BOTTOM": {"followup": "Kaisa", "kiting": "Zeri", "flexible": "Jinx"},
+    "BOTTOM": {"followup": "Kaisa", "kiting": "Zeri", "flexible": "Jinx", "mago": "Syndra"},
 }
 
 # What a user may type -> Data Dragon name (normalized with `normalize_name`).
@@ -164,6 +180,9 @@ CHAMPION_ALIASES = {"wukong": "MonkeyKing", "renataglasc": "Renata", "nunuywillu
 
 _CANONICAL = {normalize_name(c): c for c in (*ADC_CLASS, *SUPPORT_CLASS, *HARD_ENGAGE,
                                               *(c for table in ROLE_CLASS.values() for c in table))}
+for _name, _entry in CLASSES.items():              # every champion of the JSON, and its API spelling
+    for _spelling in (_name, *(_entry.get("aliases") or [])):
+        _CANONICAL[normalize_name(_spelling)] = table_key(_name, _entry)
 _CANONICAL.update({k: v for k, v in CHAMPION_ALIASES.items()})
 
 
@@ -186,13 +205,13 @@ def _lookup(table, champion):
 
 
 def adc_archetype(champion) -> str:
-    """followup / kiting / flexible, or "otro" when the champion is not classified."""
+    """followup / kiting / flexible / mago, or "otro" when the champion is not classified."""
     entry = _lookup(ADC_CLASS, champion)
     return entry["type"] if entry else "otro"
 
 
 def adc_source(champion) -> str | None:
-    """"video" or "propia" for a classified ADC, None otherwise."""
+    """Where the ADC's type comes from (see SOURCE_LABELS), None when not classified."""
     entry = _lookup(ADC_CLASS, champion)
     return entry["source"] if entry else None
 
@@ -219,7 +238,7 @@ def role_type(role: str, champion) -> str:
 
 
 def role_source(role: str, champion) -> str | None:
-    """"video" / "propia" for a classified champion in that role, None when not classified."""
+    """Where the type comes from ("video", "oficial", "criterio", "datos", "pendiente"), None if not classified."""
     if role == "UTILITY":
         return support_source(champion)
     if role == "BOTTOM":
@@ -285,8 +304,10 @@ def team_signals(team) -> dict[str, list[str]]:
     """Per signal, the champions of `team` (dicts with champion/role) that contribute to it.
 
     engage: hard engage (existing list, plus engage supports) · peel: peel/mixed supports and
-    Shen/Tahm Kench/Braum · poke: artillery mids, poke supports, Ezreal/Varus/Jayce/Caitlyn ·
-    hyper: flexible/kiting ADC, or Kayle/Kassadin/Vayne at top or mid · split: split top ·
+    Shen/Tahm Kench/Braum · poke: artillery mids, artillery mage ADCs (Ziggs, Hwei...), poke supports,
+    Ezreal/Varus/Jayce/Caitlyn ·
+    hyper: flexible/kiting ADC, or Kayle/Kassadin/Vayne at top or mid · split: split top (a top
+    mage is not one) ·
     pick: asesino mid, early jungle, catcher supports (Thresh, Blitzcrank, Pyke, Nautilus) ·
     followup: a follow-up ADC. Each player counts at most once per signal.
     """
@@ -300,7 +321,8 @@ def team_signals(team) -> dict[str, list[str]]:
             sig["engage"].append(champ)
         if sup in ("peel", "mixto") or champ in WARDENS:
             sig["peel"].append(champ)
-        if (role == "MIDDLE" and champ in POKE_MID) or sup == "poke" or champ in POKE_CARRIES:
+        if ((role == "MIDDLE" and champ in POKE_MID) or sup == "poke" or champ in POKE_CARRIES
+                or (role == "BOTTOM" and champ in POKE_MID and adc_archetype(champ) == "mago")):
             sig["poke"].append(champ)
         if role == "BOTTOM" and adc_archetype(champ) in ("flexible", "kiting"):
             sig["hyper"].append(champ)
@@ -996,14 +1018,20 @@ FIT = {
     "followup": {"engage": 1.0, "mixto": 0.5, "peel": -0.4, "poke": -0.5, "otro": 0.0},
     "kiting": {"engage": -0.2, "mixto": 0.5, "peel": 1.0, "poke": 0.3, "otro": 0.0},
     "flexible": {s: 0.4 for s in SUPPORT_ORDER},
+    # Own judgment, not from the video and not calibrated with data yet: a mage ADC (Ziggs, Lux,
+    # Brand, Seraphine...) is fragile like a kiting ADC but does not need to be chased, so peel and
+    # mixed supports fit a little, engage is neutral and a poke support doubles up (neutral).
+    "mago": {"engage": 0.1, "mixto": 0.3, "peel": 0.3, "poke": 0.0, "otro": 0.0},
     "otro": {s: 0.0 for s in SUPPORT_ORDER},
 }
 # No idea who the support will be: follow-ups are bad first picks, flexible ones are safe.
-FIT_UNKNOWN_SUPPORT = {"followup": -0.6, "kiting": 0.0, "flexible": 0.6, "otro": 0.0}
+FIT_UNKNOWN_SUPPORT = {"followup": -0.6, "kiting": 0.0, "flexible": 0.6, "mago": 0.0, "otro": 0.0}
 # Extra fit from the hard-engage champions of the rest of the team (0, 1, 2, 3+).
 ENGAGE_FIT = {
     "followup": {"0": -0.3, "1": 0.1, "2": 0.4, "3+": 0.5},
     "kiting": {"0": 0.0, "1": 0.0, "2": -0.2, "3+": -0.4},
+    # Own judgment (not calibrated): a mage ADC gains slightly from teammates who start the fight.
+    "mago": {"0": 0.0, "1": 0.0, "2": 0.1, "3+": 0.2},
 }
 # Weights of the final score (a weighted average of values in [-1, 1]):
 #   rule fit   weight 1 (constant)
@@ -1105,6 +1133,11 @@ def _arch_reason(champion, adc_type, profile, arch_fit) -> str | None:
         return None
     if adc_type == "flexible":
         return f"{champion} es flexible: funciona con cualquier soporte y es un first pick seguro."
+    if adc_type == "mago":
+        if profile["dist"] is None:
+            return f"{champion} es un mago en el ADC: sin saber el soporte no hay una regla clara, encaje neutro."
+        return (f"{_support_phrase(profile)}: encaje {'bueno' if arch_fit >= 0.3 else 'neutro'} "
+                f"para {champion} (mago; regla propia sin calibrar).")
     if profile["dist"] is None:
         if adc_type == "followup":
             return (f"{champion} es follow-up: sin saber el soporte es un mal first pick, "
@@ -1120,8 +1153,8 @@ def _arch_reason(champion, adc_type, profile, arch_fit) -> str | None:
 
 
 def _engage_reason(champion, adc_type, engage) -> str | None:
-    if engage is None or adc_type not in ENGAGE_FIT:
-        return None
+    if engage is None or adc_type not in ("followup", "kiting"):
+        return None                       # the mage row of ENGAGE_FIT only adds to the score
     n = engage_bucket(engage)
     plural = "campeón de engage duro" if engage == 1 else "campeones de engage duro"
     if adc_type == "followup":
@@ -1384,12 +1417,17 @@ def _line_rules(role, kind, slots) -> list[tuple[float, str | None]]:
         elif kind == "bruiser":
             parts.append((0.3, "Un bruiser es el pick seguro del top: aguanta y pega."))
         elif kind == "split":
-            hold = _union(_p_type(slots, "UTILITY", "peel", "mixto"), _p_type(slots, "MIDDLE", "control"))
+            # own judgment: a mage ADC also zones the enemy while the top is away
+            hold = _union(_p_type(slots, "UTILITY", "peel", "mixto"), _p_type(slots, "MIDDLE", "control"),
+                          _p_type(slots, "BOTTOM", "mago"))
             v = -0.4 + 0.9 * hold
             text = ("El resto puede aguantar el 4v4 (peel o control), así que el split push es viable."
                     if v > 0.2 else "El split push solo funciona si el resto aguanta 4v4 (peel o control) "
                     "y eso no está asegurado.")
             parts.append((v, text))
+        elif kind == "mago":
+            # own judgment, kept neutral until it is calibrated with data
+            parts.append((0.1, "Un top mago no depende del resto del equipo: pick neutro, sin una regla clara."))
     elif role == "UTILITY":
         adc = slots["BOTTOM"]
         if adc["champs"]:
@@ -1661,9 +1699,15 @@ def _table(headers, rows) -> list[str]:
 
 
 CLASSIFICATION_NOTE = (
-    "Las clasificaciones de top, jungla y mid, la del plan de pelea y las marcadas como «propia» en "
-    "ADC y soporte son nuestras (basadas en guías como EarlyGame, LoLTheory, WeCoach y Mobalytics); "
-    "no son datos oficiales de Riot. Solo los ADC y soportes del video de coaching llevan «video».")
+    "El tipo de cada campeón sale de la clase oficial de Riot (subclase), de un criterio nuestro cuando "
+    "esa clase no decide, de los datos de partidas Diamante+ («por datos») o del video de coaching "
+    "(«del video», solo ADC y soportes). Los marcados «pendiente de datos» son dudosos y esperan a que "
+    "los datos los decidan. El plan de pelea es una heurística nuestra, no un dato de Riot.")
+
+
+def source_tag(source) -> str:
+    """", del video" / ", criterio" ... for the text reports; empty when the type has no source."""
+    return f", {SOURCE_LABELS[source]}" if source in SOURCE_LABELS else ""
 
 
 def _type_cell(row) -> str:
@@ -1717,7 +1761,7 @@ def _md_duo_support(a) -> list[str]:
         for r in rows:
             key = ADC_LABELS.get(r["key"], r["key"]) if title.endswith("arquetipo de ADC") else r["key"]
             if extra:
-                key = f"{key} ({ADC_LABELS[r['archetype']].lower()}{', propia' if r['source'] == 'propia' else ''})"
+                key = f"{key} ({ADC_LABELS[r['archetype']].lower()}{source_tag(r['source'])})"
             body.append([key, r["games"], _rec(r), _pct(r["shrunk"]), _signed(r["gold_diff_14"]),
                          "-" if r["deaths"] is None else f"{r['deaths']:.1f}"])
         out += _table(["ADC", "Partidas", "Récord", "WR ajustado", "Dif. oro @14", "Muertes"], body) \
@@ -1802,8 +1846,7 @@ def _md_plans(a) -> list[str]:
 def _pick_name(pick) -> str:
     if pick["kind"] == "tipo":
         return f"Tipo: {pick['type_label']}"
-    return f"{pick['champion']} ({pick['type_label'].lower()}" + \
-        (", propia" if pick["source"] == "propia" else "") + ")"
+    return f"{pick['champion']} ({pick['type_label'].lower()}{source_tag(pick['source'])})"
 
 
 def _draft_order(draft) -> list[str]:
@@ -1952,7 +1995,7 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
             for r in rows:
                 key = SUPPORT_LABELS.get(r["key"], r["key"]) if title.endswith("arquetipo de soporte") else r["key"]
                 if extra:
-                    key = f"{key} ({SUPPORT_LABELS[r['archetype']].lower()}{', propia' if r['source'] == 'propia' else ''})"
+                    key = f"{key} ({SUPPORT_LABELS[r['archetype']].lower()}{source_tag(r['source'])})"
                 body.append([key, r["games"], _rec(r), _pct(r["shrunk"]), _signed(r["gold_diff_14"]),
                              "-" if r["deaths"] is None else f"{r['deaths']:.1f}"])
             out += _table(["Soporte", "Partidas", "Récord", "WR ajustado", "Dif. oro @14", "Muertes"], body) \
@@ -2022,7 +2065,7 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
         out.append("")
         for i, x in enumerate(ranking[:6], 1):
             out.append(f"{i}. **{x['champion']}** ({ADC_LABELS[x['adc_type']].lower()}"
-                       f"{', propia' if x['adc_source'] == 'propia' else ''}) · puntaje {x['score']}")
+                       f"{source_tag(x['adc_source'])}) · puntaje {x['score']}")
             out += [f"   - {t}" for t in x["reasons"]]
     elif draft is not None and (lineup or notes):
         out += ["", f"## Draft como {role_name(ml)}", ""]

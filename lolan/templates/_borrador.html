@@ -8,7 +8,7 @@
     {% for x in ranking[:8] %}
     <li>
       <div class="rec-head"><strong>{{ x.champion }}</strong>
-        <span class="badge main">{{ adc_labels[x.adc_type] }}{% if x.adc_source == 'propia' %} · clasificación propia{% endif %}</span>
+        <span class="badge main">{{ adc_labels[x.adc_type] }}{% if x.adc_source %} · {{ source_labels[x.adc_source] }}{% endif %}</span>
         <span class="muted">puntaje {{ x.score }}</span>
         {% if not x.in_pool %}<span class="muted">· fuera de tu pool</span>{% endif %}</div>
       <ul>{% for r in x.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
@@ -22,7 +22,7 @@
 
   {% if draft %}
   <h3>{{ others_title|default('Otras líneas') }}</h3>
-  <p class="muted">Cada pick se puntúa con las reglas del marco (pesan más cuando hay pocos datos) y con tus resultados: el winrate de tu equipo con ese tipo en esa línea y con la dupla relevante (jungla × mid, jungla × top, soporte × ADC) cuando hay 10 partidas o más, y el winrate de esa persona con ese campeón. Las clasificaciones son propias, no datos de Riot.</p>
+  <p class="muted">Cada pick se puntúa con las reglas del marco (pesan más cuando hay pocos datos) y con tus resultados: el winrate de tu equipo con ese tipo en esa línea y con la dupla relevante (jungla × mid, jungla × top, soporte × ADC) cuando hay 10 partidas o más, y el winrate de esa persona con ese campeón. Los tipos salen de la clase oficial de Riot, de nuestro criterio y del video; el plan de pelea es una heurística nuestra, no un dato de Riot.</p>
   {% for role in draft_roles %}
   {% set e = draft.roles[role] %}
   <div class="draft-role">
@@ -36,7 +36,7 @@
       {% for x in e.picks %}
       <li>
         <div class="rec-head"><strong>{% if x.kind == 'tipo' %}Tipo: {{ x.type_label }}{% else %}{{ x.champion }}{% endif %}</strong>
-          {% if x.kind == 'campeon' %}<span class="badge main">{{ x.type_label }}{% if x.source == 'propia' %} · clasificación propia{% endif %}</span>{% endif %}
+          {% if x.kind == 'campeon' %}<span class="badge main">{{ x.type_label }}{% if x.source %} · {{ source_labels[x.source] }}{% endif %}</span>{% endif %}
           <span class="muted">puntaje {{ x.score }}</span>
           {% if x.plan_label %}<span class="muted">· plan {{ x.plan_label }}</span>{% endif %}</div>
         <ul>{% for r in x.reasons %}<li>{{ r }}</li>{% endfor %}</ul>

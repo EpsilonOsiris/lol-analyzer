@@ -1350,6 +1350,13 @@
         "current": "flexible",
         "current_source": "propia",
         "note": "Se mantiene (propia)."
+      },
+      "MIDDLE": {
+        "type": "control",
+        "basis": "actual",
+        "current": "control",
+        "current_source": "propia",
+        "note": "Se mantiene la clasificacion anterior (no estaba en la propuesta)."
       }
     },
     "sources": {
@@ -5780,6 +5787,13 @@
         "current": null,
         "current_source": null,
         "note": "Vanguard."
+      },
+      "TOP": {
+        "type": "tanque",
+        "basis": "actual",
+        "current": "tanque",
+        "current_source": "propia",
+        "note": "Se mantiene la clasificacion anterior (no estaba en la propuesta)."
       }
     },
     "sources": {
@@ -5869,6 +5883,13 @@
         "current": "engage",
         "current_source": "propia",
         "note": "Vanguard."
+      },
+      "JUNGLE": {
+        "type": "tanque",
+        "basis": "actual",
+        "current": "tanque",
+        "current_source": "propia",
+        "note": "Se mantiene la clasificacion anterior (no estaba en la propuesta)."
       }
     },
     "sources": {
@@ -6806,6 +6827,13 @@
         "current": "tanque",
         "current_source": "propia",
         "note": "Subclase Vanguard/Juggernaut."
+      },
+      "TOP": {
+        "type": "bruiser",
+        "basis": "actual",
+        "current": "bruiser",
+        "current_source": "propia",
+        "note": "Se mantiene la clasificacion anterior (no estaba en la propuesta)."
       }
     },
     "sources": {

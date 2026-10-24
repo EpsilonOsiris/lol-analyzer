@@ -71,7 +71,7 @@ def test_page_shows_lines_pairs_and_plans(client):
     html = text(client.get("/composiciones?cola=flex"))
     for needle in ('id="por-linea"', "tus aliados, sin contarte", 'id="duplas"', "Jungla × Mid",
                    "Jungla × Top", "Soporte × ADC", 'id="plan-de-pelea"', "Tu plan × plan rival",
-                   "Tanque/engage", "son propias", "EarlyGame", "no son datos oficiales de Riot"):
+                   "Tanque/engage", "salen de la clase oficial de Riot", "heurística nuestra"):
         assert needle in html, needle
     # Sejuani is the only classified ally in the jungle: 12 games, and Beta appears as a person there.
     assert "Epsilon Beta" in html[html.index('id="por-linea"'):html.index('id="duplas"')]
@@ -101,7 +101,7 @@ def test_match_page_shows_both_team_plans(client):
     html = text(r)
     assert r.status_code == 200
     assert 'id="plan-pelea"' in html and "Plan de pelea: tu equipo" in html
-    assert "Clasificación propia" in html
+    assert "Tipos por clase oficial de Riot" in html
 
 
 def test_nav_link_after_clan(client):

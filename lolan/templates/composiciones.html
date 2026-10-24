@@ -4,6 +4,7 @@
 {% block content %}
 {% set adc_labels = c.ADC_LABELS %}
 {% set sup_labels = c.SUPPORT_LABELS %}
+{% set source_labels = c.SOURCE_LABELS %}
 {% set duo = a.duo %}
 <h1>Composiciones <span class="sub">{{ queue_labels[cola] }}</span></h1>
 <p class="muted">Todo se calcula desde tu asiento (tus {{ a.games }} partidas de {{ cola_text }}; {{ a.own_games }} como {{ main_role|role }}; {{ a.clan_games }} con algún otro miembro del clan en tu equipo). Un jugador es del clan si su nombre empieza con «{{ clan_prefix }}» o es una cuenta registrada; puedes cambiarlo en <a href="{{ u('config_page') }}">Configuración</a>.</p>
@@ -24,8 +25,8 @@
     <li><strong>ADC flexibles / híbridos</strong> (en el video: Ashe, Jinx, Aphelios, Senna, Varus, Caitlyn, Kog'Maw): funcionan con cualquier soporte y son first picks seguros.</li>
   </ul>
   {%- endif %}
-  {% if main_role in ('BOTTOM', 'UTILITY') %}<p>Las clasificaciones marcadas como <em>propia</em> (por ejemplo Jhin, Yunara, Miss Fortune, Xayah o los soportes que no son Taric, Tahm Kench y Braum) <strong>no son del video</strong>: las añadimos nosotros por analogía. Los ADC y soportes sin clasificar aparecen como «Sin clasificar».</p>{% endif %}
-  <p>Las clasificaciones de <strong>top, jungla y mid</strong> (top: tanque, bruiser, split; jungla: early, tanque/engage, carry/farm; mid: control/artillería, asesino/roamer, duelista melee) y el <strong>plan de pelea</strong> de cada equipo (engage, proteger al carry, poke, pick, split, mixto) <strong>son propias</strong>, armadas a partir de guías (EarlyGame, LoLTheory, WeCoach, Mobalytics); no son datos oficiales de Riot. El plan sale de contar en los cinco aliados el engage duro, el peel, el poke, los picks y el split.</p>
+  {% if main_role in ('BOTTOM', 'UTILITY') %}<p>Cada tipo de campeón indica de dónde sale: <em>del video</em> (solo ADC y soportes), <em>clase oficial de Riot</em> (se deduce de su subclase), <em>criterio</em> (decisión nuestra cuando la subclase no decide), <em>por datos</em> (decidido con partidas Diamante+) o <em>pendiente de datos</em> (dudoso: espera a que los datos lo decidan). Los que <strong>no son del video</strong> los clasificamos nosotros. Los ADC y soportes sin clasificar aparecen como «Sin clasificar».</p>{% endif %}
+  <p>Las clasificaciones de <strong>top, jungla y mid</strong> (top: tanque, bruiser, split, mago; jungla: early, tanque/engage, carry/farm; mid: control/artillería, asesino/roamer, duelista melee; el ADC también puede ser «mago») salen de la clase oficial de Riot y de criterio nuestro. El <strong>plan de pelea</strong> de cada equipo (engage, proteger al carry, poke, pick, split, mixto) <strong>es una heurística nuestra</strong>, no un dato oficial de Riot. El plan sale de contar en los cinco aliados el engage duro, el peel, el poke, los picks y el split.</p>
   <p>Los winrates se ordenan con el winrate ajustado <code>(victorias + 5) / (partidas + 10)</code>, que evita que un 2-0 parezca mejor que un 20-8. El récord y las partidas siempre se muestran. Las filas con menos de {{ min_games }} partidas aparecen atenuadas y con <abbr class="tag" title="Muestra pequeña">*</abbr>.</p>
 </details>
 
@@ -118,7 +119,7 @@
     <tbody>
     {% for r in rows %}
     <tr class="{{ 'dim' if r.small else '' }}">
-      <td>{% if kind == 'a' %}{{ sup_labels[r.key] }}{% elif kind == 'c' %}{{ r.key }} <span class="muted">({{ sup_labels[r.archetype]|lower }}{% if r.source == 'propia' %}, clasificación propia{% elif r.source == 'video' %}, del video{% endif %})</span>{% else %}{{ r.key }}{% endif %}</td>
+      <td>{% if kind == 'a' %}{{ sup_labels[r.key] }}{% elif kind == 'c' %}{{ r.key }} <span class="muted">({{ sup_labels[r.archetype]|lower }}{% if r.source %}, {{ source_labels[r.source] }}{% endif %})</span>{% else %}{{ r.key }}{% endif %}</td>
       <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
       <td class="num" data-v="{{ r.winrate }}">{{ m.rec(r) }}</td>
       <td class="num" data-v="{{ r.shrunk }}">{{ r.shrunk|pct }}</td>
@@ -182,7 +183,7 @@
     <tbody>
     {% for r in rows %}
     <tr class="{{ 'dim' if r.small else '' }}">
-      <td>{% if kind == 'a' %}{{ adc_labels[r.key] }}{% elif kind == 'c' %}{{ r.key }} <span class="muted">({{ adc_labels[r.archetype]|lower }}{% if r.source == 'propia' %}, clasificación propia{% elif r.source == 'video' %}, del video{% endif %})</span>{% else %}{{ r.key }}{% endif %}</td>
+      <td>{% if kind == 'a' %}{{ adc_labels[r.key] }}{% elif kind == 'c' %}{{ r.key }} <span class="muted">({{ adc_labels[r.archetype]|lower }}{% if r.source %}, {{ source_labels[r.source] }}{% endif %})</span>{% else %}{{ r.key }}{% endif %}</td>
       <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
       <td class="num" data-v="{{ r.winrate }}">{{ m.rec(r) }}</td>
       <td class="num" data-v="{{ r.shrunk }}">{{ r.shrunk|pct }}</td>
@@ -214,7 +215,7 @@
 {%- else -%}
 <section class="card flush" id="tu-asiento">
   <h2 class="pad">Tú en {{ main_role|role|lower }} <span class="sub muted">{{ a.own_games }} partidas</span></h2>
-  <p class="note pad">El tipo de campeón que jugaste (clasificación propia) contra el tipo de tu aliado en la línea vecina, solo en tus partidas de {{ main_role|role }}. Se ordena por winrate ajustado; las filas con menos de {{ min_games }} partidas van al final y atenuadas.</p>
+  <p class="note pad">El tipo de campeón que jugaste contra el tipo de tu aliado en la línea vecina, solo en tus partidas de {{ main_role|role }}. Se ordena por winrate ajustado; las filas con menos de {{ min_games }} partidas van al final y atenuadas.</p>
   {% for pair in a.own_pairs %}
   <h3 class="pad">{{ pair.title }} <span class="muted">· {{ pair.games }} partidas</span></h3>
   {% if pair.rows %}
@@ -238,7 +239,7 @@
 
 <section class="card flush" id="por-linea">
   <h2 class="pad">Por línea <span class="sub muted">tus aliados, sin contarte</span></h2>
-  <p class="note pad">Winrate de tu equipo según el tipo del aliado en cada línea (clasificación propia en top, jungla y mid). Las partidas en las que tú juegas esa línea no cuentan en ella. Debajo, qué tipos juega cada persona del clan en esa línea y cómo le va a tu equipo con cada uno.</p>
+  <p class="note pad">Winrate de tu equipo según el tipo del aliado en cada línea (tipos por clase oficial de Riot y criterio nuestro). Las partidas en las que tú juegas esa línea no cuentan en ella. Debajo, qué tipos juega cada persona del clan en esa línea y cómo le va a tu equipo con cada uno.</p>
   {% for line in a.lines %}
   <h3 class="pad">{{ line.label }} <span class="muted">· {{ line.games }} partidas</span></h3>
   {% if line.by_type %}
