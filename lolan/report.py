@@ -23,7 +23,13 @@ def _fmt(v, digits=2):
     return "-" if v is None else f"{v:.{digits}f}"
 
 
-def _group_rows(groups, label_header="Grupo"):
+def _group_rows(groups, label_header="Grupo", profile=None):
+    if profile is not None and profile.key != "lane":
+        # Stats that only apply to some lines show "-" in the rows of the others.
+        headers = [label_header, "Partidas", "Winrate"] + [an.COLUMN_LABELS[k] for k in profile.columns]
+        rows = [[g["label"], g["games"], an.fmt_pct(g["winrate"])]
+                + [an.fmt_value(k, g[k]) for k in profile.columns] for g in groups]
+        return headers, rows
     headers = [label_header, "Partidas", "Winrate", "KDA", "CS/min", "Muertes/10min",
                "Dif. oro @14", "Dif. CS @14"]
     rows = [[
@@ -54,34 +60,52 @@ def _insight_lines(ins) -> str:
 
 
 # --------------------------------------------------------------- summary
+def _line_intro(games, profile) -> list[str]:
+    """What line the report covers, for every line but the laner's (whose reports stay as they were)."""
+    if profile.key == "lane":
+        return []
+    roles = sorted({an.role_name(g.get("role")) for g in games})
+    names = ", ".join(roles) if profile.key != "mixed" else "varias (" + ", ".join(roles) + ")"
+    return [f"Línea: **{names}**. {profile.note}\n"]
+
+
 def render_summary(games) -> str:
     s = an.summarize(games)
     o = s["overall"]
+    profile = an.profile_for_games(games)
     lines = ["# Resumen general\n"]
-    lines.append(
-        f"Partidas analizadas: **{o['games']}** ({o['wins']} victorias, {o['games'] - o['wins']} derrotas). "
-        f"Winrate: **{an.fmt_pct(o['winrate'])}**. KDA global: {_fmt(o['kda'])}. "
-        f"CS/min promedio: {_fmt(o['cs_per_min'])}. Muertes por 10 min: {_fmt(o['deaths_per_10'])}.\n")
+    lines += _line_intro(games, profile)
+    if profile.key == "lane":
+        lines.append(
+            f"Partidas analizadas: **{o['games']}** ({o['wins']} victorias, {o['games'] - o['wins']} derrotas). "
+            f"Winrate: **{an.fmt_pct(o['winrate'])}**. KDA global: {_fmt(o['kda'])}. "
+            f"CS/min promedio: {_fmt(o['cs_per_min'])}. Muertes por 10 min: {_fmt(o['deaths_per_10'])}.\n")
+    else:
+        extra = " ".join(f"{an.COLUMN_LABELS[k]}: {an.fmt_value(k, o[k])}." for k in profile.tiles)
+        lines.append(
+            f"Partidas analizadas: **{o['games']}** ({o['wins']} victorias, {o['games'] - o['wins']} derrotas). "
+            f"Winrate: **{an.fmt_pct(o['winrate'])}**. KDA global: {_fmt(o['kda'])}. {extra} "
+            f"Muertes por 10 min: {_fmt(o['deaths_per_10'])}.\n")
     if games:
         lines.append(f"Periodo: {games[0]['date']} a {games[-1]['date']}.\n")
 
     for title, key, header in (("Por cola", "by_queue", "Cola"), ("Por rol", "by_role", "Rol")):
         lines.append(f"## {title}\n")
-        lines.append(_table(*_group_rows(s[key], header)))
+        lines.append(_table(*_group_rows(s[key], header, profile)))
 
     lines.append("## Por campeón\n")
-    lines.append(_table(*_group_rows(s["by_champion"], "Campeón")))
+    lines.append(_table(*_group_rows(s["by_champion"], "Campeón", profile)))
 
     lines.append("## Tendencias\n")
     lines.append("### Por mes\n")
-    lines.append(_table(*_group_rows(an.trend_by_month(games), "Mes")))
+    lines.append(_table(*_group_rows(an.trend_by_month(games), "Mes", profile)))
     lines.append("### Por día de la semana\n")
-    lines.append(_table(*_group_rows(an.trend_by_weekday(games), "Día")))
+    lines.append(_table(*_group_rows(an.trend_by_weekday(games), "Día", profile)))
     sess = an.trend_by_session_game(games)
     lines.append(f"### Por número de partida dentro de la sesión\n")
     lines.append(f"Una sesión es una racha de partidas con menos de {an.SESSION_GAP_MIN} minutos de "
                  f"separación. Sesiones detectadas: {sess['sessions']}.\n")
-    lines.append(_table(*_group_rows(sess["by_position"], "Posición")))
+    lines.append(_table(*_group_rows(sess["by_position"], "Posición", profile)))
     if sess["after_win"] and sess["after_loss"]:
         lines.append(
             f"Winrate justo después de una victoria: {an.fmt_pct(sess['after_win']['winrate'])} "
@@ -117,18 +141,25 @@ def render_champion(games, champion) -> str:
         return lines[0] + "\nNo hay partidas con este campeón.\n"
     lines.append(f"Partidas: **{st['games']}** ({ins['wins']} victorias, {ins['losses']} derrotas). "
                  f"Winrate: **{an.fmt_pct(st['winrate'])}**.\n")
+    champ_games = an.games_for_champion(games, champion)
+    profile = an.profile_for_games(champ_games)
+    lines += _line_intro(champ_games, profile)
     lines.append("## Promedios\n")
-    lines.append(_table(["Métrica", "Valor"], [
-        ["KDA", _fmt(st["kda"])],
-        ["CS por minuto", _fmt(st["cs_per_min"])],
-        ["Oro por minuto", _fmt(st["gold_per_min"], 0)],
-        ["Muertes por 10 min", _fmt(st["deaths_per_10"])],
-        ["Participación en kills", an.fmt_pct(st["kp"])],
-        ["Visión por minuto", _fmt(st["vision_per_min"])],
-        ["Dif. de oro @14", _fmt(st["gold_diff_14"], 0)],
-        ["Dif. de CS @14", _fmt(st["cs_diff_14"], 1)],
-        ["Dif. de XP @14", _fmt(st["xp_diff_14"], 0)],
-    ]))
+    if profile.key == "lane":
+        lines.append(_table(["Métrica", "Valor"], [
+            ["KDA", _fmt(st["kda"])],
+            ["CS por minuto", _fmt(st["cs_per_min"])],
+            ["Oro por minuto", _fmt(st["gold_per_min"], 0)],
+            ["Muertes por 10 min", _fmt(st["deaths_per_10"])],
+            ["Participación en kills", an.fmt_pct(st["kp"])],
+            ["Visión por minuto", _fmt(st["vision_per_min"])],
+            ["Dif. de oro @14", _fmt(st["gold_diff_14"], 0)],
+            ["Dif. de CS @14", _fmt(st["cs_diff_14"], 1)],
+            ["Dif. de XP @14", _fmt(st["xp_diff_14"], 0)],
+        ]))
+    else:
+        lines.append(_table(["Métrica", "Valor"], [
+            [an.METRICS[k][0], an.fmt_value(k, st[k])] for k in profile.averages]))
     lines.append("## Qué decide tus partidas con este campeón\n")
     lines.append(_insight_lines(ins))
     return "\n".join(lines) + "\n"
@@ -141,7 +172,7 @@ def render_card_markdown(card) -> str:
              f"**{card['champion']}** ({an.role_name(card['role'])}) - {res} - "
              f"{an.fmt_minutes(card['duration_min'])} - KDA {card['kda_text']} - {card['date']}\n"]
     if card.get("opp_champion"):
-        lines.append(f"Rival de línea: **{card['opp_champion']}**.\n")
+        lines.append(f"{card['rival_label']}: **{card['opp_champion']}**.\n")
     if not card["has_timeline"]:
         lines.append("_Esta partida no tiene timeline; faltan métricas por minuto y por fase._\n")
     lines.append("## Fortalezas\n")
@@ -152,8 +183,9 @@ def render_card_markdown(card) -> str:
     rows = []
     for r in card["rows"]:
         pct = "-" if r["goodness"] is None else f"{r['goodness']:.0f} ({r['scope']}, n={r['n']})"
-        rows.append([r["label"], r["fmt"], r["opp_fmt"], pct, r["verdict"] or "-"])
-    lines.append(_table(["Métrica", "Tú", "Rival de línea", "Percentil propio (mayor = mejor)", "Veredicto"], rows))
+        verdict = "informativo" if r.get("neutral") else r["verdict"] or "-"
+        rows.append([r["label"], r["fmt"], r["opp_fmt"], pct, verdict])
+    lines.append(_table(["Métrica", "Tú", card["rival_label"], "Percentil propio (mayor = mejor)", "Veredicto"], rows))
     return "\n".join(lines) + "\n"
 
 
@@ -178,7 +210,9 @@ def write_csv(games, path) -> Path:
     return path
 
 
-def write_reports(games, reports_dir, data_dir, csv_name: str = "games.csv") -> dict:
+def write_reports(games, reports_dir, data_dir, csv_name: str = "games.csv", all_games=None) -> dict:
+    """Reports of `games` (one line, or all); the CSV and the cards' comparison pool use `all_games`."""
+    all_games = games if all_games is None else all_games
     reports_dir, data_dir = Path(reports_dir), Path(data_dir)
     for sub in ("campeones", "partidas"):
         (reports_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -186,7 +220,7 @@ def write_reports(games, reports_dir, data_dir, csv_name: str = "games.csv") -> 
         for old in (reports_dir / sub).glob("*.md"):
             old.unlink()
 
-    csv_path = write_csv(games, data_dir / csv_name)
+    csv_path = write_csv(all_games, data_dir / csv_name)
     (reports_dir / "resumen.md").write_text(render_summary(games), encoding="utf-8")
 
     champions = sorted({g["champion"] for g in games if g.get("champion")})
@@ -196,7 +230,7 @@ def write_reports(games, reports_dir, data_dir, csv_name: str = "games.csv") -> 
 
     recent = games[-RECENT_GAME_REPORTS:]
     for g in recent:
-        card = an.game_report_card(g, games)
+        card = an.game_report_card(g, all_games)
         (reports_dir / "partidas" / f"{_safe_filename(g['match_id'])}.md").write_text(
             render_card_markdown(card), encoding="utf-8")
 

@@ -59,6 +59,17 @@ def _parse_line(text: str) -> str:
     return role
 
 
+def _parse_line_or_all(text: str) -> str:
+    """auto / todas / top / jungla / mid / adc / soporte -> "auto", "todas" or the role."""
+    if text.strip().casefold() == "todas":
+        return "todas"
+    from .comps import parse_line
+    role = parse_line(text)
+    if role is None:
+        raise argparse.ArgumentTypeError("la línea debe ser auto, todas, top, jungla, mid, adc o soporte")
+    return role
+
+
 def _parse_queue(text: str) -> int:
     key = text.strip().casefold()
     if key in QUEUE_ALIASES:
@@ -136,6 +147,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="incluye colas que no son de la Grieta del Invocador")
     p.add_argument("--cola", type=_parse_queue, metavar="COLA",
                    help="analiza solo esa cola: solo, flex, normal, blind, quickplay o un número")
+    p.add_argument("--linea", type=_parse_line_or_all, metavar="LINEA",
+                   help="línea a analizar: top, jungla, mid, adc, soporte o todas (por defecto, auto: la que "
+                        "más juega el jugador en esa cola)")
     who = p.add_mutually_exclusive_group()
     _add_player_arg(who, "analiza a este jugador registrado")
     who.add_argument("--clan", action="store_true",
@@ -151,6 +165,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("nombre", help="nombre del campeón (por ejemplo Ahri)")
     p.add_argument("--todas-las-colas", action="store_true")
     p.add_argument("--cola", type=_parse_queue, metavar="COLA")
+    p.add_argument("--linea", type=_parse_line_or_all, metavar="LINEA",
+                   help="línea a analizar: top, jungla, mid, adc, soporte o todas (por defecto, auto: la que "
+                        "más juega el jugador en esa cola)")
     _add_player_arg(p, "usa las partidas de este jugador registrado")
 
     p = sub.add_parser("jugadores", help="lista, agrega o quita jugadores (los de tu clan)")
@@ -345,12 +362,24 @@ def cmd_rekey(args, cfg) -> int:
     return 0 if result.ok else 1
 
 
-def _write_player_reports(cfg, player, roster, games, queue) -> None:
+def _line_note(line, scoped, games) -> str | None:
+    """"Línea: Soporte (273 de 440 partidas)" when the reports leave games out or are not a laner's."""
+    if len(scoped) == len(games) and an.profile_for_games(scoped).key == "lane":
+        return None
+    name = an.role_name(line) if line else "todas"
+    return f"Línea: {name} ({len(scoped)} de {len(games)} partidas)"
+
+
+def _write_player_reports(cfg, player, roster, games, queue, linea=None) -> None:
     reports_dir, csv_name = report_paths(cfg, player, roster, queue)
-    info = report.write_reports(games, reports_dir, cfg.data_dir, csv_name)
-    o = an.group_stats(games)
+    line = an.resolve_line(linea, games)
+    scoped = an.games_in_line(games, line)
+    info = report.write_reports(scoped, reports_dir, cfg.data_dir, csv_name, all_games=games)
+    o = an.group_stats(scoped)
     print(f"Partidas analizadas: {info['games']} | winrate {an.fmt_pct(o['winrate'])} | "
           f"KDA {o['kda']:.2f}")
+    if (note := _line_note(line, scoped, games)):
+        print(note + ". Se cambia con --linea.")
     print(f"CSV: {info['csv']}")
     print(f"Resumen: {reports_dir / 'resumen.md'}")
     print(f"Campeones: {info['champions']} archivos en {reports_dir / 'campeones'}")
@@ -380,7 +409,7 @@ def _analyze_clan(args, cfg) -> int:
             if not games:
                 print("Hay partidas guardadas pero ninguna es analizable con estos filtros.")
                 continue
-            _write_player_reports(cfg, player, roster, games, args.cola)
+            _write_player_reports(cfg, player, roster, games, args.cola, args.linea)
     finally:
         store.close()
     return 0
@@ -398,7 +427,7 @@ def cmd_analyze(args, cfg) -> int:
               "Grieta del Invocador). Usa --todas-las-colas para incluir otras colas.")
         return 0
     # Each queue gets its own folder and CSV so analyzing one doesn't overwrite another.
-    _write_player_reports(cfg, player, roster, games, args.cola)
+    _write_player_reports(cfg, player, roster, games, args.cola, args.linea)
     return 0
 
 
@@ -428,11 +457,18 @@ def cmd_campeon(args, cfg) -> int:
     if loaded is None:
         return 0
     games = loaded[0]
-    if not an.games_for_champion(games, args.nombre):
-        known = sorted({g["champion"] for g in games})
-        print(f"No hay partidas con '{args.nombre}'. Campeones jugados: {', '.join(known) or '(ninguno)'}.")
+    line = an.resolve_line(args.linea, games)
+    scoped = an.games_in_line(games, line)
+    if not an.games_for_champion(scoped, args.nombre):
+        known = sorted({g["champion"] for g in scoped})
+        elsewhere = an.games_for_champion(games, args.nombre)
+        if elsewhere and line:
+            print(f"No hay partidas con '{args.nombre}' en la línea {an.role_name(line)}, pero sí "
+                  f"{len(elsewhere)} en otras líneas: usa --linea todas.")
+        else:
+            print(f"No hay partidas con '{args.nombre}'. Campeones jugados: {', '.join(known) or '(ninguno)'}.")
         return 1
-    print(report.render_champion(games, args.nombre))
+    print(report.render_champion(scoped, args.nombre))
     return 0
 
 

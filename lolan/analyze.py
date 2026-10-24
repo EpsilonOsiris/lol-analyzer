@@ -5,6 +5,7 @@ import math
 import re
 import statistics
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 
 from .metrics import extract_game_metrics
 
@@ -22,6 +23,19 @@ CS_PER_MIN_GAP = 1.0
 EARLY_DEATHS_WEAK = 2
 SOLO_DEATHS_WEAK = 2
 SOLO_KILLS_STRONG = 2
+# Support report-card thresholds
+VISION_PER_MIN_GAP = 0.5
+SUPPORT_KP_STRONG = 0.75
+SUPPORT_KP_WEAK = 0.40
+SAVES_STRONG = 2
+NO_CONTROL_WARD_MIN = 15
+# Jungle report-card thresholds
+ENEMY_JUNGLE_STRONG = 12
+ENEMY_JUNGLE_WEAK = 20          # what the enemy jungler took from YOUR jungle
+EARLY_KA_STRONG = 7
+EARLY_KA_WEAK = 1
+LANE_ROLES = ("TOP", "MIDDLE", "BOTTOM")
+ROLE_ORDER = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")    # same order as comps.ROLES
 
 # key -> (Spanish label, good direction (+1 higher is better, -1 lower), format kind)
 METRICS = {
@@ -54,9 +68,26 @@ METRICS = {
     "skillshots_dodged": ("Habilidades esquivadas", 1, "num1"),
     "skillshots_hit": ("Habilidades acertadas", 1, "num1"),
     "first_blood": ("Participación en primera sangre", 1, "pct"),
+    # support
+    "assists_per_10": ("Asistencias por 10 min", 1, "num1"),
+    "wards_per_min": ("Wards puestos por minuto", 1, "num2"),
+    "ward_takedowns_per_min": ("Wards destruidos por minuto", 1, "num2"),
+    "heal_shield_per_min": ("Curación y escudos por minuto", 1, "int"),
+    "cc_time_per_min": ("Tiempo de control por minuto (s)", 1, "num2"),
+    "immobilizations_per_10": ("Inmovilizaciones por 10 min", 1, "num1"),
+    "saves": ("Aliados salvados", 1, "num1"),
+    "support_quest": ("Misión de soporte a tiempo", 1, "yesno"),
+    # jungle
+    "jungle_cs_10": ("CS de jungla antes del min 10", 1, "num1"),
+    "enemy_jungle_cs": ("Monstruos de la jungla rival", 1, "num1"),
+    "scuttle_crabs": ("Cangrejos", 1, "num1"),
+    "epic_takedowns": ("Dragones, heraldos y barones", 1, "num1"),
+    "epic_steals": ("Objetivos épicos robados", 1, "num1"),
+    "ka_15": ("Kills y asistencias antes del min 15", 1, "num1"),
+    "early_ka": ("Kills y asistencias antes del min 14", 1, "num1"),
 }
 
-# Metrics evaluated for "what decides your games" on a champion.
+# Metrics evaluated for "what decides your games" on a laner's champion (see LINE_PROFILES).
 INSIGHT_METRICS = [
     "kda", "kills", "deaths", "assists", "deaths_per_10", "cs_per_min", "gold_per_min",
     "damage_per_min", "damage_share", "kp", "vision_per_min", "control_wards", "solo_kills",
@@ -65,7 +96,7 @@ INSIGHT_METRICS = [
     "skillshots_dodged", "skillshots_hit", "first_blood",
 ]
 
-# Metrics shown on a game's report card; value is compared with the lane opponent when
+# Metrics shown on a laner's report card; value is compared with the lane opponent when
 # an opponent counterpart exists.
 CARD_METRICS = [
     ("kda", "opp_kda"),
@@ -84,6 +115,15 @@ CARD_METRICS = [
     ("deaths_enemy_half", None),
     ("solo_kills", None),
 ]
+
+# Short headers of the stats shown in tables and tiles.
+COLUMN_LABELS = {
+    "kda": "KDA", "cs_per_min": "CS/min", "deaths_per_10": "Muertes/10 min", "gold_diff_14": "Dif. oro @14",
+    "vision_per_min": "Visión/min", "kp": "Particip. en kills", "heal_shield_per_min": "Curación y escudos/min",
+    "jungle_cs_10": "CS de jungla @10", "epic_takedowns": "Objetivos épicos", "wards_per_min": "Wards/min",
+}
+# The stat that tells a clan member's line apart from a laner's (the clan table has CS/min and Visión/min).
+CLAN_LINE_STAT = {"support": "heal_shield_per_min", "jungle": "jungle_cs_10"}
 
 QUEUE_NAMES = {
     400: "Normal (draft)",
@@ -120,6 +160,8 @@ def fmt_value(key: str, value) -> str:
         return f"{value:+.0f}"
     if kind == "num1":
         return f"{value:.1f}"
+    if kind == "yesno":
+        return "Sí" if value else "No"
     return f"{value:.2f}"
 
 
@@ -226,24 +268,39 @@ def load_games(store, puuid: str, include_all_queues: bool = False, queue: int |
 
 
 # ----------------------------------------------------------------- summary
+# Averaged stats that only mean something in some lines: the games of other roles are left out of
+# the mean (so CS/min is never averaged with a support's, nor the jungle's CS@10 with a laner's).
+# The role "" (no position in the match) counts as a laner, like everywhere else.
+_LANERS = LANE_ROLES + ("",)
+STAT_ROLES = {
+    "cs_per_min": _LANERS, "cs_diff_14": _LANERS,
+    "gold_diff_14": _LANERS + ("JUNGLE",), "xp_diff_14": _LANERS + ("JUNGLE",),
+    "wards_per_min": ("UTILITY",), "ward_takedowns_per_min": ("UTILITY",),
+    "heal_shield_per_min": ("UTILITY",), "cc_time_per_min": ("UTILITY",),
+    "immobilizations_per_10": ("UTILITY",), "saves": ("UTILITY",), "control_wards": ("UTILITY", "JUNGLE"),
+    "jungle_cs_10": ("JUNGLE",), "enemy_jungle_cs": ("JUNGLE",), "scuttle_crabs": ("JUNGLE",),
+    "epic_takedowns": ("JUNGLE",), "epic_steals": ("JUNGLE",), "ka_15": ("JUNGLE",), "early_ka": ("JUNGLE",),
+}
+
+
 def group_stats(games) -> dict:
     n = len(games)
     wins = sum(g["win"] for g in games)
     deaths = sum(g["deaths"] for g in games)
-    return {
+    out = {
         "games": n,
         "wins": wins,
         "winrate": wins / n if n else None,
         "kda": (sum(g["kills"] + g["assists"] for g in games) / max(1, deaths)) if n else None,
-        "cs_per_min": mean(g.get("cs_per_min") for g in games),
         "gold_per_min": mean(g.get("gold_per_min") for g in games),
         "deaths_per_10": mean(g.get("deaths_per_10") for g in games),
         "kp": mean(g.get("kp") for g in games),
         "vision_per_min": mean(g.get("vision_per_min") for g in games),
-        "gold_diff_14": mean(g.get("gold_diff_14") for g in games),
-        "cs_diff_14": mean(g.get("cs_diff_14") for g in games),
-        "xp_diff_14": mean(g.get("xp_diff_14") for g in games),
+        "assists_per_10": mean(g.get("assists_per_10") for g in games),
     }
+    for key, roles in STAT_ROLES.items():
+        out[key] = mean(g.get(key) for g in games if (g.get("role") or "") in roles)
+    return out
 
 
 def _grouped(games, keyfunc, labelfunc=str):
@@ -292,7 +349,7 @@ def champion_insights(games, champion, min_games=MIN_CHAMPION_GAMES, top_n=5) ->
     if not result["enough"]:
         return result
     entries = []
-    for key in INSIGHT_METRICS:
+    for key in profile_for_games(gs).insights:
         wv = [g.get(key) for g in wins]
         lv = [g.get(key) for g in losses]
         d = effect_size(wv, lv)
@@ -311,13 +368,21 @@ def champion_insights(games, champion, min_games=MIN_CHAMPION_GAMES, top_n=5) ->
 
 # ------------------------------------------------------------- report card
 def _reference_values(game, games, key):
-    """(values, scope, n): player's own distribution on the same champion, else role, else all."""
+    """(values, scope, n): player's own distribution on the same champion, else role, else all.
+
+    Support and jungle games are only compared with games of the same role (their metrics mean
+    nothing for a laner), and never fall back to "all games".
+    """
     others = [g for g in games if g is not game and g.get("match_id") != game.get("match_id")]
-    scopes = (
+    laner = profile_for_role(game.get("role")).key == "lane"
+    if not laner:
+        others = [g for g in others if g.get("role") == game.get("role")]
+    scopes = [
         ("campeón", [g for g in others if g.get("champion") == game.get("champion")]),
         ("rol", [g for g in others if game.get("role") and g.get("role") == game.get("role")]),
-        ("todas las partidas", others),
-    )
+    ]
+    if laner:
+        scopes.append(("todas las partidas", others))
     for scope, pool in scopes:
         vals = [g.get(key) for g in pool if g.get(key) is not None]
         if len(vals) >= MIN_REFERENCE_GAMES:
@@ -325,10 +390,9 @@ def _reference_values(game, games, key):
     return [], None, 0
 
 
-def _rule_flags(g) -> tuple[dict, dict]:
-    """Hard-coded strength/weakness rules; returns ({key: text}, {key: text})."""
-    strengths, weaknesses = {}, {}
-
+# ------------------------------------------------------------ strength / weakness rules
+# Each rule function reads a game row and fills the {key: text} dicts of strengths / weaknesses.
+def _rules_lane(g, strengths, weaknesses) -> None:
     gd = g.get("gold_diff_14")
     if gd is not None:
         if gd >= GOLD_DIFF_14_THRESHOLD:
@@ -355,6 +419,65 @@ def _rule_flags(g) -> tuple[dict, dict]:
         elif xd <= -XP_DIFF_14_THRESHOLD:
             weaknesses["xp_diff_14"] = f"Desventaja de experiencia de {xd:+.0f} al minuto 14."
 
+
+def _rules_support(g, strengths, weaknesses) -> None:
+    vision, theirs = g.get("vision_per_min"), g.get("opp_vision_per_min")
+    if vision is not None and theirs is not None:
+        if vision - theirs >= VISION_PER_MIN_GAP:
+            strengths["vision_per_min"] = (
+                f"Visión de {vision:.1f}/min, {vision - theirs:+.1f} sobre el soporte rival.")
+        elif theirs - vision >= VISION_PER_MIN_GAP:
+            weaknesses["vision_per_min"] = (
+                f"Visión de {vision:.1f}/min, {vision - theirs:+.1f} frente al soporte rival.")
+    kp = g.get("kp")
+    if kp is not None:
+        if kp >= SUPPORT_KP_STRONG:
+            strengths["kp"] = f"Participaste en el {kp * 100:.0f}% de las kills de tu equipo."
+        elif kp <= SUPPORT_KP_WEAK:
+            weaknesses["kp"] = f"Solo participaste en el {kp * 100:.0f}% de las kills de tu equipo."
+    saves = g.get("saves")
+    if saves is not None and saves >= SAVES_STRONG:
+        strengths["saves"] = f"Salvaste a un aliado de morir {saves:.0f} veces."
+    if g.get("control_wards") == 0 and (g.get("duration_min") or 0) >= NO_CONTROL_WARD_MIN:
+        weaknesses["control_wards"] = "No pusiste ningún ward de control."
+    if g.get("support_quest") == 0:
+        weaknesses["support_quest"] = "No completaste a tiempo la misión de soporte."
+
+
+def _rules_jungle(g, strengths, weaknesses) -> None:
+    gd = g.get("gold_diff_14")
+    if gd is not None:
+        if gd >= GOLD_DIFF_14_THRESHOLD:
+            strengths["gold_diff_14"] = f"Ventaja de oro de {gd:+.0f} al minuto 14 frente al jungla rival."
+        elif gd <= -GOLD_DIFF_14_THRESHOLD:
+            weaknesses["gold_diff_14"] = f"Desventaja de oro de {gd:+.0f} al minuto 14 frente al jungla rival."
+    xd = g.get("xp_diff_14")
+    if xd is not None:
+        if xd >= XP_DIFF_14_THRESHOLD:
+            strengths["xp_diff_14"] = f"Ventaja de experiencia de {xd:+.0f} al minuto 14 frente al jungla rival."
+        elif xd <= -XP_DIFF_14_THRESHOLD:
+            weaknesses["xp_diff_14"] = f"Desventaja de experiencia de {xd:+.0f} al minuto 14 frente al jungla rival."
+    stolen = g.get("enemy_jungle_cs")
+    if stolen is not None and stolen >= ENEMY_JUNGLE_STRONG:
+        strengths["enemy_jungle_cs"] = f"Robaste {stolen:.0f} monstruos de la jungla rival."
+    taken = g.get("opp_enemy_jungle_cs")
+    if taken is not None and taken >= ENEMY_JUNGLE_WEAK:
+        weaknesses["opp_enemy_jungle_cs"] = f"El jungla rival te robó {taken:.0f} monstruos de tu jungla."
+    ka, minute = g.get("early_ka"), 14
+    if ka is None:
+        ka, minute = g.get("ka_15"), 15
+    if ka is not None:
+        if ka >= EARLY_KA_STRONG:
+            strengths["early_ka"] = f"Participaste en {ka:.0f} kills antes del minuto {minute}."
+        elif ka <= EARLY_KA_WEAK and (g.get("duration_min") or 0) >= minute:
+            weaknesses["early_ka"] = (f"Solo participaste en {ka:.0f} kills antes del minuto {minute}."
+                                      if ka else f"No participaste en ninguna kill antes del minuto {minute}.")
+    steals = g.get("epic_steals")
+    if steals:
+        strengths["epic_steals"] = f"Robaste {steals:.0f} {'objetivo épico' if steals == 1 else 'objetivos épicos'}."
+
+
+def _rules_common(g, strengths, weaknesses) -> None:
     early = g.get("early_deaths")
     if early is not None:
         if early >= EARLY_DEATHS_WEAK:
@@ -369,21 +492,151 @@ def _rule_flags(g) -> tuple[dict, dict]:
         strengths["solo_kills"] = f"{sk:.0f} solo kills."
     eh, deaths = g.get("deaths_enemy_half"), g.get("deaths") or 0
     if eh is not None and (eh >= 3 or (eh >= 2 and deaths and eh / deaths >= 0.6)):
+        what = "invasiones o sobreextensión" if g.get("role") == "JUNGLE" else "sobreextensión"
         weaknesses["deaths_enemy_half"] = (
-            f"{eh} de tus {deaths} muertes fueron en la mitad del mapa enemiga (sobreextensión).")
+            f"{eh} de tus {deaths} muertes fueron en la mitad del mapa enemiga ({what}).")
     if g.get("first_blood") == 1 and g.get("has_timeline"):
         strengths["first_blood"] = "Participaste en la primera sangre."
+
+
+# ----------------------------------------------------------------- line profiles
+@dataclass(frozen=True)
+class LineProfile:
+    """What is measured and judged for one kind of line (a single declarative table below)."""
+    key: str
+    label: str
+    rival: str              # who the opponent column / sentence refers to
+    card: tuple             # report card rows: (metric, opponent's counterpart or None)
+    neutral: frozenset      # card rows shown for information, with no strength / weakness verdict
+    insights: tuple         # metrics ranked in "what decides your games" on a champion
+    rules: tuple            # strength / weakness rule functions, in the order their texts are listed
+    columns: tuple          # stats of the group tables (by role / queue / champion)
+    tiles: tuple            # summary tiles between KDA and deaths per 10 min
+    averages: tuple         # rows of the champion page's averages table
+    note: str = ""          # one line about what this line leaves out of the numbers
+
+
+_COMMON_INSIGHTS = ("kda", "deaths", "assists", "deaths_per_10", "kp", "vision_per_min", "control_wards",
+                    "solo_deaths", "early_deaths", "deaths_enemy_half", "skillshots_dodged",
+                    "skillshots_hit", "first_blood")
+LINE_PROFILES = {
+    # Top, mid and ADC (and games without a position): the laner's yardstick.
+    "lane": LineProfile(
+        key="lane", label="Carril", rival="Rival de línea",
+        card=tuple(CARD_METRICS), neutral=frozenset(), insights=tuple(INSIGHT_METRICS),
+        rules=(_rules_lane, _rules_common),
+        columns=("kda", "cs_per_min", "deaths_per_10", "gold_diff_14"),
+        tiles=("cs_per_min",),
+        averages=("kda", "cs_per_min", "gold_per_min", "deaths_per_10", "kp", "vision_per_min",
+                  "gold_diff_14", "cs_diff_14", "xp_diff_14")),
+    "support": LineProfile(
+        key="support", label="Soporte", rival="Soporte rival",
+        card=(("kda", "opp_kda"), ("deaths_per_10", None), ("kp", None), ("assists_per_10", None),
+              ("vision_per_min", "opp_vision_per_min"), ("wards_per_min", "opp_wards_per_min"),
+              ("ward_takedowns_per_min", "opp_ward_takedowns_per_min"), ("control_wards", None),
+              ("heal_shield_per_min", "opp_heal_shield_per_min"), ("cc_time_per_min", "opp_cc_time_per_min"),
+              ("immobilizations_per_10", None), ("saves", None), ("support_quest", None),
+              ("early_deaths", None), ("solo_deaths", None), ("deaths_enemy_half", None),
+              ("damage_per_min", "opp_damage_per_min"), ("damage_share", None)),
+        neutral=frozenset({"damage_per_min", "damage_share"}),
+        insights=("kda", "deaths", "assists", "assists_per_10", "deaths_per_10", "kp", "vision_per_min",
+                  "wards_per_min", "ward_takedowns_per_min", "control_wards", "heal_shield_per_min",
+                  "cc_time_per_min", "immobilizations_per_10", "saves", "solo_deaths", "early_deaths",
+                  "deaths_enemy_half", "skillshots_dodged", "skillshots_hit", "first_blood"),
+        rules=(_rules_support, _rules_common),
+        columns=("kda", "vision_per_min", "kp", "heal_shield_per_min", "deaths_per_10"),
+        tiles=("vision_per_min", "kp"),
+        averages=("kda", "assists_per_10", "kp", "vision_per_min", "wards_per_min", "ward_takedowns_per_min",
+                  "control_wards", "heal_shield_per_min", "cc_time_per_min", "immobilizations_per_10",
+                  "saves", "deaths_per_10"),
+        note="En soporte no se juzgan CS ni daño: se miden visión, participación, curación y control."),
+    "jungle": LineProfile(
+        key="jungle", label="Jungla", rival="Jungla rival",
+        card=(("kda", "opp_kda"), ("deaths_per_10", None), ("kp", None),
+              ("jungle_cs_10", "opp_jungle_cs_10"), ("enemy_jungle_cs", "opp_enemy_jungle_cs"),
+              ("scuttle_crabs", "opp_scuttle_crabs"), ("epic_takedowns", "opp_epic_takedowns"),
+              ("epic_steals", None), ("ka_15", None), ("early_ka", None), ("first_blood", None),
+              ("gold_per_min", "opp_gold_per_min"), ("damage_per_min", "opp_damage_per_min"),
+              ("vision_per_min", "opp_vision_per_min"), ("gold_diff_14", None), ("xp_diff_14", None),
+              ("early_deaths", None), ("solo_deaths", None), ("deaths_enemy_half", None)),
+        neutral=frozenset(),
+        insights=("kda", "kills", "deaths", "assists", "deaths_per_10", "gold_per_min", "damage_per_min",
+                  "damage_share", "kp", "vision_per_min", "control_wards", "solo_kills", "solo_deaths",
+                  "early_deaths", "deaths_enemy_half", "jungle_cs_10", "enemy_jungle_cs", "scuttle_crabs",
+                  "epic_takedowns", "epic_steals", "ka_15", "early_ka", "gold_diff_7", "gold_diff_14",
+                  "xp_diff_14", "skillshots_dodged", "skillshots_hit", "first_blood"),
+        rules=(_rules_jungle, _rules_common),
+        columns=("kda", "jungle_cs_10", "epic_takedowns", "kp", "gold_diff_14", "deaths_per_10"),
+        tiles=("jungle_cs_10", "epic_takedowns"),
+        averages=("kda", "jungle_cs_10", "enemy_jungle_cs", "scuttle_crabs", "epic_takedowns", "ka_15",
+                  "gold_per_min", "deaths_per_10", "kp", "vision_per_min", "gold_diff_14", "xp_diff_14"),
+        note="En jungla no se juzgan CS por minuto ni diferencias de CS: el rival es el jungla enemigo."),
+    # Several kinds of line in the same list: only what means the same in all of them.
+    "mixed": LineProfile(
+        key="mixed", label="Todas las líneas", rival="Rival de línea",
+        card=(("kda", "opp_kda"), ("deaths_per_10", None), ("kp", None),
+              ("vision_per_min", "opp_vision_per_min"), ("early_deaths", None), ("solo_deaths", None),
+              ("deaths_enemy_half", None)),
+        neutral=frozenset(), insights=_COMMON_INSIGHTS, rules=(_rules_common,),
+        columns=("kda", "cs_per_min", "vision_per_min", "kp", "deaths_per_10", "gold_diff_14"),
+        tiles=("kp",),
+        averages=("kda", "kp", "vision_per_min", "deaths_per_10"),
+        note="Mezcla líneas distintas: CS por minuto y diferencias de línea solo cuentan las partidas de carril."),
+}
+_PROFILE_OF_ROLE = {"JUNGLE": "jungle", "UTILITY": "support"}
+
+
+def profile_for_role(role) -> LineProfile:
+    return LINE_PROFILES[_PROFILE_OF_ROLE.get(role or "", "lane")]
+
+
+def profile_for_games(games) -> LineProfile:
+    """The profile every game shares, or the mixed one when the list spans several kinds of line."""
+    keys = {profile_for_role(g.get("role")).key for g in games}
+    if not keys:
+        return LINE_PROFILES["lane"]
+    return LINE_PROFILES[keys.pop()] if len(keys) == 1 else LINE_PROFILES["mixed"]
+
+
+def main_line_of(games) -> str | None:
+    """The role played most in `games` (ties go to the earlier one of ROLE_ORDER); None without games."""
+    counts = Counter(g["role"] for g in games if g.get("role") in ROLE_ORDER)
+    if not counts:
+        return None
+    return max(counts, key=lambda role: (counts[role], -ROLE_ORDER.index(role)))
+
+
+def games_in_line(games, line):
+    """The games played in `line` (a role), or all of them when `line` is None ("todas")."""
+    return list(games) if line is None else [g for g in games if g.get("role") == line]
+
+
+def resolve_line(choice, games) -> str | None:
+    """The role an aggregate page shows: `choice` is "auto" (the one played most in `games`), "todas"
+    (None: every game) or a role."""
+    if choice == "todas":
+        return None
+    return main_line_of(games) if choice in (None, "auto") else choice
+
+
+def _rule_flags(g) -> tuple[dict, dict]:
+    """Hard-coded strength/weakness rules of the game's line; returns ({key: text}, {key: text})."""
+    strengths, weaknesses = {}, {}
+    for rule in profile_for_role(g.get("role")).rules:
+        rule(g, strengths, weaknesses)
     return strengths, weaknesses
 
 
 def game_report_card(game, games) -> dict:
+    profile = profile_for_role(game.get("role"))
     rows = []
-    for key, opp_key in CARD_METRICS:
+    for key, opp_key in profile.card:
         value = game.get(key)
         if value is None:
             continue
         label, direction, _kind = METRICS[key]
-        ref, scope, n = _reference_values(game, games, key)
+        neutral = key in profile.neutral
+        ref, scope, n = ([], None, 0) if neutral else _reference_values(game, games, key)
         pct = percentile_rank(value, ref) if ref else None
         goodness = None if pct is None else (pct if direction > 0 else 100 - pct)
         verdict = None
@@ -394,6 +647,7 @@ def game_report_card(game, games) -> dict:
             "key": key, "label": label, "value": value, "fmt": fmt_value(key, value),
             "opp_value": opp_value, "opp_fmt": fmt_value(key, opp_value) if opp_value is not None else "-",
             "percentile": pct, "goodness": goodness, "scope": scope, "n": n, "verdict": verdict,
+            "neutral": neutral,
         })
 
     rule_strengths, rule_weaknesses = _rule_flags(game)
@@ -419,6 +673,7 @@ def game_report_card(game, games) -> dict:
         "queue_id": game.get("queue_id"),
         "duration_min": game.get("duration_min"),
         "opp_champion": game.get("opp_champion"),
+        "rival_label": profile.rival,
         "kda_text": f"{game['kills']}/{game['deaths']}/{game['assists']}",
         "has_timeline": bool(game.get("has_timeline")),
         "rows": rows,
@@ -450,7 +705,7 @@ def render_card_text(card) -> str:
         f"{fmt_minutes(card['duration_min'])} - KDA {card['kda_text']}",
     ]
     if card.get("opp_champion"):
-        lines.append(f"Rival de línea: {card['opp_champion']}")
+        lines.append(f"{card['rival_label']}: {card['opp_champion']}")
     if not card["has_timeline"]:
         lines.append("Nota: esta partida no tiene timeline; faltan métricas por minuto y por fase.")
     lines.append("Fortalezas:")
@@ -474,24 +729,30 @@ def trend_by_weekday(games) -> list[dict]:
     return rows
 
 
-def trend_by_session_game(games) -> dict:
-    """Winrate by game number within a session, and right after a win / a loss."""
+def trend_by_session_game(games, only=None) -> dict:
+    """Winrate by game number within a session, and right after a win / a loss.
+
+    `games` is the whole sequence the sessions are made of; `only` (a set of match ids) restricts
+    what is counted to some of them (one line) without breaking who played right after whom.
+    """
     capped = [g for g in games if g.get("session_game")]
-    by_pos = _grouped(capped, lambda g: min(g["session_game"], 5),
+    counted = [g for g in capped if only is None or g.get("match_id") in only]
+    by_pos = _grouped(counted, lambda g: min(g["session_game"], 5),
                       lambda k: f"Partida {k}" if k < 5 else "Partida 5 o más")
     by_pos.sort(key=lambda r: r["key"])
 
     after_win, after_loss = [], []
     prev = None
     for g in capped:
-        if prev is not None and g["session_id"] == prev["session_id"]:
+        if (prev is not None and g["session_id"] == prev["session_id"]
+                and (only is None or g.get("match_id") in only)):
             (after_win if prev["win"] else after_loss).append(g)
         prev = g
     return {
         "by_position": by_pos,
         "after_win": group_stats(after_win) if after_win else None,
         "after_loss": group_stats(after_loss) if after_loss else None,
-        "sessions": len({g["session_id"] for g in capped}),
+        "sessions": len({g["session_id"] for g in counted}),
     }
 
 
@@ -519,6 +780,10 @@ def player_overview(games) -> dict:
         "top_role": role_name(role) if role else None, "top_role_games": role_games,
         "top_champion": champ, "top_champion_games": champ_games,
     })
+    profile = profile_for_games(games)
+    row["profile"] = profile.key
+    key = CLAN_LINE_STAT.get(profile.key)
+    row["line_stat"] = {"key": key, "label": COLUMN_LABELS[key], "value": row[key]} if key else None
     return row
 
 
