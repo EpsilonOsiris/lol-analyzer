@@ -16,6 +16,8 @@
 
   var received = Date.now();
   var legend = '';
+  var viewer = '';  // role of the player using the page: UTILITY, JUNGLE, ... ('' when unknown)
+  var ROLE_NAMES = { TOP: 'Top', JUNGLE: 'Jungla', MIDDLE: 'Mid', BOTTOM: 'ADC', UTILITY: 'Soporte' };
   var shown = {};   // last HTML written to each section, so unchanged sections are not redrawn
 
   function esc(v) {
@@ -95,16 +97,21 @@
     var dead = p.dead
       ? '<span class="dead-tag">Muerto · <span class="respawn" data-left="' + p.respawn + '">' +
         Math.ceil(p.respawn) + '</span> s</span>' : '';
-    var gdiff = p.gold_diff == null ? '' :
-      '<small class="diff' + tone(p.gold_diff) + '" title="Frente a su rival de línea (' + esc(p.lane_opponent || '') +
-      ')">' + signed(p.gold_diff) + '</small>';
+    // What the difference is against depends on the role: a support compares his duo (a lone support's
+    // gold says little), a jungler compares with the enemy jungler. Laners: the lane opponent.
+    var duo = viewer === 'UTILITY' && p.diff_scope === 'duo';
+    var goldD = duo ? p.duo_gold_diff : p.gold_diff, valueD = duo ? p.duo_value_diff : p.value_diff;
+    var vsTitle = duo ? 'Dúo de línea (ADC + soporte) frente al dúo rival (' + esc((p.duo_opponents || []).join(' + ')) + ')'
+      : viewer === 'JUNGLE' && p.diff_scope === 'jungle' ? 'Frente a la jungla rival (' + esc(p.lane_opponent || '') + ')'
+      : 'Frente a su rival de línea (' + esc(p.lane_opponent || '') + ')';
+    var gdiff = goldD == null ? '' :
+      '<small class="diff' + tone(goldD) + '" title="' + vsTitle + '">' + signed(goldD) + '</small>';
     var goldSub = p.is_me
       ? '<small title="Tu oro real, el único que Riot muestra">actual ' + num(g.me && g.me.gold) + '</small>'
       : (p.unspent_est == null ? '' : '<small class="rough" title="Aproximado: estimado menos valor en objetos">sin gastar ≈ ' +
          num(p.unspent_est) + '</small>');
-    var diff = p.value_diff == null ? '' :
-      '<small class="diff' + tone(p.value_diff) + '" title="Frente a su rival de línea (' + esc(p.lane_opponent || '') +
-      ')">' + signed(p.value_diff) + '</small>';
+    var diff = valueD == null ? '' :
+      '<small class="diff' + tone(valueD) + '" title="' + vsTitle + '">' + signed(valueD) + '</small>';
     return '<div class="prow' + (p.is_me ? ' me' : '') + (p.dead ? ' is-dead' : '') + '">' +
       '<div class="who"><span class="ic-wrap">' + iconHtml(p.icon, p.champion_name, 'champ') +
       '<i class="lvl" title="Nivel">' + p.level + '</i></span>' +
@@ -133,7 +140,51 @@
       team.players.map(function (p) { return playerRow(p, minutes, g); }).join('') + '</div>';
   }
 
-  // ---- my panel
+  // ---- my panel (what it shows depends on the role being played: laner, jungle or support)
+  var KP_HELP = 'Participación en kills hasta ahora: (tus kills + asistencias) entre los kills de tu equipo.';
+  var DUO_HELP = 'Tu dúo de línea (tú + tu ADC) frente al dúo rival: diferencia de oro total estimado y de valor en ' +
+    'objetos. Para un soporte, compararse solo con el soporte rival dice poco: su oro apenas depende del CS.';
+  function pctText(x) { return x == null ? '—' : Math.round(x * 100) + '%'; }
+  function myPlayer(g) { return g.teams.ally.players.filter(function (p) { return p.is_me; })[0] || null; }
+  function enemyAt(g, position) {
+    return g.teams.enemy.players.filter(function (p) { return p.position === position; })[0] || null;
+  }
+  function kpTile(me) {
+    return '<div class="kv big" title="' + esc(KP_HELP) + '"><span>Participación en kills</span><b>' + pctText(me.kp) +
+      (me.team_kills ? ' <small>' + (me.kills + me.assists) + ' de ' + me.team_kills + '</small>' : '') + '</b></div>';
+  }
+  function objectivesText(t) {
+    var dragons = t.dragons.length ? ' (' + t.dragons.map(function (d) { return esc(d.label); }).join(', ') + ')' : '';
+    return 'Dragones <b>' + t.dragons.length + '</b>' + dragons + ' · Heraldos <b>' + t.heralds + '</b>' +
+      (t.grubs ? ' · Larvas <b>' + t.grubs + '</b>' : '') + ' · Barones <b>' + t.barons + '</b> · Torres <b>' + t.towers + '</b>';
+  }
+  function supportTiles(g, me, mp) {
+    var rival = enemyAt(g, 'UTILITY');
+    var perMin = g.time >= 60 ? (me.ward_score / (g.time / 60)).toFixed(2) : null;
+    var out = '<div class="kv big" title="Puntuación de visión del marcador"><span>Visión</span><b>' + me.ward_score +
+      (rival ? ' <small title="' + esc(rival.champion_name) + '">rival ' + rival.ward_score + '</small>' : '') + '</b></div>' +
+      kpTile(me) +
+      (perMin ? '<div class="kv"><span>Visión por minuto</span><b>' + perMin + '</b></div>' : '');
+    if (mp && (mp.duo_gold_diff != null || mp.duo_value_diff != null)) {
+      out += '<div class="kv" title="' + esc(DUO_HELP) + '"><span>Dúo de línea frente a ' + esc((mp.duo_opponents || []).join(' + ')) +
+        '</span><b>' + (mp.duo_gold_diff != null ? '≈ ' + signed(mp.duo_gold_diff) : '—') + ' oro · ' +
+        (mp.duo_value_diff != null ? signed(mp.duo_value_diff) : '—') + ' obj.</b></div>';
+    }
+    return out;
+  }
+  function jungleTiles(g, me, mp) {
+    var foe = enemyAt(g, 'JUNGLE');
+    var out = '<div class="kv wide" title="Lo que tu equipo ha tomado hasta ahora"><span>Objetivos de tu equipo</span><b>' +
+      objectivesText(g.teams.ally.totals) + '</b></div>' +
+      '<div class="kv wide"><span>Objetivos del equipo rival</span><b>' + objectivesText(g.teams.enemy.totals) + '</b></div>';
+    if (foe) {
+      var gd = mp ? mp.gold_diff : null, vd = mp ? mp.value_diff : null;
+      out += '<div class="kv wide" title="Tu jungla contra la jungla rival. Su CS no se ve completo: su oro se estima con su nivel.">' +
+        '<span>Jungla rival · ' + esc(foe.champion_name) + '</span><b>nivel ' + foe.level + ' · ' + foe.kills + '/' + foe.deaths + '/' + foe.assists +
+        ' · oro ' + (gd != null ? '≈ ' + signed(gd) : '—') + ' · obj. ' + (vd != null ? signed(vd) : '—') + '</b></div>';
+    }
+    return out;
+  }
   function mine(g) {
     var me = g.me;
     if (!me) {
@@ -142,43 +193,89 @@
     var stats = me.stats.map(function (s) {
       return '<div class="kv"><span>' + esc(s.label) + '</span><b>' + esc(s.value) + '</b></div>';
     }).join('');
+    var mp = myPlayer(g);
+    var gold = '<div class="kv big"><span>Oro actual</span><b>' + num(me.gold) + '</b></div>';
+    var kda = '<div class="kv big"><span>KDA</span><b>' + me.kills + '/' + me.deaths + '/' + me.assists + '</b></div>';
+    var cs = '<div class="kv big" title="' + esc(CS_HELP) + '"><span>CS</span><b>' + me.cs + '–' + (me.cs + 9) +
+      (me.cs_per_min != null ? ' <small>≈' + me.cs_per_min + '/min</small>' : '') + '</b></div>';
+    var total = '<div class="kv" title="' + esc(legend) + '"><span>Oro total ≈</span><b>' + num(mp ? mp.gold_est : null) + '</b></div>';
+    var value = '<div class="kv" title="' + esc(VALUE_HELP) + '"><span>Valor en objetos</span><b>' + num(me.value) + '</b></div>';
+    var vision = '<div class="kv"><span>Visión</span><b>' + me.ward_score + '</b></div>';
+    var key = me.keystone ? '<div class="kv"><span>Runa clave</span><b>' + esc(me.keystone) + '</b></div>' : '';
+    var tiles;
+    if (viewer === 'UTILITY') {
+      // no CS tile (a support does not farm); vision and kill participation lead
+      tiles = gold + kda + supportTiles(g, me, mp) + total + value + key + stats;
+    } else if (viewer === 'JUNGLE') {
+      tiles = gold + kda + cs + kpTile(me) + total + value + vision + jungleTiles(g, me, mp) + key + stats;
+    } else {
+      tiles = gold + kda + cs + total + value + vision + key + stats;
+    }
     return '<h2>Tú · ' + esc(me.champion_name) + ' <span class="muted">nivel ' + me.level + '</span></h2>' +
-      '<div class="kvs">' +
-      '<div class="kv big"><span>Oro actual</span><b>' + num(me.gold) + '</b></div>' +
-      '<div class="kv big"><span>KDA</span><b>' + me.kills + '/' + me.deaths + '/' + me.assists + '</b></div>' +
-      '<div class="kv big" title="' + esc(CS_HELP) + '"><span>CS</span><b>' + me.cs + '–' + (me.cs + 9) +
-      (me.cs_per_min != null ? ' <small>≈' + me.cs_per_min + '/min</small>' : '') + '</b></div>' +
-      '<div class="kv" title="' + esc(legend) + '"><span>Oro total ≈</span><b>' + num(g.teams.ally.players.filter(function (p) { return p.is_me; }).map(function (p) { return p.gold_est; })[0]) + '</b></div>' +
-      '<div class="kv" title="' + esc(VALUE_HELP) + '"><span>Valor en objetos</span><b>' + num(me.value) + '</b></div>' +
-      '<div class="kv"><span>Visión</span><b>' + me.ward_score + '</b></div>' +
-      (me.keystone ? '<div class="kv"><span>Runa clave</span><b>' + esc(me.keystone) + '</b></div>' : '') +
-      stats + '</div>';
+      '<div class="kvs">' + tiles + '</div>';
   }
 
   // ---- own history (neutral numbers, no advice)
+  function csHistory(cs, jungle) {
+    var h = '';
+    var now = 'Ahora: <b>' + cs.now + ' CS</b> a los ' + esc(cs.clock);
+    if (cs.reference != null) {
+      now += ' · tu promedio ' + esc(cs.scope_label) + ' a esta altura: <b>' + cs.reference + '</b>';
+    }
+    h += '<p class="ctx-line">' + now + ' <span class="muted">(' + plural(cs.games, 'partida', 'partidas') + ')</span></p>';
+    h += '<div class="ctx-pts">' + cs.points.map(function (p) {
+      return '<span class="pt' + (p.reached ? ' done' : '') + '"><b>' + p.minute + ':00</b> promedio ' + num(p.avg) +
+        (p.live != null ? ' · esta partida <b>' + p.live + '</b>' : (p.reached ? ' · esta partida —' : '')) + '</span>';
+    }).join('') + '</div>';
+    if (cs.gold_diff_14 != null) {
+      h += '<p class="note">Dif. de oro a los 14 min' + (jungle ? ' frente a la jungla rival' : '') + ', tu promedio ' +
+        esc(cs.scope_label) + ': ' + signed(cs.gold_diff_14) + ' (no se puede medir en vivo).</p>';
+    }
+    return h;
+  }
+  function visionHistory(v) {
+    var now = 'Ahora: <b>visión ' + v.now + '</b> a los ' + esc(v.clock);
+    if (v.rival) now += ' · soporte rival (' + esc(v.rival.champion_name) + '): <b>' + v.rival.ward_score + '</b>';
+    if (v.has_base) {
+      now += ' · tu visión media ' + esc(v.scope_label) + ' a esta altura: <b>≈ ' + v.reference + '</b>';
+    }
+    var h = '<p class="ctx-line">' + now + (v.has_base ? ' <span class="muted">(' + plural(v.games, 'partida', 'partidas') + ')</span>' : '') + '</p>';
+    if (v.has_base) {
+      h += '<p class="note">Aproximado: tus partidas guardadas solo traen la visión al final, así que se reparte por igual ' +
+        'a lo largo de la partida (' + v.avg_per_min + ' por minuto de media).</p>';
+    }
+    return h;
+  }
+  function kpHistory(kp) {
+    if (!kp || kp.now == null) return '';
+    var line = 'Participación en kills ahora: <b>' + pctText(kp.now) + '</b> <span class="muted">(' + (kp.kills + kp.assists) +
+      ' de ' + kp.team_kills + ')</span>';
+    if (kp.has_base) {
+      line += ' · tu media ' + esc(kp.scope_label) + ': <b>' + pctText(kp.avg) + '</b> <span class="muted">(partidas completas, ' +
+        plural(kp.games, 'partida', 'partidas') + ')</span>';
+    }
+    return '<p class="ctx-line">' + line + '</p>';
+  }
   function history(data) {
     var ctx = data.context;
     var h = '<h2>Tú contra tu historial</h2>';
     if (!ctx) return h + '<p class="muted">Sin datos de tu cuenta en esta partida.</p>';
-    var cs = ctx.cs;
-    if (!ctx.has_games || !cs || !cs.has_base) {
-      h += '<p class="muted">Todavía no hay suficientes partidas tuyas guardadas para comparar' +
-        (stream ? '.' : '. Sincroniza tus partidas en la página Sincronizar.') + '</p>';
-    } else {
-      var now = 'Ahora: <b>' + cs.now + ' CS</b> a los ' + esc(cs.clock);
-      if (cs.reference != null) {
-        now += ' · tu promedio ' + esc(cs.scope_label) + ' a esta altura: <b>' + cs.reference + '</b>';
-      }
-      h += '<p class="ctx-line">' + now + ' <span class="muted">(' + plural(cs.games, 'partida', 'partidas') + ')</span></p>';
-      h += '<div class="ctx-pts">' + cs.points.map(function (p) {
-        return '<span class="pt' + (p.reached ? ' done' : '') + '"><b>' + p.minute + ':00</b> promedio ' + num(p.avg) +
-          (p.live != null ? ' · esta partida <b>' + p.live + '</b>' : (p.reached ? ' · esta partida —' : '')) + '</span>';
-      }).join('') + '</div>';
-      if (cs.gold_diff_14 != null) {
-        h += '<p class="note">Dif. de oro a los 14 min, tu promedio ' + esc(cs.scope_label) + ': ' + signed(cs.gold_diff_14) +
-          ' (no se puede medir en vivo).</p>';
-      }
+    if (ctx.role_source === 'historial') {
+      h += '<p class="note">El juego no dijo tu posición: se usa la que más juegas (' + esc(ROLE_NAMES[ctx.role] || ctx.role) + ').</p>';
     }
+    var cs = ctx.cs;
+    var enough = ctx.has_games && cs && cs.has_base;
+    var support = viewer === 'UTILITY';
+    if (support && ctx.vision) {
+      h += visionHistory(ctx.vision);
+    }
+    if (!enough) {
+      h += '<p class="muted">Todavía no hay suficientes partidas tuyas ' + (support ? 'de soporte ' : viewer === 'JUNGLE' ? 'de jungla ' : '') +
+        'guardadas para comparar' + (stream ? '.' : '. Sincroniza tus partidas en la página Sincronizar.') + '</p>';
+    } else if (!support) {
+      h += csHistory(cs, viewer === 'JUNGLE');
+    }
+    if (support || viewer === 'JUNGLE') h += kpHistory(ctx.kp);
     var plan = ctx.plan;
     if (plan && plan.enough && plan.goals.length) {
       h += '<h3>Metas de tu plan de mejora</h3><ul class="goals">' + plan.goals.map(function (gl) {
@@ -425,6 +522,7 @@
     if (!game) return;
     var minutes = game.time / 60;
     legend = game.gold_model ? game.gold_model.legend : '';
+    viewer = (data.context && data.context.role) || (game.me && game.me.position) || '';
     put('live-head', head(data));
     put('live-ally', teamHtml(game.teams.ally, minutes, game));
     put('live-enemy', teamHtml(game.teams.enemy, minutes, game));

@@ -74,6 +74,7 @@
 .kv span { color: var(--muted); }
 .kv b { font-variant-numeric: tabular-nums; text-align: right; }
 .kv.big { font-size: 1rem; }
+.kv.wide { grid-column: 1 / -1; flex-wrap: wrap; }
 .kv small { color: var(--muted); font-weight: 400; }
 .ctx-line { margin: 0 0 .5rem; }
 .ctx-pts { display: grid; gap: .15rem; font-size: .85rem; margin-bottom: .4rem; }

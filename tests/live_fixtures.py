@@ -128,3 +128,16 @@ class FakeClient:
 
     def fetch(self):
         return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+
+
+SUPPORT_ME = "Luna Chica#T005"      # blue support (Lulu)
+JUNGLE_ME = "Lince Gris#T003"       # blue jungler (Sejuani)
+
+
+def as_viewer(raw, riot_id):
+    """The same game seen by another player: `riot_id` becomes the active player."""
+    out = copy.deepcopy(raw)
+    game_name, tag = riot_id.split("#")
+    out["activePlayer"].update({"riotId": riot_id, "riotIdGameName": game_name, "riotIdTagLine": tag,
+                                "summonerName": riot_id})
+    return out
