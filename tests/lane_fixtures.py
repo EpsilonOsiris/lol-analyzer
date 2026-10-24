@@ -12,13 +12,14 @@ def champ_id(pid: int) -> int:
 
 def make_lane_match(match_id="LA1_100", duration=1200, queue=420, version="16.21.824.8524",
                     blue_win=True, names=None, puuids=None, drop=(), duplicate=(), remake=False,
-                    created=1_700_000_000_000):
+                    created=1_700_000_000_000, extra=None):
     """Ten players, pids 1-5 blue (TOP..UTILITY), 6-10 red. championId = 100 + pid.
 
     names / puuids: pid -> value overriding riotIdGameName / puuid. drop: pids with no
     teamPosition. duplicate: pids whose teamPosition is TOP (a second top on their team).
+    extra: pid -> dict of participant fields to add (damage, kills, challenges ...).
     """
-    names, puuids = names or {}, puuids or {}
+    names, puuids, extra = names or {}, puuids or {}, extra or {}
     parts = []
     for pid in range(1, 11):
         team = 100 if pid <= 5 else 200
@@ -28,6 +29,7 @@ def make_lane_match(match_id="LA1_100", duration=1200, queue=420, version="16.21
             "championId": champ_id(pid), "championName": f"Champ{pid}",
             "riotIdGameName": names.get(pid, f"Jugador{pid}"),
             "win": blue_win if team == 100 else not blue_win,
+            **extra.get(pid, {}),
         })
     if remake:
         for p in parts:

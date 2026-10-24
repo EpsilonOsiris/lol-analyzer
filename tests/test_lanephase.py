@@ -152,3 +152,44 @@ def test_patch_and_bracket_helpers():
     assert lp.patch_of("16.21.824.8524") == "16.21" and lp.patch_of("") == "" and lp.patch_of("x.y") == ""
     assert [lp.bracket_of(n) for n in (1, 2, 3, 5, 6, 8, 9, 18)] == ["1-2", "1-2", "3-5", "3-5", "6-8", "6-8", "9+", "9+"]
     assert MIN == 60_000
+
+
+# ------------------------------------------------------------------ style fields
+def _style_extra():
+    """Blue mid (pid 3) and the rest of blue with damage/kills; red players carry nothing."""
+    extra = {pid: {"totalDamageTaken": 10_000, "damageSelfMitigated": 2_000, "kills": 2, "assists": 3,
+                   "totalDamageDealtToChampions": 10_000, "damageDealtToBuildings": 600,
+                   "timeCCingOthers": 20} for pid in range(1, 6)}
+    extra[3].update({"totalDamageTaken": 20_000, "damageSelfMitigated": 10_000, "kills": 5, "assists": 5,
+                     "totalDamageDealtToChampions": 30_000, "damageDealtToBuildings": 1_200,
+                     "timeCCingOthers": 40, "challenges": {"turretPlatesTaken": 3}})
+    return extra
+
+
+def test_style_fields_come_from_the_participant_and_the_team_totals():
+    # 20 minute game; team totals: taken+mitigated 4 * 12000 + 30000 = 78000, kills 4 * 2 + 5 = 13
+    pair = mid_pair(make_lane_match(extra=_style_extra()), make_lane_timeline())
+    blue = pair["sides"][0]
+    assert blue["bld_pm"] == 60.0 and blue["cc_pm"] == 2.0
+    assert blue["tank_share"] == round(30_000 / 78_000, 4)
+    assert blue["dmg_share"] == round(30_000 / 70_000, 4)
+    assert blue["kp"] == round(10 / 13, 3) and blue["turret_plates"] == 3
+
+
+def test_style_fields_are_none_when_the_match_lacks_the_stats():
+    pair = mid_pair(make_lane_match(), make_lane_timeline())
+    for view in pair["sides"]:
+        assert all(view[k] is None for k in lp.STYLE_KEYS)
+    # the red side has no stats in the first match; a teammate missing one stat blanks the shares only
+    extra = _style_extra()
+    del extra[2]["totalDamageTaken"]
+    blue = mid_pair(make_lane_match(extra=extra), make_lane_timeline())["sides"][0]
+    assert blue["tank_share"] is None and blue["dmg_share"] is not None and blue["turret_plates"] == 3
+    red = mid_pair(make_lane_match(extra=extra), make_lane_timeline())["sides"][1]
+    assert red["kp"] is None and red["turret_plates"] is None
+
+
+def test_zero_team_totals_do_not_divide_by_zero():
+    extra = {pid: {"kills": 0, "assists": 0, "totalDamageDealtToChampions": 0} for pid in range(1, 6)}
+    blue = mid_pair(make_lane_match(extra=extra), make_lane_timeline())["sides"][0]
+    assert blue["kp"] is None and blue["dmg_share"] is None

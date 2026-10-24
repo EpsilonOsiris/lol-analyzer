@@ -16,7 +16,8 @@ an interrupted run leaves valid files; a truncated last line is skipped on read.
   game_creation, role, side (100/200), champ, opp (championIds), diff14, gold14, xp14, result,
   brackets {name: {gain, minutes}}, first2, first6 (1/0/None), series [[minute, my level, opp level,
   diff]] up to minute 25, items (minute of the 1st/2nd/3rd legendary, null without item data for the
-  patch), win (1/0), minutes (game length), person (a clan member's name
+  patch), win (1/0), minutes (game length), the style fields bld_pm / tank_share / dmg_share / cc_pm /
+  kp / turret_plates (see `lanephase.STYLE_KEYS`; absent or null in older rows), person (a clan member's name
   as Composiciones shows it, else None). No puuids and no names of other players are stored.
 
 The API (matchup / champion_overall / matchups_of / best_into / text_summary) computes from the
@@ -31,7 +32,7 @@ from collections import Counter
 from pathlib import Path
 
 from .ddragon import LANG, champion_display, norm, version_key
-from .lanephase import (BRACKET_NAMES, ITEM_COUNT, LANE_MINUTE, LANE_ROLES, analyze_match,
+from .lanephase import (BRACKET_NAMES, ITEM_COUNT, LANE_MINUTE, LANE_ROLES, STYLE_KEYS, analyze_match,
                         legendary_items, patch_of)
 
 SOURCE_OWN = "propia"
@@ -484,6 +485,15 @@ def _stats(rows) -> dict:
             "game_length": _game_length(rows)}
 
 
+def _style_means(rows) -> dict:
+    """Mean of each style field over the rows that have it (None when none does); see STYLE_KEYS."""
+    out = {}
+    for key in STYLE_KEYS:
+        known = [r[key] for r in rows if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)]
+        out[key] = round(sum(known) / len(known), 4) if known else None
+    return out
+
+
 def _by_minute(row) -> dict:
     """minute -> [minute, my level, opp level, diff] of a row's series."""
     return {e[0]: e for e in row.get("series") or [] if isinstance(e, list) and len(e) == 4}
@@ -572,6 +582,7 @@ def _shrink(stats, prior) -> float:
 def _overall_stats(rows) -> dict:
     stats = _stats(rows)
     stats["shrunk_lane_wr"] = _shrink(stats, 0.5)
+    stats.update(_style_means(rows))            # per champion and role only, not per matchup
     return stats
 
 
@@ -690,6 +701,7 @@ def pair_rows(pair, source=SOURCE_OWN, tier=None, person_of=None) -> list[dict]:
             "xp14": v["xp14"], "result": v["result"], "brackets": v["brackets"],
             "first2": v["first2"], "first6": v["first6"], "series": v["series"],
             "items": v["items"], "win": v["win"], "minutes": v["minutes"],
+            **{k: v.get(k) for k in STYLE_KEYS},
             "person": person_of(v) if person_of else None})
     return rows
 

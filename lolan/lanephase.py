@@ -12,6 +12,10 @@ each side gets its own view of the lane:
   * items: minute at which this side completed its 1st, 2nd and 3rd legendary item (see
     `legendary_items`), None when item data for the patch is not available.
   * win / minutes: whether this side's team won and how long the game lasted.
+  * style fields (from the participant's end-of-game stats, None when the match lacks them): bld_pm
+    (damage to buildings per minute), tank_share ((damage taken + self-mitigated) over the team's
+    total), dmg_share (damage to champions over the team's), cc_pm (seconds of CC per minute), kp
+    (kill participation), turret_plates (plates taken). They feed `lolan.archetypes_data`.
 
 Pure functions: nothing here touches the disk. `analyze_match` also says why a match was skipped.
 """
@@ -188,6 +192,45 @@ def _side_view(a, b, sa, sb, level_times) -> dict:
             "series": [[m, int(sa[2][m]), int(sb[2][m]), round(diffs[m])] for m in range(n)]}
 
 
+STYLE_KEYS = ("bld_pm", "tank_share", "dmg_share", "cc_pm", "kp", "turret_plates")
+
+
+def _team_sum(team, *keys):
+    """Sum over `team` of the stats `keys` added together; None when any player lacks one."""
+    total = 0
+    for p in team:
+        for key in keys:
+            v = _num(p.get(key))
+            if v is None:
+                return None
+            total += v
+    return total
+
+
+def _share(part, team, *keys):
+    """The player's `keys` (added) over the team's total, rounded; None when unknown or zero."""
+    mine, total = _team_sum([part], *keys), _team_sum(team, *keys)
+    return round(mine / total, 4) if mine is not None and total else None
+
+
+def style_stats(part, participants, minutes) -> dict:
+    """The STYLE_KEYS of one participant (see the module docstring); every value may be None."""
+    team = [p for p in participants if p.get("teamId") == part.get("teamId")]
+    ch = part.get("challenges") if isinstance(part.get("challenges"), dict) else {}
+    buildings, cc = _num(part.get("damageDealtToBuildings")), _num(part.get("timeCCingOthers"))
+    team_kills = _team_sum(team, "kills")
+    mine = _team_sum([part], "kills", "assists")
+    plates = _num(ch.get("turretPlatesTaken"))
+    return {
+        "bld_pm": round(buildings / minutes, 1) if buildings is not None and minutes else None,
+        "tank_share": _share(part, team, "totalDamageTaken", "damageSelfMitigated"),
+        "dmg_share": _share(part, team, "totalDamageDealtToChampions"),
+        "cc_pm": round(cc / minutes, 2) if cc is not None and minutes else None,
+        "kp": round(mine / team_kills, 3) if mine is not None and team_kills else None,
+        "turret_plates": int(plates) if plates is not None else None,
+    }
+
+
 def analyze_match(match, timeline, legendary=None) -> tuple[list[dict], str | None]:
     """(pairs, skip_reason): `pairs` as in `lane_pairs`; the reason is None when the match counted.
 
@@ -226,6 +269,7 @@ def analyze_match(match, timeline, legendary=None) -> tuple[list[dict], str | No
     completed = _completed_items(timeline, legendary) if legendary is not None else None
     minutes = round(dur / 60, 1)
     match_id = ((match.get("metadata") or {}).get("matchId")) or ""
+    everyone = [p for p in info.get("participants") or [] if isinstance(p, dict)]
     pairs = []
     for role in LANE_ROLES:
         blue, red = by_slot.get((role, 100), []), by_slot.get((role, 200), [])
@@ -245,7 +289,8 @@ def analyze_match(match, timeline, legendary=None) -> tuple[list[dict], str | No
             view.update({"win": int(win) if isinstance(win, bool) else None, "minutes": minutes,
                          "items": items, "side": me.get("teamId"), "champ": int(me["championId"]),
                          "opp": int(op["championId"]), "puuid": me.get("puuid") or "",
-                         "name": (me.get("riotIdGameName") or "").strip()})
+                         "name": (me.get("riotIdGameName") or "").strip(),
+                         **style_stats(me, everyone, minutes)})
             views.append(view)
         pairs.append({"match_id": match_id, "role": role, "patch": patch_of(info.get("gameVersion")),
                       "queue": info.get("queueId"), "game_creation": info.get("gameCreation"),
@@ -260,7 +305,8 @@ def lane_pairs(match, timeline, legendary=None) -> list[dict]:
     {side (100/200), champ, opp (championIds), puuid, name, diff14, gold14, xp14, result,
     brackets {name: {gain, minutes}}, first2, first6, series [[minute, level, opp level, diff]],
     items [minute of the 1st/2nd/3rd legendary or None; whole value None when `legendary` is],
-    win, minutes}. Empty when the match is skipped (shorter
+    win, minutes, bld_pm, tank_share, dmg_share, cc_pm, kp, turret_plates (STYLE_KEYS, None when
+    the match lacks the stats)}. Empty when the match is skipped (shorter
     than 15 min, remake, no minute-14 frame ...; `analyze_match` says which).
     """
     return analyze_match(match, timeline, legendary)[0]

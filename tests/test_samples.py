@@ -462,3 +462,26 @@ def test_rebuild_window_is_per_role_even_when_a_role_lacks_the_newest_patches(ls
 def test_add_matches_reports_rows_per_champion(ls):
     done = add_matches(ls, lane_matches(2), legendary_for=lambda version: {3031})
     assert done["champions"][103] == 2 and done["champions"][108] == 2 and sum(done["champions"].values()) == 20
+
+
+# ------------------------------------------------------------------ style fields
+def test_rows_carry_the_style_fields_and_the_champion_aggregate_averages_them(ls):
+    from test_lanephase import _style_extra
+    add_matches(ls, [("LA1_1", make_lane_match("LA1_1", extra=_style_extra()), make_lane_timeline())])
+    blue = next(r for r in ls.read_rows() if r["role"] == "MIDDLE" and r["side"] == 100)
+    assert blue["bld_pm"] == 60.0 and blue["turret_plates"] == 3 and blue["cc_pm"] == 2.0
+    assert set(samples.STYLE_KEYS) <= set(blue)
+    ls.rebuild()
+    overall = ls.read_duelo("MIDDLE", blue["champ"])["overall"]
+    assert overall["bld_pm"] == 60.0 and overall["kp"] == blue["kp"] and overall["turret_plates"] == 3.0
+    # per matchup entries do not repeat them
+    assert "bld_pm" not in next(iter(ls.read_duelo("MIDDLE", blue["champ"])["vs"].values()))
+
+
+def test_old_rows_without_style_fields_still_aggregate(ls):
+    add(ls, row(), row(match_id="B", bld_pm=30.0, kp=0.5))      # one old row, one with two fields
+    ls.rebuild()
+    overall = ls.read_duelo("MIDDLE", 1)["overall"]
+    assert overall["bld_pm"] == 30.0 and overall["kp"] == 0.5
+    assert overall["tank_share"] is None and overall["dmg_share"] is None
+    assert ls.champion_overall("MIDDLE", 1)["cc_pm"] is None            # reads without KeyError
