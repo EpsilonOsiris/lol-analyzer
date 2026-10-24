@@ -11,7 +11,7 @@ written before the style fields existed lack them and simply count for nothing t
     minutes), equal weights. Gold+xp against the enemy jungler is NOT used: it mostly rewards
     clear speed, not early pressure (Karthus and Zyra came out "very early" with it). Rows
     without ka14/kp14 cannot feed the first part: with none of them only the slope is used, and
-    the report says so;
+    the report says so, and the margin rises to SLOPE_ONLY_MARGIN;
   * lane-ness (mid): gold+xp gained per minute against the opponent at own levels 1-5, diff14 and
     the same slope, used with tank-ness for melee vs assassin;
   * tank-ness: share of the team's damage taken + self-mitigated, and seconds of CC per minute;
@@ -47,6 +47,7 @@ PATCH_WINDOW = 3            # newest patches with Diamond+ rows
 SOURCE = samples.SOURCE_DIAMOND
 DECISION_MARGIN = 0.25      # z-score a score must reach to decide
 STRONG_Z = 1.0              # z-score beyond which the evidence contradicts a type (sanity report)
+SLOPE_ONLY_MARGIN = 0.75    # jungle margin when only the game-length slope is available (no ka14/kp14)
 EARLY_WEIGHT = 0.5          # weight of early-ness against tank-ness for melee vs assassin
 EARLY_BRACKETS = ("1-2", "3-5")        # own levels 1-5
 SHORT_GAME_MIN, LONG_GAME_MIN = 25, 35
@@ -215,7 +216,10 @@ def decide(lane: str, ev: dict) -> tuple[str | None, str]:
     if lane == "JUNGLE":
         if early is None:
             return None, "faltan la pendiente de victorias y las kills tempranas"
-        only = "" if "kills" in (ev.get("early_parts") or ()) else " (solo la pendiente de victorias: faltan ka14/kp14)"
+        slope_only = "kills" not in (ev.get("early_parts") or ())
+        only = " (solo la pendiente de victorias: faltan ka14/kp14)" if slope_only else ""
+        if slope_only:
+            m = SLOPE_ONLY_MARGIN         # one noisy part alone needs a clearer signal
         if early >= m:
             return "early", f"early-ness {early:+.2f}{only}"
         if early <= -m:

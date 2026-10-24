@@ -135,6 +135,14 @@ def test_without_early_kills_only_the_slope_counts_and_the_report_says_so(ls):
     assert "solo la pendiente de victorias" in ekko["reason"] and "ka14" in ekko["reason"]
 
 
+def test_the_slope_alone_needs_a_clearer_signal_than_both_parts(ls):
+    ev = {"early": 0.5, "early_parts": ["slope"]}
+    assert ad.decide("JUNGLE", ev)[0] is None and "solo la pendiente" in ad.decide("JUNGLE", ev)[1]
+    assert ad.decide("JUNGLE", {"early": 0.8, "early_parts": ["slope"]})[0] == "early"
+    assert ad.decide("JUNGLE", {"early": -0.8, "early_parts": ["slope"]})[0] == "farm"
+    assert ad.decide("JUNGLE", {"early": 0.5, "early_parts": ["kills", "slope"]})[0] == "early"
+
+
 def test_ka14_stands_in_when_kp14_is_missing(ls):
     for cid, name, ka in ((1, "Ekko", 8), (2, "Diana", 0), (3, "Viego", 4), (4, "LeeSin", 4), (5, "Zac", 4),
                           (6, "Sejuani", 4)):

@@ -71,10 +71,11 @@ línea). Qué cambia en el código:
   Vel'Koz, Mel) cuenta como fuente de `poke`, igual que esos campeones en mid.
 - Draft: top y ADC ofrecen el tipo «Mago» (representantes neutros: Vladimir y Syndra); un ADC mago puntúa por la
   tabla `FIT`.
-- **Números propios, sin calibrar** (están comentados como tales en `comps.py`): `FIT["mago"]` = engage 0.1,
-  mixto 0.3, peel 0.3, poke 0.0; `ENGAGE_FIT["mago"]` = 0 / 0 / 0.1 / 0.2 según haya 0, 1, 2 o 3+ engages;
-  soporte desconocido 0.0; regla del top mago = +0.1 neutra; un ADC mago suma a «el resto aguanta el 4v4» en la
-  regla del split. Se calibrarán con datos.
+- **Neutro hasta calibrar con datos** (juicio propio, comentado como tal en `comps.py`): `FIT["mago"]` = engage
+  0.0, mixto 0.2, peel 0.2, poke 0.0, siempre en o bajo la mediana de los tres tipos del video y bajo
+  «flexible» (nunca el mejor encaje); `ENGAGE_FIT["mago"]` = 0 en todo; soporte desconocido 0.0; el top mago no
+  tiene regla propia (0). Con las mismas pruebas, un ADC del video siempre puntúa igual o más que un mago, y un
+  tipo mago nunca queda primero en la sugerencia del top.
 
 ## 5. Casos dudosos y cómo los decide la muestra
 
@@ -96,7 +97,8 @@ de los **3 parches más recientes** y calcula, por campeón y línea, **puntajes
 
 | Evidencia | De qué se compone |
 |---|---|
-| **early-ness** | oro+exp ganado por minuto contra el rival en los niveles 1-5; `diff14`; win rate en partidas de menos de 25 min menos el de partidas de 35+ min (si hay 8+ de cada una) |
+| **early-ness** (jungla) | participación temprana en kills (`kp14`, o `ka14` si falta: kills + asistencias antes del minuto 14, del timeline) y la pendiente por duración (win rate en partidas de menos de 25 min menos el de partidas de 35+ min, si hay 8+ de cada una), con el mismo peso. **No** usa oro+exp contra el jungla rival: eso premia la velocidad de limpieza (Karthus y Zyra salían «muy early»). |
+| **línea** (mid) | oro+exp ganado por minuto contra el rival en los niveles 1-5, `diff14` y la pendiente por duración; se usa junto a tank-ness para melee vs asesino |
 | **tank-ness** | parte del daño recibido + automitigado del equipo; segundos de CC por minuto |
 | **split-ness** | daño a edificios por minuto; placas de torre; y una participación en kills **menor** |
 | **carry** | parte del daño a campeones del equipo (se muestra, no decide) |
@@ -104,10 +106,10 @@ de los **3 parches más recientes** y calcula, por campeón y línea, **puntajes
 Reglas (M = 0.25 de margen; hace falta un mínimo de **30 partidas** del campeón en esa línea y los puntajes que
 la regla usa, si no el campeón sigue «pendiente»):
 
-- **Jungla**: `early` si early-ness >= +M, `farm` si <= -M, si no, evidencia ambigua (pendiente).
+- **Jungla**: `early` si early-ness >= +M, `farm` si <= -M, si no, evidencia ambigua (pendiente). Las filas sin `ka14`/`kp14` no alimentan la parte de kills: si ningún campeón las tiene, solo cuenta la pendiente (el reporte lo dice) y el margen sube a 0.75.
 - **Top**: `tanque` si tank >= +M y tank - split >= M; `split` si split >= +M y split - tank >= M; `bruiser` en
   cualquier otro caso (es el punto medio entre los dos).
-- **Mid**: se mide `lean = tank - 0.5 * early` (los duelistas melee reciben daño, los asesinos explotan temprano):
+- **Mid**: se mide `lean = tank - 0.5 * línea` (los duelistas melee reciben daño, los asesinos explotan temprano):
   `melee` si lean >= +M, `asesino` si <= -M, si no, pendiente.
 
 Sin `--decidir` solo imprime la tabla de evidencia y un **reporte de sanidad**: campeones con 30+ partidas cuya
@@ -116,16 +118,17 @@ evidencia contradice con fuerza (|z| >= 1) su tipo actual. No cambia nada. Con `
 `date` y `previous` (el tipo anterior). Repetirlo con datos nuevos vuelve a decidir; si los datos ya no alcanzan,
 la decisión anterior se conserva. Hay que reiniciar el panel para que cargue las tablas nuevas.
 
-**Limitaciones**: las medidas de línea (oro+exp, diff14) están contra el rival, así que mezclan «es temprano» con
-«es fuerte»; el win rate corto menos largo ayuda a separarlos. Los campos de estilo (daño a edificios, daño
-recibido, CC, participación en kills, placas) se guardan desde las filas nuevas; las anteriores no los tienen.
+**Limitaciones**: la pendiente por duración mezcla «es temprano» con «es fuerte en partidas cortas»; las kills
+tempranas ayudan a separarlo. Los campos de estilo (daño a edificios, daño recibido, CC, participación en kills,
+placas, `ka14`/`kp14`) se guardan desde las filas nuevas; las anteriores no los tienen.
 
 ### Estado con los datos del 23-oct-2026
 
-Las filas Diamante+ ya descargadas (parches 16.19-16.21) no traen los campos de estilo (el descargador arrancó
-antes del cambio). Hoy solo se puede decidir la **jungla** (usa solo medidas que ya existen): de 10 casos, 8 tienen
-decisión y 2 (Ekko, Trundle) quedan ambiguos. Top y mid quedan pendientes hasta que el descargador, reiniciado
-con el código nuevo, acumule partidas con los campos nuevos (30 por campeón y línea).
+Las filas Diamante+ ya descargadas (parches 16.19-16.21) no traen los campos nuevos (el descargador arrancó antes
+del cambio), así que en jungla solo cuenta la pendiente por duración (margen 0.75): de 10 casos, 3 tienen
+decisión (Hecarim, Nidalee y Zyra `early`) y el resto queda ambiguo o sin datos suficientes. Top y mid
+quedan pendientes hasta que el descargador, reiniciado con el código nuevo, acumule 30 partidas por campeón y
+línea con los campos nuevos. Conviene esperar a `ka14`/`kp14` antes de usar `--decidir` en jungla.
 
 ## 6. `HARD_ENGAGE`
 

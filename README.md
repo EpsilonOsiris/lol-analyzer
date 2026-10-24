@@ -195,7 +195,7 @@ python -m lolan arquetipos --linea jungla     # solo una línea
 python -m lolan arquetipos --decidir          # escribe las decisiones en champion_classes.json (reinicia el panel después)
 ```
 
-Las decisiones usan las filas `diamante` de los 3 parches más recientes (mínimo 30 partidas del campeón en la línea) y puntajes z contra el promedio de la línea: early o farm en jungla, tanque / bruiser / split en top, asesino o melee en mid. Las filas anteriores a los campos de estilo (daño a edificios, daño recibido, CC, participación en kills, placas de torre) no los tienen; en esos casos el campeón sigue «pendiente».
+Las decisiones usan las filas `diamante` de los 3 parches más recientes (mínimo 30 partidas del campeón en la línea) y puntajes z contra el promedio de la línea: early o farm en jungla (por kills antes del minuto 14 y pendiente por duración, no por oro), tanque / bruiser / split en top, asesino o melee en mid. Las filas anteriores a los campos de estilo (daño a edificios, daño recibido, CC, participación en kills, placas de torre, kills tempranas) no los tienen; en esos casos el campeón sigue «pendiente».
 
 ## En vivo (tu partida mientras juegas)
 
