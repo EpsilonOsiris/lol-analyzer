@@ -94,7 +94,7 @@
   function sampleHtml(s) {
     if (!s) return '';
     if (!s.games) return '<span class="muted">' + esc(s.note || 'sin partidas de este cruce') + '</span>';
-    return toneBold(s.wr_text, s.tone) + ' de líneas ganadas <span class="muted">(real ' + esc(s.raw_text) + ' · ' +
+    return toneBold(s.wr_text, s.tone) + ' ' + (s.unit || 'de líneas ganadas') + ' <span class="muted">(real ' + esc(s.raw_text) + ' · ' +
       s.games + (s.games === 1 ? ' partida · ' : ' partidas · ') + esc(s.label) +
       (s.diff14_text ? ' · ' + esc(s.diff14_text) : '') + ')</span>' +
       (s.thin ? ' <span class="badge">pocas partidas</span>' : '') +
@@ -147,7 +147,7 @@
     if (c.state === 'waiting') return '<p class="muted">' + esc(c.message) + '</p>';
     var rows = '';
     if (c.state === 'pair') {
-      rows += laneRow('Línea', sampleHtml(c.sample));
+      rows += laneRow(c.row_label || 'Línea', sampleHtml(c.sample));
       rows += laneRow('Picos', spikesHtml(c.spikes));
       rows += laneRow(c.person ? c.person.name : '', c.person ? esc(c.person.text) + ' <span class="muted">(partidas propias)</span>' : '');
       rows += laneRow('OP.GG', opggHtml(c));

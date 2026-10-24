@@ -273,3 +273,45 @@ def test_no_samples_at_all_still_gives_cards_with_opgg(base):
     card = out["cards"][0]
     assert card["sample"] is None and card["spikes"] is None and card["opgg"]["status"] == "ok"
     assert out["diamond"] is False and out["data"] is False
+
+
+# ------------------------------------------------------------------ the jungle is not a lane
+SEJUANI = 113
+
+
+def jungle_book(base):
+    return book_of(base, lane_rows(LEE, SEJUANI, 12, 9, role="JUNGLE", person="Epsilon Seth"),
+                   lane_rows(AHRI, ZED, 12, 6, person="Epsilon Seth"))
+
+
+def test_a_jungle_card_is_a_duel_between_junglers_not_a_lane(base):
+    found = {**OPGG_AHRI, "lane_winner": "mine", "solo_winner": "even"}
+    out = lc.build_lanes(jungle_book(base), [ally(0, "JUNGLE", LEE, person="Epsilon Seth", me=True),
+                                             ally(1, "MIDDLE", AHRI, person="Epsilon Seth")],
+                         [enemy(SEJUANI, "JUNGLE"), enemy(ZED, "MIDDLE")], "JUNGLE", name_of,
+                         lookup_of({("JUNGLE", LEE, SEJUANI): found}))
+    assert [c["role"] for c in out["cards"]] == ["JUNGLE", "MIDDLE"]                  # my role first, as always
+    jg, mid = out["cards"]
+    assert jg["role_label"] == "Duelo de junglas" and jg["row_label"] == "Duelo"
+    assert jg["sample"]["unit"] == "de duelos de junglas ganados"
+    assert jg["sample"]["diff14_text"].endswith("oro+exp al 14 frente a la jungla rival")
+    assert jg["person"]["text"] == "9 de 12 duelos de junglas ganados"
+    assert jg["opgg"]["lane"] == "Ventaja en el duelo de junglas: Lee Sin"
+    assert "en el duelo de junglas" in jg["summary"] and "en la línea" not in jg["summary"]
+    blob = " ".join(str(v) for v in (jg["role_label"], jg["person"]["text"], jg["opgg"]["lane"], jg["summary"],
+                                     jg["sample"]["diff14_text"]))
+    assert "línea" not in blob.lower() and "ventaja en la" not in blob.lower()
+    # the other cards keep the lane wording and carry none of the jungle fields
+    assert mid["role_label"] == "Mid" and "unit" not in mid["sample"] and "row_label" not in mid
+    assert mid["person"]["text"] == "6 de 12 líneas ganadas" and "en la línea" in mid["summary"]
+
+
+def test_the_jungle_duel_goes_even_and_waits_in_its_own_words(base):
+    even = lc.opgg_block({**OPGG_AHRI, "lane_winner": "even"}, "Lee Sin", "Sejuani", role="JUNGLE")
+    assert even["lane"] == "El duelo de junglas va parejo"
+    one = lc.person_block({"games": 1, "wins": 1}, "Tú", "JUNGLE")
+    assert one["text"] == "1 de 1 duelo de junglas ganado"
+    out = lc.build_lanes(jungle_book(base), [ally(0, "JUNGLE", 0, 0, me=True)], [], "JUNGLE", name_of)
+    card = out["cards"][0]
+    assert card["state"] == "waiting" and card["message"] == "Aún no se ha revelado la jungla rival."
+    assert card["role_label"] == "Duelo de junglas"

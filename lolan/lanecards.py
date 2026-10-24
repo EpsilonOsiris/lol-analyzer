@@ -11,6 +11,10 @@ is whatever `LaneOpgg.lookup` already has (cached) or "pending" and fills in lat
   * `build_lanes`: the cards (my lane first and detailed, the others compact), the "Mejores contra" lists
     for allies who have not picked yet, and the state of the enemy roles.
 
+The JUNGLE card is not a lane: it is worded as a jungler-against-jungler duel ("Duelo de junglas"). The
+numbers are the same ones (who was ahead in gold + experience at minute 14 against the enemy jungler), only
+the wording changes.
+
 Policy: data only. The text states what the samples say; it never tells anybody what to pick or dodge,
 except the ranked list of the player's own champions against the revealed rival ("Mejores contra").
 """
@@ -36,11 +40,23 @@ LINE_ORDER = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 LENGTH_NAMES = {"<25": "<25 min", "25-30": "25-30 min", "30-35": "30-35 min", "35+": "más de 35 min"}
 OPGG_LENGTH_NAMES = {0: "<25 min", 25: "25-30 min", 30: "30-35 min", 35: "35-40 min", 40: "más de 40 min"}
 OPGG_LENGTH_EDGE = 0.02         # best and worst OP.GG length bucket must differ by this to be mentioned
+JUNGLE_TITLE = "Duelo de junglas"
+JUNGLE_UNIT = "de duelos de junglas ganados"
+JUNGLE_DIFF14 = "oro+exp al 14 frente a la jungla rival"
 STYLE_TEXT = {"even": "parejo", "aggressive": "agresivo", "passive": "pasivo", "defensive": "defensivo"}
 
 
 def pct(value) -> str:
     return f"{round(100 * value)}%"
+
+
+def is_jungle(role) -> bool:
+    return role == "JUNGLE"
+
+
+def card_label(role) -> str:
+    """Title of a card: the role, or "Duelo de junglas" (the jungle has no lane to win)."""
+    return JUNGLE_TITLE if is_jungle(role) else role_name(role)
 
 
 def tone_of_rate(rate, games) -> str:
@@ -254,11 +270,16 @@ def opgg_length_text(lengths) -> str | None:
 
 
 # --------------------------------------------------------------- sample block
-def sample_block(view) -> dict:
-    """The "sample" part of a card: lane win rate (shrunk), games, gold+xp at 14 and where it comes from."""
+def sample_block(view, role=None) -> dict:
+    """The "sample" part of a card: lane win rate (shrunk), games, gold+xp at 14 and where it comes from.
+
+    For the jungle `unit` names what was won ("de duelos de junglas ganados"), and the +/- gold+xp at 14 is
+    said to be against the enemy jungler; the page falls back to "de líneas ganadas" without `unit`."""
     stats = view["stats"]
     games = stats.get("games") or 0
     block = {"kind": view["kind"], "label": view["label"], "games": games, "note": None}
+    if is_jungle(role):
+        block["unit"] = JUNGLE_UNIT
     if view["kind"] == "fallback":
         block["note"] = NO_DIAMOND_PAIR_NOTE if view["diamond"] else NO_DIAMOND_NOTE
     if not games:
@@ -268,20 +289,22 @@ def sample_block(view) -> dict:
     shrunk = stats["shrunk_lane_wr"]
     block.update(wr=shrunk, wr_text=pct(shrunk), raw_text=pct(stats["lane_wr"]),
                  tone=tone_of_rate(shrunk, games), thin=games < LOW_SAMPLE_GAMES,
-                 diff14_text=f"{signed(stats['avg_diff14'])} oro+exp al 14" if stats.get("avg_diff14") is not None else None)
+                 diff14_text=(f"{signed(stats['avg_diff14'])} " + (JUNGLE_DIFF14 if is_jungle(role) else "oro+exp al 14"))
+                 if stats.get("avg_diff14") is not None else None)
     return block
 
 
-def person_block(record, name) -> dict | None:
+def person_block(record, name, role=None) -> dict | None:
     if not record or not record["games"]:
         return None
     g, w = record["games"], record["wins"]
-    return {"name": name, "games": g, "wins": w,
-            "text": f"{w} de {g} {'línea ganada' if w == 1 and g == 1 else 'líneas ganadas'}"}
+    one = w == 1 and g == 1
+    unit = ("duelo de junglas ganado" if one else "duelos de junglas ganados") if is_jungle(role)         else "línea ganada" if one else "líneas ganadas"
+    return {"name": name, "games": g, "wins": w, "text": f"{w} de {g} {unit}"}
 
 
 # --------------------------------------------------------------- OP.GG block
-def opgg_block(found, ally_name, enemy_name, mine=True) -> dict | None:
+def opgg_block(found, ally_name, enemy_name, mine=True, role=None) -> dict | None:
     """The "opgg" part of a card from a `LaneOpgg.lookup` answer (None when OP.GG is off)."""
     status = found.get("status", "off")
     if status == "off":
@@ -301,7 +324,12 @@ def opgg_block(found, ally_name, enemy_name, mine=True) -> dict | None:
         return None if side is None else "Parejo" if side == "even" else ally_name if side == "mine" else enemy_name
 
     lane, solo = who(found.get("lane_winner")), who(found.get("solo_winner"))
-    block["lane"] = None if lane is None else ("Ventaja en la línea: " + lane if lane != "Parejo" else "La línea va pareja")
+    if is_jungle(role):
+        block["lane"] = None if lane is None else (
+            "Ventaja en el duelo de junglas: " + lane if lane != "Parejo" else "El duelo de junglas va parejo")
+    else:
+        block["lane"] = None if lane is None else (
+            "Ventaja en la línea: " + lane if lane != "Parejo" else "La línea va pareja")
     block["solo"] = None if solo is None else ("Ventaja de solo kill: " + solo if solo != "Parejo" else "Sin ventaja de solo kill")
     block["lane_side"] = found.get("lane_winner")
     block["tip"] = found.get("tip")
@@ -339,14 +367,14 @@ def _pair_card(book, role, mine, ally, enemy, name_of, opgg_lookup, subject, bes
     enemy_id = enemy["champion_id"]
     ally_name, enemy_name = name_of(ally_id), name_of(enemy_id)
     view = book.matchup(role, ally_id, enemy_id) if book else None
-    card = {"role": role, "role_label": role_name(role), "mine": mine, "state": "pair",
+    card = {"role": role, "role_label": card_label(role), "mine": mine, "state": "pair",
             "ally": {"champion_id": ally_id, "name": ally_name, "hover": not locked, "who": subject,
                      "cell_id": ally["cell_id"], "person": ally.get("person")},
             "enemy": {"champion_id": enemy_id, "name": enemy_name, "role_low": bool(enemy.get("role_low")),
                       "role_conf": enemy.get("role_conf")},
             "sample": None, "spikes": None, "person": None, "opgg": None, "length": None, "best": best}
     if view:
-        card["sample"] = sample_block(view)
+        card["sample"] = sample_block(view, role)
         stats = view["stats"]
         mine_overall, their_overall = book.overall(role, ally_id), book.overall(role, enemy_id)
         a_prof = spike_profile(mine_overall["stats"], mine_overall["stats"].get("low_sample", False))
@@ -356,12 +384,14 @@ def _pair_card(book, role, mine, ally, enemy, name_of, opgg_lookup, subject, bes
             "enemy": {**e_prof, "label": "Rival" if mine else enemy_name, "source": their_overall["label"]},
             "duel": duel_text(stats)}
         record = book.person_record(role, ally_id, enemy_id, ally.get("person"))
-        card["person"] = person_block(record, subject if mine else ally.get("person"))
+        card["person"] = person_block(record, subject if mine else ally.get("person"), role)
         card["length"] = {"ours": a_prof["length"]["text"] if a_prof["length"] else None, "label": mine_overall["label"]}
     found = opgg_lookup(role, ally_id, enemy_id, locked) if opgg_lookup else {"status": "off"}
-    card["opgg"] = opgg_block(found, ally_name, enemy_name)
+    card["opgg"] = opgg_block(found, ally_name, enemy_name, role=role)
     if card["opgg"] and card["opgg"].get("length"):
         card["length"] = {**(card["length"] or {"ours": None, "label": None}), "opgg": card["opgg"]["length"]}
+    if is_jungle(role):
+        card["row_label"] = "Duelo"
     card["summary"] = _summary(card)
     return card
 
@@ -370,7 +400,8 @@ def _summary(card) -> str:
     parts = []
     s = card["sample"]
     if s and s["games"]:
-        parts.append(f"{s['wr_text']} en la línea ({s['games']} {'partida' if s['games'] == 1 else 'partidas'} {s['label']})")
+        where = "en el duelo de junglas" if is_jungle(card["role"]) else "en la línea"
+        parts.append(f"{s['wr_text']} {where} ({s['games']} {'partida' if s['games'] == 1 else 'partidas'} {s['label']})")
     elif s:
         parts.append("sin partidas de este cruce")
     o = card["opgg"]
@@ -409,7 +440,7 @@ def build_lanes(book, allies, enemies, my_role, name_of, opgg_lookup=None, pool_
         if enemy and ally_champ:
             cards.append(_pair_card(book, role, mine, ally, enemy, name_of, opgg_lookup, subject, best))
         elif enemy and best:
-            cards.append({"role": role, "role_label": role_name(role), "mine": mine, "state": "picking",
+            cards.append({"role": role, "role_label": card_label(role), "mine": mine, "state": "picking",
                           "ally": {"champion_id": 0, "name": None, "hover": False, "who": subject,
                                    "cell_id": ally["cell_id"], "person": ally.get("person")},
                           "enemy": {"champion_id": enemy["champion_id"], "name": name_of(enemy["champion_id"]),
@@ -419,8 +450,9 @@ def build_lanes(book, allies, enemies, my_role, name_of, opgg_lookup=None, pool_
             why = ("Deduciendo las líneas del rival con OP.GG…" if enemy_roles_state == "pending" else
                    "Sin OP.GG no se pueden deducir las líneas del rival." if enemy_roles_state == "off" else
                    "OP.GG no respondió: no se pueden deducir las líneas del rival." if enemy_roles_state == "error" else
-                   "Aún no se ha revelado el rival de tu línea." if not enemy else "Elige un campeón para ver el cruce.")
-            cards.append({"role": role, "role_label": role_name(role), "mine": True, "state": "waiting",
+                   ("Aún no se ha revelado la jungla rival." if is_jungle(role) else "Aún no se ha revelado el rival de tu línea.")
+                   if not enemy else "Elige un campeón para ver el cruce.")
+            cards.append({"role": role, "role_label": card_label(role), "mine": True, "state": "waiting",
                           "message": why, "summary": why})
     return {"cards": cards, "my_role": my_role, "enemy_roles": enemy_roles_state,
             "diamond": bool(book and book.has_diamond()), "data": bool(book and book.any_data())}
