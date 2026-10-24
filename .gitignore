@@ -1,6 +1,6 @@
 .env
 .venv/
-data/
+/data/
 reports/
 __pycache__/
 .pytest_cache/
