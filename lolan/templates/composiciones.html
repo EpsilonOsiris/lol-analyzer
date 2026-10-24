@@ -35,7 +35,7 @@
   <p class="muted">Elige quién juega en cada rol de tu equipo (si no sabes, «Aleatorio») y, si ya lo escogieron, su campeón. La alineación viene rellenada con la más común del clan{% if main_role != 'BOTTOM' %} en tus partidas de {{ main_role|role }}{% endif %}. Te sugerimos {% if main_role == 'BOTTOM' %}el ADC de tu pool que mejor encaja y, para cada línea sin campeón, los 3 mejores picks{% else %}tus mejores campeones de {{ main_role|role }} para ese equipo y, para cada otra línea sin campeón, los 3 mejores picks{% endif %} (los campeones de esa persona si elegiste a alguien del clan; si dejas «Aleatorio», solo tipos de campeón), con el plan de pelea resultante.</p>
   <form method="get" action="{{ u('comps_page') }}" class="draft-form">
     <input type="hidden" name="cola" value="{{ cola }}">
-    {% if linea_choice != 'auto' %}<input type="hidden" name="linea" value="{{ linea_choice }}">
+    {% if linea_explicit %}<input type="hidden" name="linea" value="{{ linea_choice }}">
     {% endif %}<input type="hidden" name="armar" value="1">
     <div class="draft-grid">
       {% for role in form_roles %}

@@ -52,6 +52,8 @@ LINEA_AUTO = "auto"
 LINEA_TODAS = "todas"
 LINEA_AGGREGATE = ("index", "champion", "games_list", "clan_page")
 LINEA_PAGES = ("comps_page",) + LINEA_AGGREGATE
+# Line used when the URL has none: the overview pages show every game, the rest the auto line.
+LINEA_DEFAULT = {"index": LINEA_TODAS, "games_list": LINEA_TODAS}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 PAGE_SIZE = 50
 NL2 = "\n\n"                # end of a server-sent event
@@ -576,14 +578,18 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         g.roster = open_roster()
         # ?jugador=<slug>; missing or unknown -> the main player (None if nobody is registered).
         g.player = g.roster.by_slug(request.args.get("jugador")) or g.roster.main
-        # ?linea=<rol>; missing or unknown -> auto. g.linea is the line in use (auto resolved), only
-        # worked out on the pages that use it.
+        # ?linea=<rol>; missing or unknown -> the page's default (LINEA_DEFAULT). g.linea is the
+        # line in use (auto resolved), only worked out on the pages that use it.
         raw = (request.args.get("linea") or "").strip().casefold()
-        g.linea_choice = LINEA_TODAS if raw == LINEA_TODAS else comps.parse_line(raw) or LINEA_AUTO
+        default = LINEA_DEFAULT.get(request.endpoint, LINEA_AUTO)
+        picked = (raw if raw in (LINEA_TODAS, LINEA_AUTO) else comps.parse_line(raw)) if raw else None
+        g.linea_choice = picked or default
+        # A real choice that differs from this page's default travels in the links and forms.
+        g.linea_explicit = bool(picked) and picked != default
         g.linea = g.linea_auto = None
         if request.endpoint == "comps_page":
             if g.linea_choice == LINEA_TODAS:       # Composiciones is always seen from one seat
-                g.linea_choice = LINEA_AUTO
+                g.linea_choice, g.linea_explicit = LINEA_AUTO, False
             g.linea_auto = comps.main_line(main_records())
             g.linea = g.linea_auto if g.linea_choice == LINEA_AUTO else g.linea_choice
         elif request.endpoint in LINEA_AGGREGATE:
@@ -622,7 +628,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             param = None
 
         choice = g.get("linea_choice", LINEA_AUTO)
-        linea_param = None if choice == LINEA_AUTO else choice       # "auto" stays out of the links
+        # Only a line the viewer picked travels in the links; without one each page uses its default.
+        linea_param = choice if g.get("linea_explicit") else None
 
         def u(endpoint, **values):
             values.setdefault("jugador", param)
@@ -637,7 +644,7 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
                            **(request.view_args or {}))
 
         def switch_linea(slug):
-            slug = None if slug == LINEA_AUTO else slug
+            slug = None if slug == LINEA_DEFAULT.get(request.endpoint, LINEA_AUTO) else slug
             if request.endpoint in (None, "static"):
                 return url_for("index", cola=g.cola, linea=slug)
             return url_for(request.endpoint, cola=g.cola, jugador=param, linea=slug, **(request.view_args or {}))
@@ -658,7 +665,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
                 "key_banner": banner,
                 "key_age": age_text(st.riot_key_saved_at) if banner == "vieja" else "",
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
-                "linea_choice": choice, "linea": g.get("linea"), "linea_options": linea_options,
+                "linea_choice": choice, "linea_explicit": bool(g.get("linea_explicit")), "linea": g.get("linea"),
+                "linea_options": linea_options,
                 "switch_linea": switch_linea, "show_linea": request.endpoint in LINEA_PAGES,
                 "jugador": current, "picker_action": picker_action,
                 "show_picker": bool(roster) and len(roster) > 1

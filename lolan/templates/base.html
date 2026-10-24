@@ -28,7 +28,7 @@
     {% if show_picker %}
     <form class="picker" method="get" action="{{ picker_action }}">
       <input type="hidden" name="cola" value="{{ cola }}">
-      {% if linea_choice != 'auto' %}<input type="hidden" name="linea" value="{{ linea_choice }}">{% endif %}
+      {% if linea_explicit %}<input type="hidden" name="linea" value="{{ linea_choice }}">{% endif %}
       <label class="sr-only" for="jugador-select">Jugador</label>
       <select id="jugador-select" name="jugador" data-autosubmit>
         {% for p in roster.players %}

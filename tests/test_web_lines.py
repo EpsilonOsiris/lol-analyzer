@@ -45,14 +45,21 @@ def client(root):
 
 
 def test_support_main_summary_is_seen_as_a_support(client):
-    html = main_block(text(client.get("/")))
+    html = main_block(text(client.get("/?linea=auto")))
     assert "Línea: <strong>Soporte</strong> · 10 de 16 partidas" in html
     assert "Visión/min" in html and "Curación y escudos/min" in html and "Particip. en kills" in html
     assert "CS/min" not in html and "Dif. oro @14" not in html
     assert "fueron en la jungla enemiga" not in html and "participó el jungla enemigo" in html
-    # the selector offers the line the page resolved and "Todas"
+    # the selector offers the line the page resolved, as a choice that differs from the default
     head = text(client.get("/"))
-    assert "Automática: Soporte" in head and 'linea=todas' in head
+    assert "Automática: Soporte" in head and 'linea=auto' in head
+
+
+def test_summary_and_games_list_show_every_line_by_default(client):
+    assert "16 de 16 partidas" in main_block(text(client.get("/")))
+    assert "Mostrando 1–16 de 16" in main_block(text(client.get("/partidas")))
+    # the other aggregate pages keep the auto line
+    assert "como Soporte" in main_block(text(client.get("/campeon/Vi")))
 
 
 def test_jungle_line_shows_the_jungle_stats_and_invasion_deaths(client):
@@ -77,24 +84,26 @@ def test_all_lines_hide_line_specific_numbers_and_say_so(client):
     assert cells["Jungla"][cs_col] == "None"
 
 
-def test_unknown_or_empty_line_choice_falls_back_to_auto(client):
+def test_unknown_or_empty_line_choice_falls_back_to_the_page_default(client):
     for value in ("banana", ""):
         html = main_block(text(client.get(f"/?linea={value}")))
-        assert "Línea: <strong>Soporte</strong>" in html and "banana" not in html
+        assert "16 de 16 partidas" in html and "banana" not in html           # Resumen: Todas
+        html = main_block(text(client.get(f"/campeon/Soraka?linea={value}")))
+        assert "Línea: <strong>Soporte</strong>" in html and "banana" not in html   # Campeón: auto
 
 
 def test_line_without_games_has_its_own_message(client):
     resp = client.get("/?linea=TOP")
-    html = text(resp)
-    assert resp.status_code == 200 and "No hay partidas de esta línea" in html and "linea=todas" in html
+    assert resp.status_code == 200 and "No hay partidas de esta línea" in text(resp)
     assert "No hay partidas de esta línea" in text(client.get("/partidas?linea=TOP"))
+    assert "linea=todas" in text(client.get("/campeon/Soraka?linea=TOP"))
 
 
 def test_games_list_filters_and_adapts_columns(client):
-    html = main_block(text(client.get("/partidas")))
+    html = main_block(text(client.get("/partidas?linea=auto")))
     assert "Mostrando 1–10 de 10" in html and ">Soporte<" in html and ">Jungla<" not in html
     assert "Visión/min" in html and "Curación y escudos/min" in html and "CS/min" not in html
-    html = main_block(text(client.get("/partidas?linea=todas")))
+    html = main_block(text(client.get("/partidas")))
     assert "Mostrando 1–16 de 16" in html and "CS/min" in html
     cells = re.findall(r"<td>Soporte</td>.*?</tr>", html, re.S)[0]
     assert ">-<" in cells                          # a support's row has no CS/min
@@ -139,15 +148,19 @@ def test_clan_table_follows_each_players_line(client):
 
 
 def test_selector_has_todas_only_on_aggregate_pages(client):
-    assert 'linea=todas' in text(client.get("/partidas"))
+    assert 'linea=todas' in text(client.get("/campeon/Soraka"))
+    assert ">Todas</a>" in text(client.get("/partidas"))
     comps = text(client.get("/composiciones?linea=todas"))
     assert 'linea=todas' not in comps and 'name="linea"' not in comps
     assert 'aria-label="Línea"' in comps
 
 
 def test_line_choice_travels_in_links(client):
-    html = main_block(text(client.get("/partidas?linea=todas")))
-    assert re.search(r'href="/partida/S_\d+\?[^"]*linea=todas', html)
+    html = main_block(text(client.get("/partidas?linea=UTILITY")))
+    assert re.search(r'href="/partida/S_\d+\?[^"]*linea=UTILITY', html)
+    # the page's own default does not travel: the next page uses its own default
+    html = main_block(text(client.get("/partidas")))
+    assert re.search(r'href="/partida/S_\d+"', html) or not re.search(r'href="/partida/[^"]*linea=', html)
     sel = text(client.get("/?linea=JUNGLE&cola=todas"))
     assert 'aria-current="true">Jungla</a>' in sel
 
