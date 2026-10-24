@@ -22,9 +22,10 @@ SCRIPT = (
 )
 
 
-def build_records():
+def script_matches(script=SCRIPT):
+    """(match_id, match, None) per game of a script, in the order build_records reads them."""
     items = []
-    for role, champion, wins, games, mates in SCRIPT:
+    for role, champion, wins, games, mates in script:
         for i in range(games):
             n = len(items)
             blue = {r: (who[0], who[1], c) if who else (f"p-anon-{r}-{n}", f"Anon{r}{n}", c)
@@ -35,7 +36,11 @@ def build_records():
             match = make_comp_match(f"LA1_{n}", blue=blue, red=red, win=i < wins, main_role=role,
                                     created=BASE_TIME_MS + n * HOUR)
             items.append((f"LA1_{n}", match, None))
-    recs = comps.build_records(items, ME_PUUID)
+    return items
+
+
+def build_records(script=SCRIPT):
+    recs = comps.build_records(script_matches(script), ME_PUUID)
     return comps.resolve_people(recs, comps.ClanConfig.build("Epsilon", "", None))
 
 
