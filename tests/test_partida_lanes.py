@@ -406,3 +406,17 @@ def test_the_script_states_every_case_and_escapes_what_it_shows(rig, tmp_path):
     assert '<details class="lane" data-role="BOTTOM" open>' in html          # the viewer's choice survives a re-render
     aram = run_harness({**data, "lanes": None}, tmp_path)
     assert aram["boxHidden"] is True and aram["lanes"] == ""
+
+
+@pytest.mark.skipif(node is None, reason="Node no está instalado")
+def test_the_script_words_a_jungle_card_as_a_duel_and_keeps_the_lane_wording_elsewhere(rig, tmp_path):
+    rig.publish(normal(4))
+    rig.payload()
+    rig.settle()
+    data = rig.payload()
+    mid = data["lanes"]["cards"][0]
+    mid.update(role="JUNGLE", role_label="Duelo de junglas", row_label="Duelo")
+    mid["sample"]["unit"] = "de duelos de junglas ganados"
+    html = run_harness(data, tmp_path)["lanes"]
+    assert "Duelo de junglas · tú" in html and "<dt>Duelo</dt>" in html and "de duelos de junglas ganados" in html
+    assert "de líneas ganadas" in html and "<dt>Línea</dt>" in html                      # the other pairs are untouched

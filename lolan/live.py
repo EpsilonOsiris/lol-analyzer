@@ -49,6 +49,9 @@ CHECKPOINT_MINUTES = (7, 14, 21, 28)
 CHECKPOINT_WINDOW_S = 20
 
 ROLE_ORDER = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]
+DUO_ROLES = ("BOTTOM", "UTILITY")       # the bot lane duo: ADC + support
+# What a player's "rival" is when the page shows a gold or item-value difference against him.
+DIFF_SCOPES = {"JUNGLE": "jungle", "UTILITY": "duo"}
 ROLE_LABELS = {"TOP": "Top", "JUNGLE": "Jungla", "MIDDLE": "Mid", "BOTTOM": "ADC", "UTILITY": "Soporte"}
 MODE_LABELS = {
     "CLASSIC": "Clásico", "ARAM": "ARAM", "PRACTICETOOL": "Herramienta de práctica",
@@ -422,7 +425,7 @@ def normalize(raw: dict, namer=None) -> dict | None:
     events_raw = (raw.get("events") or {}).get("Events") if isinstance(raw.get("events"), dict) else None
     events = sorted((e for e in events_raw or [] if isinstance(e, dict)),
                     key=lambda e: _num(e.get("EventTime")))
-    totals = {s: {"towers": 0, "inhibitors": 0, "dragons": [], "heralds": 0, "barons": 0}
+    totals = {s: {"towers": 0, "inhibitors": 0, "dragons": [], "heralds": 0, "barons": 0, "grubs": 0}
               for s in ("ORDER", "CHAOS")}
     feed = []
     me_deaths, me_kills = [], []
@@ -506,6 +509,10 @@ def normalize(raw: dict, namer=None) -> dict | None:
             else:
                 totals[side]["inhibitors"] += 1
                 push(e, "inhib", f"{who} destruyó un inhibidor", side)
+        elif name == "HordeKill":           # void grubs: counted for the jungler's objectives, not in the feed
+            side = actor_side(e.get("KillerName"), assisters=assisters)
+            if side is not None:
+                totals[side]["grubs"] += 1
         elif name in ("DragonKill", "HeraldKill", "BaronKill"):
             side = actor_side(e.get("KillerName"), assisters=assisters)
             if side is None:
@@ -543,6 +550,7 @@ def normalize(raw: dict, namer=None) -> dict | None:
             "label": "Tu equipo" if role == "ally" else "Equipo enemigo", "side": side, "players": members,
             "totals": {"kills": sum(p["kills"] for p in members), "towers": t["towers"],
                        "inhibitors": t["inhibitors"], "heralds": t["heralds"], "barons": t["barons"],
+                       "grubs": t["grubs"],
                        "dragons": [{"type": d, "label": DRAGON_LABELS.get(d, d)} for d in t["dragons"]]},
         }
 
@@ -560,11 +568,15 @@ def normalize(raw: dict, namer=None) -> dict | None:
         keystone = ((active.get("fullRunes") or {}).get("keystone") or {}).get("displayName") \
             if isinstance(active.get("fullRunes"), dict) else None
         minutes = now_s / 60.0
+        team_kills = teams["ally"]["totals"]["kills"]
         me = {**{k: pl[k] for k in ("name", "riot_id", "champion", "champion_name", "position", "role_label",
                                      "level", "kills", "deaths", "assists", "cs", "ward_score")},
               "gold": round(_num(active.get("currentGold"))),
               # the client rounds CS down to tens: use the middle of the range
               "cs_per_min": round((pl["cs"] + LIVE_CS_OFFSET) / minutes, 1) if minutes >= 1 else None,
+              # kill participation so far: (kills + assists) over the team's kills
+              "kp": round((pl["kills"] + pl["assists"]) / team_kills, 3) if team_kills > 0 else None,
+              "team_kills": team_kills,
               "stats": stats, "keystone": keystone or None, "checkpoints": {}}
     return {
         "time": round(now_s, 1), "clock": fmt_clock(now_s), "mode": mode,
@@ -603,6 +615,11 @@ def enrich(state: dict, *, champion_icon=None, item_icon=None, item_cost=None, i
     price). Riot only exposes the current gold of the player who is playing, so this is the best
     comparison available for the other nine. With a `gold_model` (goldmodel.GoldModel) it also
     adds "gold_est" (estimated total gold) and "unspent_est" (a rough estimate minus item value).
+
+    Differences against the rival: `gold_diff` / `value_diff` against the enemy who plays the same
+    position (for a jungler that is the enemy JUNGLER, `diff_scope` "jungle"); the bot lane duo also gets
+    `duo_gold_diff` / `duo_value_diff` (ADC + support against the enemy duo), the one that means
+    something for a support (`diff_scope` "duo").
     """
     out = copy.deepcopy(state)
     minute = out["time"] / 60.0
@@ -655,6 +672,25 @@ def enrich(state: dict, *, champion_icon=None, item_icon=None, item_cost=None, i
             p["gold_diff"] = (p["gold_est"] - opp[0]["gold_est"]
                               if len(opp) == 1 and p["gold_est"] is not None and opp[0]["gold_est"] is not None
                               else None)
+    # The duo (ADC + support) against the enemy duo: the difference that means something for a support,
+    # whose own gold barely moves with CS. Only when both sides have exactly one ADC and one support.
+    for mine, theirs in ((allies, enemies), (enemies, allies)):
+        mine_duo = [p for p in mine if p["position"] in DUO_ROLES]
+        their_duo = [p for p in theirs if p["position"] in DUO_ROLES]
+        whole = (len(mine_duo) == 2 and len(their_duo) == 2
+                 and len({p["position"] for p in mine_duo}) == 2 and len({p["position"] for p in their_duo}) == 2)
+        for p in mine:
+            p["diff_scope"] = DIFF_SCOPES.get(p["position"], "lane" if p["position"] else None)
+            p["duo_gold_diff"] = p["duo_value_diff"] = p["duo_opponents"] = None
+            if not whole or p["position"] not in DUO_ROLES:
+                continue
+            p["duo_opponents"] = [q["champion_name"] for q in their_duo]
+            gold = [q["gold_est"] for q in mine_duo + their_duo]
+            value = [q["value"] for q in mine_duo + their_duo]
+            if all(v is not None for v in gold):
+                p["duo_gold_diff"] = sum(gold[:2]) - sum(gold[2:])
+            if all(v is not None for v in value):
+                p["duo_value_diff"] = sum(value[:2]) - sum(value[2:])
     a, e = out["teams"]["ally"]["totals"], out["teams"]["enemy"]["totals"]
     out["value_diff"] = a["value"] - e["value"] if a["value"] is not None and e["value"] is not None else None
     out["gold_diff"] = (a["gold_est"] - e["gold_est"]

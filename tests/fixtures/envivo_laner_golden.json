@@ -1,0 +1,768 @@
+{
+ "html": {
+  "live-ally": "<h2>Tu equipo</h2><div class=\"rows\"><div class=\"prow headrow\"><div class=\"who\">Jugador</div><div class=\"kda\">KDA</div><div class=\"cs\">CS</div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\">Oro total ≈</div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\">Valor en objetos</div><div class=\"its\">Objetos</div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Garen.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">7</i></span><span class=\"nm\"><b>Garen</b><small>Top · Rana Veloz</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">2/1/3</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">98–107<small>≈7.3/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 8</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 5600<small class=\"diff neg\" title=\"Frente a su rival de línea (Renekton)\">−550</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 5000</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">550<small class=\"diff pos\" title=\"Frente a su rival de línea (Renekton)\">+100</small></span></div><div class=\"its\"><span class=\"it\" title=\"Hoja de Doran\"><img src=\"/it/1055.png\" alt=\"\"></span><span class=\"it\" title=\"Poción de salud ×2\"><img src=\"/it/2003.png\" alt=\"\"><i>2</i></span><span class=\"it\" title=\"Tótem\"><img src=\"/it/3340.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Sejuani.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">7</i></span><span class=\"nm\"><b>Sejuani</b><small>Jungla · Lince Gris</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">1/2/5</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">70–79<small>≈5.3/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 14</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 4700<small class=\"diff neg\" title=\"Frente a su rival de línea (Lee Sin)\">−1700</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 4400</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">300<small class=\"diff\" title=\"Frente a su rival de línea (Lee Sin)\">±0</small></span></div><div class=\"its\"><span class=\"it\" title=\"Botas\"><img src=\"/it/1001.png\" alt=\"\"></span><span class=\"it\" title=\"Tótem\"><img src=\"/it/3340.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Ahri.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">8</i></span><span class=\"nm\"><b>Ahri</b><small>Mid · Mono Sabio</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">3/2/4</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">101–110<small>≈7.5/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 6</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 6150<small class=\"diff neg\" title=\"Frente a su rival de línea (Zed)\">−800</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 4600</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">1500<small class=\"diff pos\" title=\"Frente a su rival de línea (Zed)\">+400</small></span></div><div class=\"its\"><span class=\"it\" title=\"Botas de hechicero\"><img src=\"/it/3020.png\" alt=\"\"></span><span class=\"it\" title=\"Anillo de Doran\"><img src=\"/it/1056.png\" alt=\"\"></span></div></div><div class=\"prow me\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Jinx.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">8</i></span><span class=\"nm\"><b>Jinx (tú)</b><small>ADC · Zorro Azul</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">5/2/4</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">112–121<small>≈8.3/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 5</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 7200<small class=\"diff pos\" title=\"Frente a su rival de línea (Kai&#39;Sa)\">+1450</small></span><small title=\"Tu oro real, el único que Riot muestra\">actual 1234</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">2475<small class=\"diff pos\" title=\"Frente a su rival de línea (Kai&#39;Sa)\">+75</small></span></div><div class=\"its\"><span class=\"it\" title=\"Grebas de berserker\"><img src=\"/it/3006.png\" alt=\"\"></span><span class=\"it\" title=\"Espada larga B. F.\"><img src=\"/it/1038.png\" alt=\"\"></span><span class=\"it\" title=\"Centinela de control\"><img src=\"/it/2055.png\" alt=\"\"></span><span class=\"it\" title=\"Tótem\"><img src=\"/it/3340.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Lulu.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">6</i></span><span class=\"nm\"><b>Lulu</b><small>Soporte · Luna Chica</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">0/3/9</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">14–23<small>≈1.3/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 29</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 4150<small class=\"diff neg\" title=\"Frente a su rival de línea (Thresh)\">−150</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 3600</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">550<small class=\"diff pos\" title=\"Frente a su rival de línea (Thresh)\">+150</small></span></div><div class=\"its\"><span class=\"it\" title=\"Filo del Sol\"><img src=\"/it/3850.png\" alt=\"\"></span><span class=\"it\" title=\"Centinela de control ×2\"><img src=\"/it/2055.png\" alt=\"\"><i>2</i></span></div></div></div>",
+  "live-ctx": "<h2>Tú contra tu historial</h2><p class=\"ctx-line\">Ahora: <b>112 CS</b> a los 14:05 · tu promedio con Jinx a esta altura: <b>102</b> <span class=\"muted\">(4 partidas)</span></p><div class=\"ctx-pts\"><span class=\"pt done\"><b>7:00</b> promedio 52 · esta partida <b>55</b></span><span class=\"pt done\"><b>14:00</b> promedio 102 · esta partida —</span><span class=\"pt\"><b>21:00</b> promedio 152</span></div><p class=\"note\">Dif. de oro a los 14 min, tu promedio con Jinx: +115 (no se puede medir en vivo).</p><p class=\"note\">Tu plan de mejora aparece con 8 partidas con línea de tiempo (tienes 0).</p>",
+  "live-enemy": "<h2>Equipo enemigo</h2><div class=\"rows\"><div class=\"prow headrow\"><div class=\"who\">Jugador</div><div class=\"kda\">KDA</div><div class=\"cs\">CS</div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\">Oro total ≈</div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\">Valor en objetos</div><div class=\"its\">Objetos</div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Renekton.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">8</i></span><span class=\"nm\"><b>Renekton</b><small>Top · Toro Rojo</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">4/1/2</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">95–104<small>≈7.1/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 6</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 6150<small class=\"diff pos\" title=\"Frente a su rival de línea (Garen)\">+550</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 5700</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">450<small class=\"diff neg\" title=\"Frente a su rival de línea (Garen)\">−100</small></span></div><div class=\"its\"><span class=\"it\" title=\"Hoja de Doran\"><img src=\"/it/1055.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/LeeSin.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">8</i></span><span class=\"nm\"><b>Lee Sin</b><small>Jungla · Gato Negro</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">4/1/5</div><div class=\"cs\" title=\"El juego solo cuenta los campamentos de la jungla enemiga que tu equipo ve: el real es mayor. Su oro se estima con su nivel.\">≥80<small class=\"rough\">solo lo visto</small><small class=\"vis\" title=\"Puntuación de visión\">visión 10</small></div><div class=\"gold\" title=\"Estimado con su nivel, kills, asistencias y el minuto, porque el juego no cuenta los campamentos que hace en la niebla (error típico ±383 en esta fase).\"><span class=\"gv\">≈ 6400<small class=\"diff pos\" title=\"Frente a su rival de línea (Sejuani)\">+1700</small></span><small class=\"rough\">por nivel</small><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 6100</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">300<small class=\"diff\" title=\"Frente a su rival de línea (Sejuani)\">±0</small></span></div><div class=\"its\"><span class=\"it\" title=\"Botas\"><img src=\"/it/1001.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Zed.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">9</i></span><span class=\"nm\"><b>Zed</b><small>Mid · Pez Dorado</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">5/1/2</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">110–119<small>≈8.1/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 5</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 6950<small class=\"diff pos\" title=\"Frente a su rival de línea (Ahri)\">+800</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 5800</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">1100<small class=\"diff neg\" title=\"Frente a su rival de línea (Ahri)\">−400</small></span></div><div class=\"its\"><span class=\"it\" title=\"Botas\"><img src=\"/it/3020.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Kaisa.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">7</i></span><span class=\"nm\"><b>Kai&#39;Sa</b><small>ADC · Cuervo Alto</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">2/2/3</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">104–113<small>≈7.7/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 4</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 5750<small class=\"diff neg\" title=\"Frente a su rival de línea (Jinx)\">−1450</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 3400</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">2400<small class=\"diff neg\" title=\"Frente a su rival de línea (Jinx)\">−75</small></span></div><div class=\"its\"><span class=\"it\" title=\"Grebas\"><img src=\"/it/3006.png\" alt=\"\"></span><span class=\"it\" title=\"Espada larga B. F.\"><img src=\"/it/1038.png\" alt=\"\"></span></div></div><div class=\"prow\"><div class=\"who\"><span class=\"ic-wrap\"><img class=\"champ\" src=\"/i/Thresh.png\" alt=\"\" loading=\"eager\"><i class=\"lvl\" title=\"Nivel\">6</i></span><span class=\"nm\"><b>Thresh</b><small>Soporte · Oso Pardo</small></span></div><div class=\"kda\" title=\"Asesinatos / muertes / asistencias\">0/2/11</div><div class=\"cs\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\">12–21<small>≈1.2/min</small><small class=\"vis\" title=\"Puntuación de visión\">visión 31</small></div><div class=\"gold\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span class=\"gv\">≈ 4300<small class=\"diff pos\" title=\"Frente a su rival de línea (Lulu)\">+150</small></span><small class=\"rough\" title=\"Aproximado: estimado menos valor en objetos\">sin gastar ≈ 3900</small></div><div class=\"val\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span class=\"gv\">400<small class=\"diff neg\" title=\"Frente a su rival de línea (Lulu)\">−150</small></span></div><div class=\"its\"><span class=\"it\" title=\"Filo\"><img src=\"/it/3850.png\" alt=\"\"></span></div></div></div>",
+  "live-feed": "<h2>Eventos</h2><ol class=\"feed\"><li class=\"enemy\"><time>13:20</time><span>Renekton destruyó un inhibidor</span></li><li class=\"enemy\"><time>11:40</time><span>Lee Sin mató al Heraldo de la Grieta</span></li><li class=\"enemy mine\"><time>10:00</time><span>Jinx murió a manos de una torre</span></li><li class=\"enemy\"><time>9:20</time><span>Doble kill de Zed</span></li><li class=\"ally\"><time>8:20</time><span>Sejuani mató un dragón (Infernal)</span></li><li class=\"ally\"><time>7:00</time><span>El equipo aliado destruyó una torre</span></li><li class=\"enemy mine\"><time>5:40</time><span>Kai&#39;Sa eliminó a Jinx (con Thresh, Lee Sin)</span></li><li class=\"ally mine\"><time>5:00</time><span>Jinx eliminó a Kai&#39;Sa (con Lulu)</span></li><li class=\"enemy\"><time>2:30</time><span>Primera sangre: Zed</span></li><li class=\"enemy\"><time>2:30</time><span>Zed eliminó a Ahri (con Lee Sin)</span></li></ol>",
+  "live-head": "<div class=\"hd-clock\"><span class=\"clock\" aria-label=\"Tiempo de partida\">14:05</span><span class=\"hd-meta\">Clásico · Grieta del Invocador</span></div><div class=\"hd-score\"><div class=\"hd-team ally\"><span class=\"hd-label\">Tu equipo</span><span class=\"hd-kills\" title=\"Asesinatos\">11</span><span class=\"hd-obj\">Torres <b>1</b> · Inhibidores <b>0</b> · Heraldos <b>0</b> · Barones <b>0</b></span><span class=\"hd-obj\">Dragones: <b>Infernal</b></span><span class=\"hd-obj\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\">Oro total ≈ <b>27800</b></span><span class=\"hd-obj\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\">Valor en objetos <b>5375</b></span></div><div class=\"hd-sep\" aria-hidden=\"true\">vs</div><div class=\"hd-team enemy\"><span class=\"hd-label\">Equipo enemigo</span><span class=\"hd-kills\" title=\"Asesinatos\">15</span><span class=\"hd-obj\">Torres <b>0</b> · Inhibidores <b>1</b> · Heraldos <b>1</b> · Barones <b>0</b></span><span class=\"hd-obj\">Dragones: <b>ninguno</b></span><span class=\"hd-obj\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\">Oro total ≈ <b>29550</b></span><span class=\"hd-obj\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\">Valor en objetos <b>4650</b></span></div></div><div class=\"hd-diff\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\">Diferencia de oro total estimado: <b class=\"neg\">≈ −1750</b> · en valor en objetos: <b class=\"pos\">+725</b></div>",
+  "live-me": "<h2>Tú · Jinx <span class=\"muted\">nivel 8</span></h2><div class=\"kvs\"><div class=\"kv big\"><span>Oro actual</span><b>1234</b></div><div class=\"kv big\"><span>KDA</span><b>5/2/4</b></div><div class=\"kv big\" title=\"El juego da el CS redondeado hacia abajo a la decena: el real está en ese rango.\"><span>CS</span><b>112–121 <small>≈8.3/min</small></b></div><div class=\"kv\" title=\"Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.\"><span>Oro total ≈</span><b>7200</b></div><div class=\"kv\" title=\"Valor en objetos: oro ya gastado en objetos (suma de sus precios). No es el oro actual.\"><span>Valor en objetos</span><b>2475</b></div><div class=\"kv\"><span>Visión</span><b>5</b></div><div class=\"kv\"><span>Runa clave</span><b>Dominio del cazador</b></div><div class=\"kv\"><span>Vida</span><b>1450</b></div><div class=\"kv\"><span>Daño de ataque</span><b>118</b></div><div class=\"kv\"><span>Poder de habilidad</span><b>0</b></div><div class=\"kv\"><span>Armadura</span><b>52</b></div><div class=\"kv\"><span>Resistencia mágica</span><b>39</b></div><div class=\"kv\"><span>Velocidad de ataque</span><b>1.31</b></div><div class=\"kv\"><span>Prob. de crítico</span><b>0%</b></div><div class=\"kv\"><span>Celeridad de habilidad</span><b>0</b></div><div class=\"kv\"><span>Velocidad de movimiento</span><b>355</b></div></div>",
+  "live-note": "Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.<br>Valor en objetos = oro que cada jugador ya gastó en sus objetos (suma del precio de cada uno). No es su oro actual: Riot solo muestra el oro actual del jugador que está jugando.<span class=\"extra\"> «Sin gastar» es solo una aproximación (estimado menos valor en objetos): no cuenta pociones ni centinelas gastados, objetos vendidos, tropas ni recompensas por objetivos.</span>"
+ },
+ "payload": {
+  "context": {
+   "cs": {
+    "clock": "14:05",
+    "cs_per_min": 8.3,
+    "cs_per_min_avg": 7.0,
+    "games": 4,
+    "gold_diff_14": 115.0,
+    "has_base": true,
+    "now": 112,
+    "points": [
+     {
+      "avg": 51.5,
+      "live": 55,
+      "minute": 7,
+      "reached": true
+     },
+     {
+      "avg": 101.5,
+      "live": null,
+      "minute": 14,
+      "reached": true
+     },
+     {
+      "avg": 151.5,
+      "live": null,
+      "minute": 21,
+      "reached": false
+     }
+    ],
+    "reference": 102,
+    "scope_label": "con Jinx"
+   },
+   "has_games": true,
+   "plan": {
+    "enough": false,
+    "games": 0,
+    "goals": [],
+    "min_games": 8
+   }
+  },
+  "game": {
+   "clock": "14:05",
+   "ended": false,
+   "feed": [
+    {
+     "clock": "13:20",
+     "kind": "inhib",
+     "mine": false,
+     "t": 800.0,
+     "team": "enemy",
+     "text": "Renekton destruyó un inhibidor"
+    },
+    {
+     "clock": "11:40",
+     "kind": "herald",
+     "mine": false,
+     "t": 700.0,
+     "team": "enemy",
+     "text": "Lee Sin mató al Heraldo de la Grieta"
+    },
+    {
+     "clock": "10:00",
+     "kind": "kill",
+     "mine": true,
+     "t": 600.0,
+     "team": "enemy",
+     "text": "Jinx murió a manos de una torre"
+    },
+    {
+     "clock": "9:20",
+     "kind": "multikill",
+     "mine": false,
+     "t": 560.0,
+     "team": "enemy",
+     "text": "Doble kill de Zed"
+    },
+    {
+     "clock": "8:20",
+     "kind": "dragon",
+     "mine": false,
+     "t": 500.0,
+     "team": "ally",
+     "text": "Sejuani mató un dragón (Infernal)"
+    },
+    {
+     "clock": "7:00",
+     "kind": "turret",
+     "mine": false,
+     "t": 420.0,
+     "team": "ally",
+     "text": "El equipo aliado destruyó una torre"
+    },
+    {
+     "clock": "5:40",
+     "kind": "kill",
+     "mine": true,
+     "t": 340.0,
+     "team": "enemy",
+     "text": "Kai'Sa eliminó a Jinx (con Thresh, Lee Sin)"
+    },
+    {
+     "clock": "5:00",
+     "kind": "kill",
+     "mine": true,
+     "t": 300.0,
+     "team": "ally",
+     "text": "Jinx eliminó a Kai'Sa (con Lulu)"
+    },
+    {
+     "clock": "2:30",
+     "kind": "firstblood",
+     "mine": false,
+     "t": 150.0,
+     "team": "enemy",
+     "text": "Primera sangre: Zed"
+    },
+    {
+     "clock": "2:30",
+     "kind": "kill",
+     "mine": false,
+     "t": 150.0,
+     "team": "enemy",
+     "text": "Zed eliminó a Ahri (con Lee Sin)"
+    }
+   ],
+   "gold_diff": -1750,
+   "gold_model": {
+    "error": 265,
+    "error_level": 383,
+    "games": 0,
+    "legend": "Estimado con tu CS, kills, asistencias y el minuto, con valores de referencia (aún no hay partidas guardadas suficientes para calibrarlo) (error típico ±265 en esta fase). Riot solo da el oro real de quien está jugando.",
+    "source": "default"
+   },
+   "map_label": "Grieta del Invocador",
+   "me": {
+    "assists": 4,
+    "champion": "Jinx",
+    "champion_name": "Jinx",
+    "checkpoints": {
+     "7": {
+      "clock": "7:01",
+      "cs": 55
+     }
+    },
+    "cs": 112,
+    "cs_per_min": 8.3,
+    "deaths": 2,
+    "gold": 1234,
+    "icon": "/i/Jinx.png",
+    "keystone": "Dominio del cazador",
+    "kills": 5,
+    "level": 8,
+    "name": "Zorro Azul",
+    "position": "BOTTOM",
+    "riot_id": "Zorro Azul#T001",
+    "role_label": "ADC",
+    "stats": [
+     {
+      "key": "maxHealth",
+      "label": "Vida",
+      "value": "1450"
+     },
+     {
+      "key": "attackDamage",
+      "label": "Daño de ataque",
+      "value": "118"
+     },
+     {
+      "key": "abilityPower",
+      "label": "Poder de habilidad",
+      "value": "0"
+     },
+     {
+      "key": "armor",
+      "label": "Armadura",
+      "value": "52"
+     },
+     {
+      "key": "magicResist",
+      "label": "Resistencia mágica",
+      "value": "39"
+     },
+     {
+      "key": "attackSpeed",
+      "label": "Velocidad de ataque",
+      "value": "1.31"
+     },
+     {
+      "key": "critChance",
+      "label": "Prob. de crítico",
+      "value": "0%"
+     },
+     {
+      "key": "abilityHaste",
+      "label": "Celeridad de habilidad",
+      "value": "0"
+     },
+     {
+      "key": "moveSpeed",
+      "label": "Velocidad de movimiento",
+      "value": "355"
+     }
+    ],
+    "value": 2475,
+    "ward_score": 5.0
+   },
+   "me_events": {
+    "deaths": [
+     {
+      "after_own_kill": true,
+      "by_champion": true,
+      "clock": "5:40",
+      "involved": 3,
+      "jungler_involved": true,
+      "t": 340.0
+     },
+     {
+      "after_own_kill": false,
+      "by_champion": false,
+      "clock": "10:00",
+      "involved": 0,
+      "jungler_involved": false,
+      "t": 600.0
+     }
+    ],
+    "kills": [
+     300.0
+    ]
+   },
+   "mode": "CLASSIC",
+   "mode_label": "Clásico",
+   "prices_available": true,
+   "result": null,
+   "teams": {
+    "ally": {
+     "label": "Tu equipo",
+     "players": [
+      {
+       "assists": 3,
+       "champion": "Garen",
+       "champion_name": "Garen",
+       "cs": 98,
+       "cs_max": 107,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 1,
+       "gold_by": "cs",
+       "gold_diff": -550,
+       "gold_est": 5600,
+       "icon": "/i/Garen.png",
+       "idx": 0,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/1055.png",
+         "id": 1055,
+         "name": "Hoja de Doran",
+         "slot": 0
+        },
+        {
+         "count": 2,
+         "icon": "/it/2003.png",
+         "id": 2003,
+         "name": "Poción de salud",
+         "slot": 1
+        },
+        {
+         "count": 1,
+         "icon": "/it/3340.png",
+         "id": 3340,
+         "name": "Tótem",
+         "slot": 6
+        }
+       ],
+       "kills": 2,
+       "lane_opponent": "Renekton",
+       "level": 7,
+       "name": "Rana Veloz",
+       "position": "TOP",
+       "respawn": 0.0,
+       "riot_id": "Rana Veloz#T002",
+       "role_label": "Top",
+       "side": "ORDER",
+       "team": "ally",
+       "unspent_est": 5000,
+       "value": 550,
+       "value_approx": false,
+       "value_diff": 100,
+       "ward_score": 8.0
+      },
+      {
+       "assists": 5,
+       "champion": "Sejuani",
+       "champion_name": "Sejuani",
+       "cs": 70,
+       "cs_max": 79,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 2,
+       "gold_by": "cs",
+       "gold_diff": -1700,
+       "gold_est": 4700,
+       "icon": "/i/Sejuani.png",
+       "idx": 1,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/1001.png",
+         "id": 1001,
+         "name": "Botas",
+         "slot": 0
+        },
+        {
+         "count": 1,
+         "icon": "/it/3340.png",
+         "id": 3340,
+         "name": "Tótem",
+         "slot": 6
+        }
+       ],
+       "kills": 1,
+       "lane_opponent": "Lee Sin",
+       "level": 7,
+       "name": "Lince Gris",
+       "position": "JUNGLE",
+       "respawn": 0.0,
+       "riot_id": "Lince Gris#T003",
+       "role_label": "Jungla",
+       "side": "ORDER",
+       "team": "ally",
+       "unspent_est": 4400,
+       "value": 300,
+       "value_approx": false,
+       "value_diff": 0,
+       "ward_score": 14.0
+      },
+      {
+       "assists": 4,
+       "champion": "Ahri",
+       "champion_name": "Ahri",
+       "cs": 101,
+       "cs_max": 110,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 2,
+       "gold_by": "cs",
+       "gold_diff": -800,
+       "gold_est": 6150,
+       "icon": "/i/Ahri.png",
+       "idx": 2,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/3020.png",
+         "id": 3020,
+         "name": "Botas de hechicero",
+         "slot": 0
+        },
+        {
+         "count": 1,
+         "icon": "/it/1056.png",
+         "id": 1056,
+         "name": "Anillo de Doran",
+         "slot": 1
+        }
+       ],
+       "kills": 3,
+       "lane_opponent": "Zed",
+       "level": 8,
+       "name": "Mono Sabio",
+       "position": "MIDDLE",
+       "respawn": 0.0,
+       "riot_id": "Mono Sabio#T004",
+       "role_label": "Mid",
+       "side": "ORDER",
+       "team": "ally",
+       "unspent_est": 4600,
+       "value": 1500,
+       "value_approx": false,
+       "value_diff": 400,
+       "ward_score": 6.0
+      },
+      {
+       "assists": 4,
+       "champion": "Jinx",
+       "champion_name": "Jinx",
+       "cs": 112,
+       "cs_max": 121,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 2,
+       "gold_by": "cs",
+       "gold_diff": 1450,
+       "gold_est": 7200,
+       "icon": "/i/Jinx.png",
+       "idx": 3,
+       "is_bot": false,
+       "is_me": true,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/3006.png",
+         "id": 3006,
+         "name": "Grebas de berserker",
+         "slot": 0
+        },
+        {
+         "count": 1,
+         "icon": "/it/1038.png",
+         "id": 1038,
+         "name": "Espada larga B. F.",
+         "slot": 1
+        },
+        {
+         "count": 1,
+         "icon": "/it/2055.png",
+         "id": 2055,
+         "name": "Centinela de control",
+         "slot": 2
+        },
+        {
+         "count": 1,
+         "icon": "/it/3340.png",
+         "id": 3340,
+         "name": "Tótem",
+         "slot": 6
+        }
+       ],
+       "kills": 5,
+       "lane_opponent": "Kai'Sa",
+       "level": 8,
+       "name": "Zorro Azul",
+       "position": "BOTTOM",
+       "respawn": 0.0,
+       "riot_id": "Zorro Azul#T001",
+       "role_label": "ADC",
+       "side": "ORDER",
+       "team": "ally",
+       "unspent_est": null,
+       "value": 2475,
+       "value_approx": false,
+       "value_diff": 75,
+       "ward_score": 5.0
+      },
+      {
+       "assists": 9,
+       "champion": "Lulu",
+       "champion_name": "Lulu",
+       "cs": 14,
+       "cs_max": 23,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 3,
+       "gold_by": "cs",
+       "gold_diff": -150,
+       "gold_est": 4150,
+       "icon": "/i/Lulu.png",
+       "idx": 4,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/3850.png",
+         "id": 3850,
+         "name": "Filo del Sol",
+         "slot": 0
+        },
+        {
+         "count": 2,
+         "icon": "/it/2055.png",
+         "id": 2055,
+         "name": "Centinela de control",
+         "slot": 1
+        }
+       ],
+       "kills": 0,
+       "lane_opponent": "Thresh",
+       "level": 6,
+       "name": "Luna Chica",
+       "position": "UTILITY",
+       "respawn": 0.0,
+       "riot_id": "Luna Chica#T005",
+       "role_label": "Soporte",
+       "side": "ORDER",
+       "team": "ally",
+       "unspent_est": 3600,
+       "value": 550,
+       "value_approx": false,
+       "value_diff": 150,
+       "ward_score": 29.0
+      }
+     ],
+     "side": "ORDER",
+     "totals": {
+      "barons": 0,
+      "dragons": [
+       {
+        "label": "Infernal",
+        "type": "Fire"
+       }
+      ],
+      "gold_est": 27800,
+      "heralds": 0,
+      "inhibitors": 0,
+      "kills": 11,
+      "towers": 1,
+      "value": 5375,
+      "value_approx": false
+     }
+    },
+    "enemy": {
+     "label": "Equipo enemigo",
+     "players": [
+      {
+       "assists": 2,
+       "champion": "Renekton",
+       "champion_name": "Renekton",
+       "cs": 95,
+       "cs_max": 104,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 1,
+       "gold_by": "cs",
+       "gold_diff": 550,
+       "gold_est": 6150,
+       "icon": "/i/Renekton.png",
+       "idx": 5,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/1055.png",
+         "id": 1055,
+         "name": "Hoja de Doran",
+         "slot": 0
+        }
+       ],
+       "kills": 4,
+       "lane_opponent": "Garen",
+       "level": 8,
+       "name": "Toro Rojo",
+       "position": "TOP",
+       "respawn": 0.0,
+       "riot_id": "Toro Rojo#T006",
+       "role_label": "Top",
+       "side": "CHAOS",
+       "team": "enemy",
+       "unspent_est": 5700,
+       "value": 450,
+       "value_approx": false,
+       "value_diff": -100,
+       "ward_score": 6.0
+      },
+      {
+       "assists": 5,
+       "champion": "LeeSin",
+       "champion_name": "Lee Sin",
+       "cs": 80,
+       "cs_max": 89,
+       "cs_partial": true,
+       "dead": false,
+       "deaths": 1,
+       "gold_by": "nivel",
+       "gold_diff": 1700,
+       "gold_est": 6400,
+       "icon": "/i/LeeSin.png",
+       "idx": 6,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/1001.png",
+         "id": 1001,
+         "name": "Botas",
+         "slot": 0
+        }
+       ],
+       "kills": 4,
+       "lane_opponent": "Sejuani",
+       "level": 8,
+       "name": "Gato Negro",
+       "position": "JUNGLE",
+       "respawn": 0.0,
+       "riot_id": "Gato Negro#T007",
+       "role_label": "Jungla",
+       "side": "CHAOS",
+       "team": "enemy",
+       "unspent_est": 6100,
+       "value": 300,
+       "value_approx": false,
+       "value_diff": 0,
+       "ward_score": 10.0
+      },
+      {
+       "assists": 2,
+       "champion": "Zed",
+       "champion_name": "Zed",
+       "cs": 110,
+       "cs_max": 119,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 1,
+       "gold_by": "cs",
+       "gold_diff": 800,
+       "gold_est": 6950,
+       "icon": "/i/Zed.png",
+       "idx": 7,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/3020.png",
+         "id": 3020,
+         "name": "Botas",
+         "slot": 0
+        }
+       ],
+       "kills": 5,
+       "lane_opponent": "Ahri",
+       "level": 9,
+       "name": "Pez Dorado",
+       "position": "MIDDLE",
+       "respawn": 0.0,
+       "riot_id": "Pez Dorado#T008",
+       "role_label": "Mid",
+       "side": "CHAOS",
+       "team": "enemy",
+       "unspent_est": 5800,
+       "value": 1100,
+       "value_approx": false,
+       "value_diff": -400,
+       "ward_score": 5.0
+      },
+      {
+       "assists": 3,
+       "champion": "Kaisa",
+       "champion_name": "Kai'Sa",
+       "cs": 104,
+       "cs_max": 113,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 2,
+       "gold_by": "cs",
+       "gold_diff": -1450,
+       "gold_est": 5750,
+       "icon": "/i/Kaisa.png",
+       "idx": 8,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/3006.png",
+         "id": 3006,
+         "name": "Grebas",
+         "slot": 0
+        },
+        {
+         "count": 1,
+         "icon": "/it/1038.png",
+         "id": 1038,
+         "name": "Espada larga B. F.",
+         "slot": 1
+        }
+       ],
+       "kills": 2,
+       "lane_opponent": "Jinx",
+       "level": 7,
+       "name": "Cuervo Alto",
+       "position": "BOTTOM",
+       "respawn": 0.0,
+       "riot_id": "Cuervo Alto#T009",
+       "role_label": "ADC",
+       "side": "CHAOS",
+       "team": "enemy",
+       "unspent_est": 3400,
+       "value": 2400,
+       "value_approx": false,
+       "value_diff": -75,
+       "ward_score": 4.0
+      },
+      {
+       "assists": 11,
+       "champion": "Thresh",
+       "champion_name": "Thresh",
+       "cs": 12,
+       "cs_max": 21,
+       "cs_partial": false,
+       "dead": false,
+       "deaths": 2,
+       "gold_by": "cs",
+       "gold_diff": 150,
+       "gold_est": 4300,
+       "icon": "/i/Thresh.png",
+       "idx": 9,
+       "is_bot": false,
+       "is_me": false,
+       "items": [
+        {
+         "count": 1,
+         "icon": "/it/3850.png",
+         "id": 3850,
+         "name": "Filo",
+         "slot": 0
+        }
+       ],
+       "kills": 0,
+       "lane_opponent": "Lulu",
+       "level": 6,
+       "name": "Oso Pardo",
+       "position": "UTILITY",
+       "respawn": 0.0,
+       "riot_id": "Oso Pardo#T010",
+       "role_label": "Soporte",
+       "side": "CHAOS",
+       "team": "enemy",
+       "unspent_est": 3900,
+       "value": 400,
+       "value_approx": false,
+       "value_diff": -150,
+       "ward_score": 31.0
+      }
+     ],
+     "side": "CHAOS",
+     "totals": {
+      "barons": 0,
+      "dragons": [],
+      "gold_est": 29550,
+      "heralds": 1,
+      "inhibitors": 1,
+      "kills": 15,
+      "towers": 0,
+      "value": 4650,
+      "value_approx": false
+     }
+    }
+   },
+   "time": 845.0,
+   "value_diff": 725
+  },
+  "problem": null,
+  "scout": null,
+  "status": "playing",
+  "updated": 0,
+  "version": 1
+ }
+}
