@@ -6,8 +6,14 @@ judgment calls and this module measures each champion against its lane's average
 
 Evidence, from the rows of the "diamante" source in the 3 newest patches that have any (rows
 written before the style fields existed lack them and simply count for nothing there):
-  * early-ness: gold+xp gained per minute against the opponent at own levels 1-5, diff14, and the
-    win rate in games under 25 minutes minus the one in games of 35+ minutes;
+  * early-ness (jungle): early kill participation (kp14, else ka14: kills + assists before 14:00)
+    and the game-length slope (win rate in games under 25 minutes minus the one in games of 35+
+    minutes), equal weights. Gold+xp against the enemy jungler is NOT used: it mostly rewards
+    clear speed, not early pressure (Karthus and Zyra came out "very early" with it). Rows
+    without ka14/kp14 cannot feed the first part: with none of them only the slope is used, and
+    the report says so;
+  * lane-ness (mid): gold+xp gained per minute against the opponent at own levels 1-5, diff14 and
+    the same slope, used with tank-ness for melee vs assassin;
   * tank-ness: share of the team's damage taken + self-mitigated, and seconds of CC per minute;
   * split-ness: damage to buildings per minute, turret plates, and a LOWER kill participation;
   * carry: share of the team's damage to champions (shown, not used to decide).
@@ -17,10 +23,10 @@ A score is the mean of the z-scores of its parts that are available.
 
 Decision rules (M = DECISION_MARGIN; a champion needs MIN_GAMES games in the lane and the scores
 its lane uses, otherwise it stays "pendiente"):
-  * JUNGLE  early if early >= +M, farm if early <= -M, otherwise inconclusive.
+  * JUNGLE  early if early-ness >= +M, farm if <= -M, otherwise inconclusive.
   * TOP     tanque if tank >= +M and tank - split >= M; split if split >= +M and split - tank >= M;
             bruiser otherwise (the middle ground between the two).
-  * MIDDLE  lean = tank - EARLY_WEIGHT * early (melee duelists take damage, assassins burst early):
+  * MIDDLE  lean = tank - EARLY_WEIGHT * lane (melee duelists take damage, assassins burst early):
             melee if lean >= +M, asesino if lean <= -M, otherwise inconclusive.
 Sanity report (no changes): champions with MIN_GAMES games whose current type is contradicted by
 a score beyond STRONG_Z (see `contradicts`).
@@ -33,6 +39,7 @@ import time
 from collections import defaultdict
 
 from . import comps, samples
+from .lanephase import STYLE_KEYS
 
 MIN_GAMES = 30              # games in the lane for a champion to be measured or decided
 MIN_CHAMPIONS = 5           # champions with MIN_GAMES a lane needs to have a mean and a deviation
@@ -44,7 +51,6 @@ EARLY_WEIGHT = 0.5          # weight of early-ness against tank-ness for melee v
 EARLY_BRACKETS = ("1-2", "3-5")        # own levels 1-5
 SHORT_GAME_MIN, LONG_GAME_MIN = 25, 35
 MIN_BUCKET_GAMES = 8        # games under 25 / over 35 minutes for the win rate gap to count
-STYLE_KEYS = ("bld_pm", "tank_share", "dmg_share", "cc_pm", "kp", "turret_plates")
 # Lanes with a data rule and the types they can end up with.
 DECIDABLE = {"JUNGLE": ("early", "farm"), "TOP": ("tanque", "bruiser", "split"),
              "MIDDLE": ("asesino", "melee")}
@@ -189,9 +195,13 @@ def evidence(measures: dict, stats: dict) -> dict:
     """{"z": {measure: z}, "early", "tank", "split", "carry"} of one champion against its lane."""
     z = {name: _z(measures.get(name), stats.get(name)) for name in MEASURES}
     kp = None if z["kp"] is None else -z["kp"]             # split pushers take part in fewer kills
+    kills = z["kp14"] if z["kp14"] is not None else z["ka14"]
+    early_parts = {"kills": kills, "slope": z["wr_gap"]}
     return {
         "z": z,
-        "early": _mean({"g": z["early_gain"], "d": z["diff14"], "w": z["wr_gap"]}, ("g", "d")),
+        "early": _mean(early_parts, ()),
+        "early_parts": [name for name, v in early_parts.items() if v is not None],
+        "lane": _mean({"g": z["early_gain"], "d": z["diff14"], "w": z["wr_gap"]}, ("g", "d")),
         "tank": _mean({"t": z["tank_share"], "c": z["cc_pm"]}, ("t",)),
         "split": _mean({"b": z["bld_pm"], "p": z["turret_plates"], "k": kp}, ("b",)),
         "carry": z["dmg_share"],
@@ -204,12 +214,13 @@ def decide(lane: str, ev: dict) -> tuple[str | None, str]:
     m = DECISION_MARGIN
     if lane == "JUNGLE":
         if early is None:
-            return None, "faltan los datos de inicio de partida"
+            return None, "faltan la pendiente de victorias y las kills tempranas"
+        only = "" if "kills" in (ev.get("early_parts") or ()) else " (solo la pendiente de victorias: faltan ka14/kp14)"
         if early >= m:
-            return "early", f"early-ness {early:+.2f}"
+            return "early", f"early-ness {early:+.2f}{only}"
         if early <= -m:
-            return "farm", f"early-ness {early:+.2f}"
-        return None, f"evidencia ambigua (early-ness {early:+.2f})"
+            return "farm", f"early-ness {early:+.2f}{only}"
+        return None, f"evidencia ambigua (early-ness {early:+.2f}){only}"
     if lane == "TOP":
         if tank is None or split is None:
             return None, "faltan los campos de estilo (daño recibido, edificios)"
@@ -219,14 +230,15 @@ def decide(lane: str, ev: dict) -> tuple[str | None, str]:
             return "split", f"split {split:+.2f} contra tank {tank:+.2f}"
         return "bruiser", f"punto medio (tank {tank:+.2f}, split {split:+.2f})"
     if lane == "MIDDLE":
-        if tank is None or early is None:
-            return None, "faltan los campos de estilo (daño recibido) o de inicio"
-        lean = tank - EARLY_WEIGHT * early
+        lane_z = ev.get("lane")
+        if tank is None or lane_z is None:
+            return None, "faltan los campos de estilo (daño recibido) o los de línea"
+        lean = tank - EARLY_WEIGHT * lane_z
         if lean >= m:
-            return "melee", f"tank {tank:+.2f}, early {early:+.2f}"
+            return "melee", f"tank {tank:+.2f}, línea {lane_z:+.2f}"
         if lean <= -m:
-            return "asesino", f"tank {tank:+.2f}, early {early:+.2f}"
-        return None, f"evidencia ambigua (tank {tank:+.2f}, early {early:+.2f})"
+            return "asesino", f"tank {tank:+.2f}, línea {lane_z:+.2f}"
+        return None, f"evidencia ambigua (tank {tank:+.2f}, línea {lane_z:+.2f})"
     return None, "sin regla de datos para esta línea"
 
 
@@ -252,7 +264,7 @@ def contradicts(lane: str, kind: str, ev: dict) -> str | None:
         if kind == "mago" and tank is not None and tank >= s:
             return f"tank {tank:+.2f}"
     elif lane == "MIDDLE" and tank is not None:
-        lean = tank - EARLY_WEIGHT * (early or 0)
+        lean = tank - EARLY_WEIGHT * (ev.get("lane") or 0)
         if kind in ("asesino", "control") and lean >= s:
             return f"tank {tank:+.2f}"
         if kind == "melee" and lean <= -s:
@@ -332,7 +344,7 @@ def report_lines(report: dict, decided=False) -> list[str]:
     if not report["patches"]:
         out.append("No hay partidas Diamante+ descargadas (python -m lolan muestras).")
     out.append("Casos dudosos (puntajes z contra el promedio de su línea; + = más de eso):")
-    header = f"{'Línea':<8}{'Campeón':<14}{'Hoy':<9}{'Partidas':>8}  {'Temprano':>8}{'Tanque':>8}{'Split':>8}{'Carry':>8}  Decisión"
+    header = f"{'Línea':<8}{'Campeón':<14}{'Hoy':<9}{'Partidas':>8}  {'Temprano':>8}{'Oro línea':>10}{'Tanque':>8}{'Split':>8}{'Carry':>8}  Decisión"
     out.append(header)
     for c in report["candidates"]:
         ev = c["ev"]
@@ -340,7 +352,7 @@ def report_lines(report: dict, decided=False) -> list[str]:
         if c["decision"]:
             verdict = f"{c['decision']}" + (" (cambia)" if c["decision"] != c["type"] else " (igual)") + f" · {c['reason']}"
         out.append(f"{samples.ROLE_LABELS[c['lane']]:<8}{c['champion']:<14}{c['type']:<9}{c['games']:>8}  "
-                   f"{_fmt(ev['early']):>8}{_fmt(ev['tank']):>8}{_fmt(ev['split']):>8}{_fmt(ev['carry']):>8}  {verdict}")
+                   f"{_fmt(ev['early']):>8}{_fmt(ev['lane']):>10}{_fmt(ev['tank']):>8}{_fmt(ev['split']):>8}{_fmt(ev['carry']):>8}  {verdict}")
     if not report["candidates"]:
         out.append("  (ninguno)")
     decidable = [c for c in report["candidates"] if c["decision"]]

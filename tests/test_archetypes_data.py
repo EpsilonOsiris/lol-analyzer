@@ -12,7 +12,7 @@ from lolan.__main__ import main
 from lolan.samples import LineStore
 
 STYLE_BASE = {"bld_pm": 200.0, "tank_share": 0.20, "dmg_share": 0.20, "cc_pm": 1.0, "kp": 0.5,
-              "turret_plates": 1.0}
+              "turret_plates": 1.0, "ka14": 4, "kp14": 0.4}
 IDS = iter(range(1, 10_000))
 
 
@@ -78,8 +78,8 @@ def test_old_rows_without_style_fields_count_for_the_early_measures_only(ls):
 
 # ---------------------------------------------------------------------- the rules
 def jungle_lane(ls):
-    add_games(ls, 1, "Ekko", "JUNGLE", gain=60, diff14=800, early_wins=0.9)
-    add_games(ls, 2, "Diana", "JUNGLE", gain=-60, diff14=-800, early_wins=0.1)
+    add_games(ls, 1, "Ekko", "JUNGLE", kp14=0.7, ka14=7, early_wins=0.9)
+    add_games(ls, 2, "Diana", "JUNGLE", kp14=0.1, ka14=1, early_wins=0.1)
     for cid, name in ((3, "Viego"), (4, "LeeSin"), (5, "Zac"), (6, "Sejuani")):
         add_games(ls, cid, name, "JUNGLE")
 
@@ -89,13 +89,14 @@ def test_jungle_early_versus_farm_by_early_ness(ls):
     report = run(ls, ("JUNGLE",))
     ekko, diana = cand(report, "JUNGLE", "Ekko"), cand(report, "JUNGLE", "Diana")
     assert ekko["decision"] == "early" and ekko["ev"]["early"] > 1 and ekko["games"] == 40
+    assert ekko["ev"]["early_parts"] == ["kills", "slope"] and "faltan" not in ekko["reason"]
     assert diana["decision"] == "farm" and diana["ev"]["early"] < -1
     assert ekko["ev"]["tank"] is None                                        # no style fields in these rows
 
 
 def test_the_ambiguous_middle_of_the_jungle_stays_pending(ls):
     jungle_lane(ls)
-    add_games(ls, 7, "Hecarim", "JUNGLE", gain=3, diff14=40, early_wins=0.5)      # a typical jungler
+    add_games(ls, 7, "Hecarim", "JUNGLE", kp14=0.41, early_wins=0.5)               # a typical jungler
     report = run(ls, ("JUNGLE",))
     hecarim = cand(report, "JUNGLE", "Hecarim")
     assert hecarim["decision"] is None and "ambigua" in hecarim["reason"]
@@ -103,14 +104,43 @@ def test_the_ambiguous_middle_of_the_jungle_stays_pending(ls):
 
 def test_a_champion_needs_30_games_in_the_lane(ls):
     jungle_lane(ls)
-    add_games(ls, 7, "Nidalee", "JUNGLE", n=29, gain=60, diff14=800, early_wins=0.9)
-    add_games(ls, 8, "Graves", "JUNGLE", n=30, gain=60, diff14=800, early_wins=0.9)
+    add_games(ls, 7, "Nidalee", "JUNGLE", n=29, kp14=0.7, early_wins=0.9)
+    add_games(ls, 8, "Graves", "JUNGLE", n=30, kp14=0.7, early_wins=0.9)
     report = run(ls, ("JUNGLE",))
     thin = cand(report, "JUNGLE", "Nidalee")
     assert thin["decision"] is None and "29 partidas" in thin["reason"]
     assert cand(report, "JUNGLE", "Graves")["decision"] == "early"
     absent = cand(report, "JUNGLE", "Trundle")                               # no rows at all
     assert absent["games"] == 0 and absent["decision"] is None
+
+
+def test_gold_and_xp_against_the_enemy_jungler_do_not_make_a_jungler_early(ls):
+    jungle_lane(ls)
+    # a fast clearer: huge gold+xp lead and diff14, but typical kills and a typical game-length slope
+    add_games(ls, 7, "Karthus", "JUNGLE", gain=150, diff14=2500, kp14=0.4, early_wins=0.5)
+    accs = ad.collect(ls)[0]["JUNGLE"]
+    stats = ad.lane_stats({cid: (a.measures(), a.games) for cid, a in accs.items()})
+    ev = ad.evidence(accs[7].measures(), stats)
+    assert ev["lane"] > 1                                   # the gold-based score does see it ...
+    assert abs(ev["early"]) < ad.DECISION_MARGIN            # ... but early-ness does not
+    assert ad.decide("JUNGLE", ev)[0] is None
+
+
+def test_without_early_kills_only_the_slope_counts_and_the_report_says_so(ls):
+    for cid, name, wins in ((1, "Ekko", 0.9), (2, "Diana", 0.1), (3, "Viego", 0.5), (4, "LeeSin", 0.5),
+                            (5, "Zac", 0.5), (6, "Sejuani", 0.5)):
+        add_games(ls, cid, name, "JUNGLE", early_wins=wins, ka14=None, kp14=None)
+    ekko = cand(run(ls, ("JUNGLE",)), "JUNGLE", "Ekko")
+    assert ekko["ev"]["early_parts"] == ["slope"] and ekko["decision"] == "early"
+    assert "solo la pendiente de victorias" in ekko["reason"] and "ka14" in ekko["reason"]
+
+
+def test_ka14_stands_in_when_kp14_is_missing(ls):
+    for cid, name, ka in ((1, "Ekko", 8), (2, "Diana", 0), (3, "Viego", 4), (4, "LeeSin", 4), (5, "Zac", 4),
+                          (6, "Sejuani", 4)):
+        add_games(ls, cid, name, "JUNGLE", ka14=ka, kp14=None)
+    report = run(ls, ("JUNGLE",))
+    assert cand(report, "JUNGLE", "Ekko")["decision"] == "early" and cand(report, "JUNGLE", "Diana")["decision"] == "farm"
 
 
 def test_lane_stats_need_enough_champions(ls):
@@ -241,7 +271,7 @@ def test_decidir_writes_the_decisions_into_the_json(home, capsys):
     assert ekko["type"] == "early" and ekko["basis"] == "datos" and ekko["n"] == 40
     assert ekko["patches"] == ["16.21"] and re.fullmatch(r"\d{4}-\d{2}-\d{2}", ekko["date"])
     assert ekko["previous"] == "early" and ekko["evidence"]["early"] > 1 and "Diamante+" in ekko["note"]
-    assert ekko["evidence"]["measures"]["early_gain"] == 60
+    assert ekko["evidence"]["measures"]["kp14"] == 0.7 and ekko["evidence"]["measures"]["wr_gap"] >= 0.5
     diana = saved["Diana"]["proposal"]["JUNGLE"]
     assert diana["type"] == "farm" and diana["previous"] == "early"           # the rule changed it
     # nothing else changed: same champions, same other lanes, same other jungle entries
