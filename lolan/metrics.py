@@ -143,6 +143,56 @@ def _challenge(p: dict, key):
     return _num(ch.get(key))
 
 
+def _first(*values):
+    """First value that is not None (a 0 counts)."""
+    return next((v for v in values if v is not None), None)
+
+
+def _extra_stats(p: dict, dur_min) -> dict:
+    """Role-specific stats of one participant (support / jungle); None where the match lacks the field.
+
+    They come from `challenges` (newer matches) with the plain participant field as a fallback
+    when there is one. The same dict is built for the lane opponent (see OPP_EXTRA_KEYS).
+    """
+    ward_td = _first(_challenge(p, "wardTakedowns"), _num(p.get("wardsKilled")))
+    heal = _first(_challenge(p, "effectiveHealAndShielding"))
+    if heal is None:
+        parts = [_num(p.get("totalHealsOnTeammates")), _num(p.get("totalDamageShieldedOnTeammates"))]
+        heal = sum(v for v in parts if v is not None) if any(v is not None for v in parts) else None
+    cc = _num(p.get("timeCCingOthers"))
+    immob = _challenge(p, "enemyChampionImmobilizations")
+    quest = _challenge(p, "completeSupportQuestInTime")
+    takedowns = [_challenge(p, k) for k in ("dragonTakedowns", "riftHeraldTakedowns", "baronTakedowns")]
+    return {
+        "wards_per_min": _div(_num(p.get("wardsPlaced")), dur_min),
+        "ward_takedowns": ward_td,
+        "ward_takedowns_per_min": _div(ward_td, dur_min),
+        "heal_shield": heal,
+        "heal_shield_per_min": _div(heal, dur_min),
+        "cc_time": cc,
+        "cc_time_per_min": _div(cc, dur_min),
+        "immobilizations": immob,
+        "immobilizations_per_10": _div(None if immob is None else immob * 10.0, dur_min),
+        "saves": _challenge(p, "saveAllyFromDeath"),
+        "support_quest": None if quest is None else (1 if quest >= 1 else 0),
+        "jungle_cs_10": _challenge(p, "jungleCsBefore10Minutes"),
+        "enemy_jungle_cs": _first(_challenge(p, "enemyJungleMonsterKills"),
+                                  _num(p.get("totalEnemyJungleMinionsKilled"))),
+        "scuttle_crabs": _challenge(p, "scuttleCrabKills"),
+        "epic_takedowns": (sum(v for v in takedowns if v is not None)
+                           if any(v is not None for v in takedowns) else None),
+        "epic_steals": _first(_challenge(p, "epicMonsterSteals"), _num(p.get("objectivesStolen"))),
+        "grubs": _challenge(p, "voidMonsterKill"),
+        # Takedowns (kills + assists) before minute 15: that is what Riot's challenge counts.
+        "ka_15": _challenge(p, "takedownsFirstXMinutes"),
+    }
+
+
+# Extra stats also kept for the lane opponent (the enemy support / jungler) as opp_<key>.
+OPP_EXTRA_KEYS = ("wards_per_min", "ward_takedowns_per_min", "heal_shield_per_min", "cc_time_per_min",
+                  "jungle_cs_10", "enemy_jungle_cs", "scuttle_crabs", "epic_takedowns")
+
+
 # -------------------------------------------------------- timeline metrics
 def _counter_keys() -> list[str]:
     """Event-based counters (0 when a timeline exists, None when it does not)."""
@@ -163,7 +213,7 @@ def timeline_metric_keys() -> list[str]:
     for m in SNAPSHOT_MINUTES:
         keys += [f"cs_{m}", f"gold_{m}", f"xp_{m}", f"level_{m}",
                  f"cs_diff_{m}", f"gold_diff_{m}", f"xp_diff_{m}"]
-    return keys + _counter_keys()
+    return keys + _counter_keys() + ["early_ka"]
 
 
 def _frame_for_minute(frames, minute):
@@ -288,6 +338,8 @@ def _timeline_metrics(timeline, pid, team_id, opp_pid, team_by_pid) -> dict:
                 out["deaths_enemy_half"] += 1
 
     out["early_deaths"] = out["deaths_0_7"] + out["deaths_7_14"]
+    # Kills + assists before minute 14.
+    out["early_ka"] = out["kills_0_7"] + out["kills_7_14"] + out["assists_0_7"] + out["assists_7_14"]
     return out
 
 
@@ -356,6 +408,8 @@ def extract_game_metrics(match, timeline, puuid):
     row["max_cs_adv"] = _challenge(me, "maxCsAdvantageOnLaneOpponent")
     row["skillshots_dodged"] = _challenge(me, "skillshotsDodged")
     row["skillshots_hit"] = _challenge(me, "skillshotsHit")
+    row["assists_per_10"] = _div(row["assists"] * 10.0, dur_min)
+    row.update(_extra_stats(me, dur_min))
 
     # Lane opponent (end-of-game comparison).
     if opp is not None:
@@ -377,6 +431,9 @@ def extract_game_metrics(match, timeline, puuid):
             "opp_champion", "opp_kda", "opp_cs_per_min", "opp_gold_per_min",
             "opp_damage_per_min", "opp_vision_per_min", "gold_diff_end",
             "cs_diff_end", "damage_diff", "vision_diff")})
+    extra_opp = _extra_stats(opp, dur_min) if opp is not None else {}
+    for key in OPP_EXTRA_KEYS:
+        row[f"opp_{key}"] = extra_opp.get(key)
 
     tl = _timeline_metrics(timeline, pid, team_id, opp.get("participantId") if opp else None, team_by_pid)
     if not timeline:
