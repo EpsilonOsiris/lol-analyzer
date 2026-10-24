@@ -205,6 +205,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--estado", action="store_true",
                    help="muestra el estado de la descarga (data/lineas/descarga.json) y termina")
 
+    p = sub.add_parser("arquetipos",
+                       help="decide con la muestra Diamante+ los tipos de campeón dudosos (early o farm, "
+                            "bruiser o split, asesino o melee); sin --decidir solo muestra la evidencia")
+    p.add_argument("--decidir", action="store_true",
+                   help="escribe las decisiones en lolan/data/champion_classes.json (reinicia el panel después)")
+    p.add_argument("--linea", type=_parse_line, metavar="LINEA",
+                   help="solo esa línea: top, jungla, mid, adc o soporte (por defecto, todas)")
+
     sub.add_parser("grabar-seleccion",
                    help="graba lo que muestra el cliente de League en la selección de campeones "
                         "(en data/capturas/); Ctrl+C para detenerlo")
@@ -757,6 +765,23 @@ def cmd_muestras(args, cfg) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_arquetipos(args, cfg) -> int:
+    from . import archetypes_data as ad, samples
+
+    store = samples.LineStore(cfg.data_dir / "lineas")
+    classes = ad.load_classes()
+    lanes = ad.LANE_ORDER if args.linea in (None, "auto") else (args.linea,)
+    report = ad.analyze(store, classes, lanes)
+    written = ad.apply_decisions(classes, report) if args.decidir else []
+    if written:
+        ad.save_classes(classes)
+    for line in ad.report_lines(report, decided=bool(written)):
+        print(line)
+    if written:
+        print("Reinicia el panel para que use los tipos nuevos.")
+    return 0
+
+
 def cmd_web(args, cfg) -> int:
     from .web import create_app, start_live  # Flask is only needed for this command
 
@@ -798,7 +823,7 @@ def cmd_grabar_seleccion(args, cfg) -> int:
     return 0
 
 
-COMMANDS = {"lineas": cmd_lineas, "muestras": cmd_muestras, "sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
+COMMANDS = {"arquetipos": cmd_arquetipos, "lineas": cmd_lineas, "muestras": cmd_muestras, "sync": cmd_sync, "rekey": cmd_rekey, "analyze": cmd_analyze, "game": cmd_game,
             "campeon": cmd_campeon, "jugadores": cmd_jugadores, "composiciones": cmd_composiciones,
             "rivales": cmd_rivales, "web": cmd_web, "grabar-seleccion": cmd_grabar_seleccion}
 
