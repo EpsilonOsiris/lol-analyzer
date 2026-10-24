@@ -46,18 +46,21 @@ def role_timeline(role, events=None, **kw):
 
 
 def add_role_games(store, role, count, prefix, champion="Soraka", puuid=ME_PUUID, start=0, timeline=True,
-                   queue=420, challenges=None, **overrides):
-    """Save `count` games of `puuid` in `role`; `overrides(i)` may return per-game kwargs for make_role_game."""
+                   queue=420, challenges=None, vary=None, **kw):
+    """Save `count` games of `puuid` in `role`; `vary(i)` returns extra make_role_game kwargs per game
+    (for instance a different `challenges` or `fields`)."""
     for i in range(count):
         mid = f"{prefix}_{i}"
-        kw = {"champion": champion, "win": bool((i + start) % 2), "queue": queue,
-              "created": BASE_TIME_MS + (start + i) * 3 * HOUR}
-        kw.update(overrides.get("kw", lambda i: {})(i) if callable(overrides.get("kw")) else {})
-        match = make_role_game(role, mid, challenges=challenges, **kw)
+        args = {"champion": champion, "win": bool((i + start) % 2), "queue": queue,
+                "created": BASE_TIME_MS + (start + i) * 3 * HOUR, "challenges": challenges}
+        args.update(kw)
+        args.update(vary(i) if vary else {})
+        match = make_role_game(role, mid, **args)
         if puuid != ME_PUUID:
             for p in match["info"]["participants"]:
                 if p["puuid"] == ME_PUUID:
                     p["puuid"] = puuid
             match["metadata"]["participants"] = [p["puuid"] for p in match["info"]["participants"]]
-        store.save_match(mid, match, role_timeline(role, [ev_kill(200_000, role_pid(role) + 5, role_pid(role))])
-                         if timeline else None)
+        pid = role_pid(role)
+        tl = role_timeline(role, [ev_kill(200_000 + 10_000 * i, pid + 5, pid)]) if timeline else None
+        store.save_match(mid, match, tl)

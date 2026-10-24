@@ -884,7 +884,7 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         """A sentence about the line of each row of the clan table; None when all are laners' full lists."""
         if all(r["ov"]["profile"] == "lane" and not r["left_out"] for r in rows):
             return None
-        who = ("la línea que cada jugador más juega" if g.linea_choice == LINEA_AUTO
+        who = ("su línea más jugada" if g.linea_choice == LINEA_AUTO
                else "todas sus líneas" if g.linea is None else f"la línea {an.role_name(g.linea)}")
         return (f"Cada jugador se mide con {who}. CS/min solo cuenta partidas de carril (top, mid, ADC); "
                 "quien juega soporte o jungla tiene su métrica en la última columna.")

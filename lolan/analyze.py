@@ -462,7 +462,7 @@ def _rules_jungle(g, strengths, weaknesses) -> None:
         strengths["enemy_jungle_cs"] = f"Robaste {stolen:.0f} monstruos de la jungla rival."
     taken = g.get("opp_enemy_jungle_cs")
     if taken is not None and taken >= ENEMY_JUNGLE_WEAK:
-        weaknesses["opp_enemy_jungle_cs"] = f"El jungla rival te robó {taken:.0f} monstruos de tu jungla."
+        weaknesses["enemy_jungle_cs"] = f"El jungla rival te robó {taken:.0f} monstruos de tu jungla."
     ka, minute = g.get("early_ka"), 14
     if ka is None:
         ka, minute = g.get("ka_15"), 15
@@ -470,7 +470,7 @@ def _rules_jungle(g, strengths, weaknesses) -> None:
         if ka >= EARLY_KA_STRONG:
             strengths["early_ka"] = f"Participaste en {ka:.0f} kills antes del minuto {minute}."
         elif ka <= EARLY_KA_WEAK and (g.get("duration_min") or 0) >= minute:
-            weaknesses["early_ka"] = (f"Solo participaste en {ka:.0f} kills antes del minuto {minute}."
+            weaknesses["early_ka"] = (f"Solo participaste en {ka:.0f} kill antes del minuto {minute}."
                                       if ka else f"No participaste en ninguna kill antes del minuto {minute}.")
     steals = g.get("epic_steals")
     if steals:
