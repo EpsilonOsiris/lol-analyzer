@@ -193,3 +193,31 @@ def test_zero_team_totals_do_not_divide_by_zero():
     extra = {pid: {"kills": 0, "assists": 0, "totalDamageDealtToChampions": 0} for pid in range(1, 6)}
     blue = mid_pair(make_lane_match(extra=extra), make_lane_timeline())["sides"][0]
     assert blue["kp"] is None and blue["dmg_share"] is None
+
+
+def kill(ts, killer, victim, assists=()):
+    return {"type": "CHAMPION_KILL", "timestamp": ts, "killerId": killer, "victimId": victim,
+            "assistingParticipantIds": list(assists)}
+
+
+def test_early_kills_count_kills_and_assists_before_14_minutes():
+    events = [kill(5 * MIN, 3, 8, [1, 2]),           # blue mid kills, top and jungle assist
+              kill(9 * MIN, 8, 3),                   # red kills blue mid
+              kill(13 * MIN + 59_000, 2, 9, [3]),    # blue jungle kills, mid assists (still before 14:00)
+              kill(14 * MIN, 3, 9),                  # too late
+              kill(6 * MIN, 0, 3)]                   # executed by a minion: no team kill
+    pair = mid_pair(make_lane_match(), make_lane_timeline(minutes=20, events=events))
+    blue, red = pair["sides"]
+    assert blue["ka14"] == 2 and blue["kp14"] == round(2 / 2, 3)        # blue team: 2 kills before 14:00
+    assert red["ka14"] == 1 and red["kp14"] == 1.0                      # red team: 1 kill
+    jungle = next(p for p in lp.lane_pairs(make_lane_match(), make_lane_timeline(minutes=20, events=events))
+                  if p["role"] == "JUNGLE")["sides"][0]
+    assert jungle["ka14"] == 2 and jungle["kp14"] == 1.0
+
+
+def test_early_kills_are_none_without_kill_events_and_kp14_without_team_kills():
+    pair = mid_pair(make_lane_match(), make_lane_timeline(minutes=20))
+    assert all(v["ka14"] is None and v["kp14"] is None for v in pair["sides"])
+    late = [kill(15 * MIN, 3, 8)]                                       # kills exist, none before 14:00
+    blue = mid_pair(make_lane_match(), make_lane_timeline(minutes=20, events=late))["sides"][0]
+    assert blue["ka14"] == 0 and blue["kp14"] is None

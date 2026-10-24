@@ -15,7 +15,8 @@ each side gets its own view of the lane:
   * style fields (from the participant's end-of-game stats, None when the match lacks them): bld_pm
     (damage to buildings per minute), tank_share ((damage taken + self-mitigated) over the team's
     total), dmg_share (damage to champions over the team's), cc_pm (seconds of CC per minute), kp
-    (kill participation), turret_plates (plates taken). They feed `lolan.archetypes_data`.
+    (kill participation), turret_plates (plates taken), ka14 (kills + assists before 14:00, from the
+    timeline's CHAMPION_KILL events) and kp14 (ka14 over the team's kills before 14:00). They feed `lolan.archetypes_data`.
 
 Pure functions: nothing here touches the disk. `analyze_match` also says why a match was skipped.
 """
@@ -192,7 +193,36 @@ def _side_view(a, b, sa, sb, level_times) -> dict:
             "series": [[m, int(sa[2][m]), int(sb[2][m]), round(diffs[m])] for m in range(n)]}
 
 
-STYLE_KEYS = ("bld_pm", "tank_share", "dmg_share", "cc_pm", "kp", "turret_plates")
+STYLE_KEYS = ("bld_pm", "tank_share", "dmg_share", "cc_pm", "kp", "turret_plates", "ka14", "kp14")
+EARLY_KILL_MS = LANE_MINUTE * 60_000          # kills before 14:00 count for ka14 / kp14
+
+
+def early_kills(timeline, participants) -> dict | None:
+    """participantId -> (kills + assists before 14:00, kills of its team before 14:00) from the
+    CHAMPION_KILL events; None when the timeline has no kill event at all (nothing to measure)."""
+    team_of = {p.get("participantId"): p.get("teamId") for p in participants}
+    seen = False
+    ka: dict = {pid: 0 for pid in team_of}
+    team_kills: dict = {}
+    for fr in ((timeline or {}).get("info") or {}).get("frames") or []:
+        for ev in fr.get("events") or []:
+            if ev.get("type") != "CHAMPION_KILL":
+                continue
+            seen = True
+            ts = _num(ev.get("timestamp"))
+            if ts is None or ts >= EARLY_KILL_MS:
+                continue
+            killer = ev.get("killerId")
+            if killer in team_of:
+                ka[killer] += 1
+                team_kills[team_of[killer]] = team_kills.get(team_of[killer], 0) + 1
+            for pid in ev.get("assistingParticipantIds") or []:
+                if pid in ka:
+                    ka[pid] += 1
+    if not seen:
+        return None
+    return {pid: (n, team_kills.get(team_of[pid], 0)) for pid, n in ka.items()}
+
 
 
 def _team_sum(team, *keys):
@@ -213,8 +243,12 @@ def _share(part, team, *keys):
     return round(mine / total, 4) if mine is not None and total else None
 
 
-def style_stats(part, participants, minutes) -> dict:
-    """The STYLE_KEYS of one participant (see the module docstring); every value may be None."""
+def style_stats(part, participants, minutes, early=None) -> dict:
+    """The STYLE_KEYS of one participant (see the module docstring); every value may be None.
+
+    `early`: the result of `early_kills` (None = no kill events, so ka14 and kp14 stay None).
+    """
+    mine_early = (early or {}).get(part.get("participantId"))
     team = [p for p in participants if p.get("teamId") == part.get("teamId")]
     ch = part.get("challenges") if isinstance(part.get("challenges"), dict) else {}
     buildings, cc = _num(part.get("damageDealtToBuildings")), _num(part.get("timeCCingOthers"))
@@ -228,6 +262,8 @@ def style_stats(part, participants, minutes) -> dict:
         "cc_pm": round(cc / minutes, 2) if cc is not None and minutes else None,
         "kp": round(mine / team_kills, 3) if mine is not None and team_kills else None,
         "turret_plates": int(plates) if plates is not None else None,
+        "ka14": mine_early[0] if mine_early else None,
+        "kp14": round(mine_early[0] / mine_early[1], 3) if mine_early and mine_early[1] else None,
     }
 
 
@@ -270,6 +306,7 @@ def analyze_match(match, timeline, legendary=None) -> tuple[list[dict], str | No
     minutes = round(dur / 60, 1)
     match_id = ((match.get("metadata") or {}).get("matchId")) or ""
     everyone = [p for p in info.get("participants") or [] if isinstance(p, dict)]
+    early = early_kills(timeline, everyone)
     pairs = []
     for role in LANE_ROLES:
         blue, red = by_slot.get((role, 100), []), by_slot.get((role, 200), [])
@@ -290,7 +327,7 @@ def analyze_match(match, timeline, legendary=None) -> tuple[list[dict], str | No
                          "items": items, "side": me.get("teamId"), "champ": int(me["championId"]),
                          "opp": int(op["championId"]), "puuid": me.get("puuid") or "",
                          "name": (me.get("riotIdGameName") or "").strip(),
-                         **style_stats(me, everyone, minutes)})
+                         **style_stats(me, everyone, minutes, early)})
             views.append(view)
         pairs.append({"match_id": match_id, "role": role, "patch": patch_of(info.get("gameVersion")),
                       "queue": info.get("queueId"), "game_creation": info.get("gameCreation"),
@@ -305,7 +342,7 @@ def lane_pairs(match, timeline, legendary=None) -> list[dict]:
     {side (100/200), champ, opp (championIds), puuid, name, diff14, gold14, xp14, result,
     brackets {name: {gain, minutes}}, first2, first6, series [[minute, level, opp level, diff]],
     items [minute of the 1st/2nd/3rd legendary or None; whole value None when `legendary` is],
-    win, minutes, bld_pm, tank_share, dmg_share, cc_pm, kp, turret_plates (STYLE_KEYS, None when
+    win, minutes, bld_pm, tank_share, dmg_share, cc_pm, kp, turret_plates, ka14, kp14 (STYLE_KEYS, None when
     the match lacks the stats)}. Empty when the match is skipped (shorter
     than 15 min, remake, no minute-14 frame ...; `analyze_match` says which).
     """
