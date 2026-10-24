@@ -583,8 +583,30 @@ def _support(r) -> dict | None:
     return next((m for m in r["team"] if m["role"] == "UTILITY" and not m["is_main"]), None)
 
 
+def _adc(r) -> dict | None:
+    """The teammate playing BOTTOM (only meaningful when the main player is the support)."""
+    return next((m for m in r["team"] if m["role"] == "BOTTOM" and not m["is_main"]), None)
+
+
 def _bottom_games(records):
     return [r for r in records if r["main_role"] == "BOTTOM"]
+
+
+def main_line(records, default="BOTTOM") -> str:
+    """The line the main player plays most in `records` (ties go to the earlier line of ROLES)."""
+    counts = Counter(r["main_role"] for r in records if r["main_role"] in ROLES)
+    if not counts:
+        return default
+    return max(counts, key=lambda role: (counts[role], -ROLES.index(role)))
+
+
+def parse_line(text) -> str | None:
+    """"auto" / top / jungla / mid / adc / soporte (or TOP ... UTILITY) -> "auto" or the role; None if unknown."""
+    key = str(text or "").strip().casefold()
+    if key in ("", "auto"):
+        return "auto"
+    from .samples import parse_role
+    return parse_role(key)
 
 
 def _clan_members(r, include_main=True):
@@ -639,6 +661,42 @@ def duo_bot(records, min_games=MIN_GAMES) -> dict:
         "by_archetype": _grouped(games, lambda r: support_archetype(_support(r)["champion"]),
                                  min_games),
     }
+
+
+def duo_support(records, min_games=MIN_GAMES) -> dict:
+    """b'. Main as support: winrate by ADC person, by ADC champion and by ADC archetype."""
+    games, no_adc = [], 0
+    for r in _own_games(records, "UTILITY"):
+        if _adc(r) is None:
+            no_adc += 1
+        else:
+            games.append(r)
+    by_champion = _grouped(games, lambda r: _adc(r)["champion"] or None, min_games)
+    for row in by_champion:
+        row["archetype"] = adc_archetype(row["key"])
+        row["source"] = adc_source(row["key"])
+    return {
+        "games": len(games), "no_adc": no_adc,
+        "by_person": _grouped(games, lambda r: _adc(r)["person"] or RANDOM, min_games),
+        "by_champion": by_champion,
+        "by_archetype": _grouped(games, lambda r: adc_archetype(_adc(r)["champion"]), min_games),
+    }
+
+
+def support_adc_matrix(records, min_games=MIN_GAMES) -> dict:
+    """c'. Archetype of the main's support x archetype of the ADC: games and winrate per cell."""
+    cells = defaultdict(list)
+    for r in _own_games(records, "UTILITY"):
+        adc = _adc(r)
+        if adc is not None:
+            cells[(support_archetype(r["main_champion"]), adc_archetype(adc["champion"]))].append(r)
+    rows = []
+    for sup in SUPPORT_ORDER:
+        row_cells = [{"adc": a, **_stat(cells[(sup, a)], min_games)} if cells.get((sup, a))
+                     else None for a in ADC_ORDER]
+        rows.append({"support": sup, "games": sum(c["games"] for c in row_cells if c), "cells": row_cells})
+    return {"support_types": SUPPORT_ORDER, "adc_types": ADC_ORDER, "rows": rows,
+            "games": sum(len(v) for v in cells.values())}
 
 
 def adc_support_matrix(records, min_games=MIN_GAMES) -> dict:
@@ -743,6 +801,35 @@ def type_pairs(records, min_games=MIN_GAMES) -> dict:
     return out
 
 
+# Neighbour lines whose pair with the main's own line is analysed (the pairs of PAIR_DEFS without bot).
+OWN_PARTNERS = {"JUNGLE": ("MIDDLE", "TOP"), "TOP": ("JUNGLE",), "MIDDLE": ("JUNGLE",)}
+
+
+def own_pairs(records, main_role, min_games=MIN_GAMES) -> list[dict]:
+    """The main's type in `main_role` x the type of the ally in a neighbour line (his own games only).
+
+    One entry per partner line: {key, title, role_a (the main's), role_b, games, rows[{a, b, labels,
+    ...stats}]}, rows ranked like `type_pairs`. Empty for a line without such pairs (the bot lane
+    has its own duo tables).
+    """
+    out = []
+    mine = _own_games(records, main_role)
+    for other in OWN_PARTNERS.get(main_role, ()):
+        buckets = defaultdict(list)
+        for r in mine:
+            ally = _member_in(r, other, include_main=False)
+            if ally is not None:
+                buckets[(role_type(main_role, _main(r)["champion"]), role_type(other, ally["champion"]))].append(r)
+        rows = [{"a": ta, "b": tb, "a_label": type_label(main_role, ta), "b_label": type_label(other, tb),
+                 **_stat(v, min_games)} for (ta, tb), v in buckets.items()]
+        rows.sort(key=lambda x: (x["small"], -x["shrunk"], -x["games"], x["a"], x["b"]))
+        out.append({"key": f"{main_role.lower()}_{other.lower()}",
+                    "title": f"Tú en {role_name(main_role).lower()} × {role_name(other).lower()}",
+                    "role_a": main_role, "role_b": other,
+                    "games": sum(len(v) for v in buckets.values()), "rows": rows})
+    return out
+
+
 def plan_analysis(records, min_games=MIN_GAMES) -> dict:
     """c. Distribution of the main's team plans and WR per plan; own plan x enemy plan matrix."""
     usable = [r for r in records if r.get("plan")]
@@ -788,13 +875,16 @@ def clan_lineups(records, min_members=3, min_games=MIN_GAMES, limit=8) -> list[d
     return rows[:limit]
 
 
-def most_common_lineup(records) -> dict[str, str]:
+def most_common_lineup(records, main_role="BOTTOM") -> dict[str, str]:
     """role -> person of the most frequent clan lineup, to pre-fill the draft form.
 
-    It looks at the games where the main player was the ADC (the draft recommends ADCs) and,
-    only if there are none, at all games. 3+ clan members first, else 2+; {} if there is none.
+    It looks at the games where the main player was in `main_role` (the draft recommends for
+    that line); for the ADC, and only if there are none, at all games. A lineup from other games
+    could put somebody else in the main's line, so any other line looks at his own games only.
+    3+ clan members first, else 2+; {} if there is none.
     """
-    for pool in (_bottom_games(records), records):
+    own = _own_games(records, main_role)
+    for pool in ((own, records) if main_role == "BOTTOM" else (own,)):
         for minimum in (3, 2):
             rows = clan_lineups(pool, min_members=minimum, limit=1)
             if rows:
@@ -866,17 +956,28 @@ def cleanse_terciles(records, min_games=MIN_GAMES) -> dict:
     return out
 
 
-def analyze_all(records, min_games=MIN_GAMES) -> dict:
-    """Every table of the "Composiciones" page / report, for the given records."""
+def analyze_all(records, min_games=MIN_GAMES, main_role="BOTTOM") -> dict:
+    """Every table of the "Composiciones" page / report, for the given records.
+
+    `main_role`: the line the tables are seen from. The bot-lane duo tables are the ADC's
+    (`duo`, `matrix`, `engage`) or the support's (`duo`, `matrix`); the other lines get `own_pairs`.
+    What does not apply to the line is None / empty.
+    """
+    main_role = _check_role(main_role)
+    adc, sup = main_role == "BOTTOM", main_role == "UTILITY"
     return {
+        "main_role": main_role,
         "games": len(records),
         "bottom_games": len(_bottom_games(records)),
+        "own_games": len(_own_games(records, main_role)),
         "clan_games": sum(1 for r in records if _clan_members(r, include_main=False)),
         "overall": _stat(records, min_games),
         "pools": clan_pools(records, min_games),
-        "duo": duo_bot(records, min_games),
-        "matrix": adc_support_matrix(records, min_games),
-        "engage": adc_engage_table(records, min_games),
+        "duo": duo_bot(records, min_games) if adc else duo_support(records, min_games) if sup else None,
+        "matrix": (adc_support_matrix(records, min_games) if adc
+                   else support_adc_matrix(records, min_games) if sup else None),
+        "engage": adc_engage_table(records, min_games) if adc else None,
+        "own_pairs": own_pairs(records, main_role, min_games),
         "lines": by_line(records, min_games),
         "type_pairs": type_pairs(records, min_games),
         "plans": plan_analysis(records, min_games),
@@ -884,7 +985,7 @@ def analyze_all(records, min_games=MIN_GAMES) -> dict:
         "pairs": clan_pairs(records, min_games),
         "penetration": penetration_table(records, min_games),
         "cleanse": cleanse_terciles(records, min_games),
-        "common_lineup": most_common_lineup(records),
+        "common_lineup": most_common_lineup(records, main_role),
         "min_games": min_games,
     }
 
@@ -1066,18 +1167,23 @@ def draft_notes(lineup, records, enemy=(), main_role="BOTTOM") -> list[str]:
 
 
 def recommend(lineup, records, enemy=(), include_all=False, min_games=MIN_GAMES,
-              max_reasons=3) -> list[dict]:
+              max_reasons=3, main_role="BOTTOM") -> list[dict]:
     """Ranked ADC picks for the main player given the rest of the lineup.
 
     `lineup`: role -> (person, champion) for the main's team (the BOTTOM entry is ignored: it is
     the main player). `enemy`: optional enemy champion names (not used for the score, see
     `draft_notes`). The pool is the champions the main played as ADC at least `min_games` times;
     `include_all` adds every classified ADC. Returns dicts with champion, score (0-100), reasons.
+
+    The ranking is the main's own pick only when he is the ADC: for any other `main_role` it is
+    empty (his picks for that line come from `recommend_draft`).
     """
     del enemy  # accepted for the API; the video framework has no champion-level enemy rule
+    if _check_role(main_role) != "BOTTOM":
+        return []
     lu = normalize_lineup(lineup)
     profile = support_profile(records, lu)
-    engage = _lineup_engage(lu)
+    engage = _lineup_engage(lu, main_role)
     sup_person = lu["UTILITY"]["person"]
 
     bottom = _bottom_games(records)
@@ -1601,6 +1707,77 @@ def _md_type_pairs(a) -> list[str]:
     return out
 
 
+def _md_duo_support(a) -> list[str]:
+    duo = a["duo"]
+    out = ["", "## Dúo bot (tú de soporte)", "", f"Partidas con ADC identificado: {duo['games']}.", ""]
+    for title, rows, extra in (("Por persona de ADC", duo["by_person"], False),
+                               ("Por campeón de ADC", duo["by_champion"], True),
+                               ("Por arquetipo de ADC", duo["by_archetype"], False)):
+        out += [f"### {title}", ""]
+        body = []
+        for r in rows:
+            key = ADC_LABELS.get(r["key"], r["key"]) if title.endswith("arquetipo de ADC") else r["key"]
+            if extra:
+                key = f"{key} ({ADC_LABELS[r['archetype']].lower()}{', propia' if r['source'] == 'propia' else ''})"
+            body.append([key, r["games"], _rec(r), _pct(r["shrunk"]), _signed(r["gold_diff_14"]),
+                         "-" if r["deaths"] is None else f"{r['deaths']:.1f}"])
+        out += _table(["ADC", "Partidas", "Récord", "WR ajustado", "Dif. oro @14", "Muertes"], body) \
+            if body else ["Sin datos."]
+        out.append("")
+    out += ["## Matriz soporte x ADC", ""]
+    m = a["matrix"]
+    out += _table(["Soporte \\ ADC", *[ADC_LABELS[t] for t in m["adc_types"]]],
+                  [[SUPPORT_LABELS[r["support"]], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
+                   for r in m["rows"] if r["games"]]) if m["games"] else ["Sin datos."]
+    return out
+
+
+def _md_own_pairs(a) -> list[str]:
+    out = []
+    for pair in a["own_pairs"]:
+        out += ["", f"## {pair['title']}", "",
+                f"Tu tipo de campeón x el de tu aliado en esa línea, solo en tus partidas de "
+                f"{role_name(pair['role_a'])}: {pair['games']}.", ""]
+        out += _table([f"{role_name(pair['role_a'])} (tú)", role_name(pair["role_b"]), "Partidas", "Récord",
+                       "WR ajustado"],
+                      [[x["a_label"], x["b_label"], x["games"], _rec(x), _pct(x["shrunk"])]
+                       for x in pair["rows"]]) if pair["rows"] else ["Sin datos."]
+    return out
+
+
+def _summary_duo_support(a) -> list[str]:
+    duo = a["duo"]
+    out = ["", "Dúo bot, por ADC (WR ajustado):"]
+    for r in duo["by_person"][:5]:
+        out.append(f"  {r['key']:<22} {_rec(r):<14} ajustado {_pct(r['shrunk'])} · {r['games']} partidas")
+    if duo["by_champion"]:
+        out += ["Mejores campeones de ADC:"]
+        for r in duo["by_champion"][:5]:
+            out.append(f"  {r['key']:<22} {_rec(r):<14} ajustado {_pct(r['shrunk'])} "
+                       f"({ADC_LABELS[r['archetype']].lower()})")
+    m = a["matrix"]
+    out += ["", "Matriz soporte x ADC (récord):"]
+    if m["games"]:
+        out.append("  " + " " * 15 + "".join(f"{ADC_LABELS[t]:<18}" for t in m["adc_types"]))
+        for r in m["rows"]:
+            if r["games"]:
+                out.append("  " + f"{SUPPORT_LABELS[r['support']].split('/')[0]:<15}" +
+                           "".join(f"{(_rec(c) if c else '-'):<18}" for c in r["cells"]))
+    else:
+        out.append("  Sin datos.")
+    return out
+
+
+def _summary_own_pairs(a) -> list[str]:
+    out = []
+    for pair in a["own_pairs"]:
+        rows = [x for x in pair["rows"] if not x["small"] and "otro" not in (x["a"], x["b"])][:4]
+        out += ["", f"{pair['title']} (mejores por WR ajustado):"]
+        out += [f"  {x['a_label'] + ' + ' + x['b_label']:<46} {_rec(x):<14} ajustado {_pct(x['shrunk'])} "
+                f"· {x['games']} partidas" for x in rows] or ["  Sin datos."]
+    return out
+
+
 def _md_plans(a) -> list[str]:
     plans = a["plans"]
     out = ["## Plan de pelea", "",
@@ -1630,17 +1807,24 @@ def _pick_name(pick) -> str:
         (", propia" if pick["source"] == "propia" else "") + ")"
 
 
+def _draft_order(draft) -> list[str]:
+    """Lines of a draft in display order: the main's own line first unless he is the ADC."""
+    mine = next((role for role, e in draft["roles"].items() if e.get("is_main")), None)
+    return ([mine] + [r for r in LINE_ROLES if r != mine]) if mine else list(LINE_ROLES)
+
+
 def _md_draft(draft) -> list[str]:
     out = ["", "## Recomendación por línea", ""]
-    for role in LINE_ROLES:
+    for role in _draft_order(draft):
         e = draft["roles"].get(role)
         if not e:
             continue
         who = f" · {e['person']}" if e.get("person") else ""
+        label = e["label"] + (" (tú)" if e.get("is_main") else "")
         if e["mode"] == "fijo":
-            out.append(f"- **{e['label']}**{who}: {e['fixed']} ({e['fixed_type_label'].lower()}), ya escogido.")
+            out.append(f"- **{label}**{who}: {e['fixed']} ({e['fixed_type_label'].lower()}), ya escogido.")
             continue
-        out.append(f"- **{e['label']}**{who}" + (f" ({e['note']})" if e.get("note") else ""))
+        out.append(f"- **{label}**{who}" + (f" ({e['note']})" if e.get("note") else ""))
         if not e["picks"]:
             out.append("  - Sin sugerencias.")
         for i, x in enumerate(e["picks"], 1):
@@ -1651,6 +1835,29 @@ def _md_draft(draft) -> list[str]:
     out += ["", f"Plan resultante con las mejores sugerencias: **{plan['label']}** "
                 f"({', '.join(m['label'] + ': ' + m['text'] for m in plan['members'])}).", ""]
     out += [f"- {t}" for t in plan["reasons"]]
+    return out
+
+
+def _summary_duo_adc(a) -> list[str]:
+    duo = a["duo"]
+    out = ["", "Dúo bot, por soporte (WR ajustado):"]
+    for r in duo["by_person"][:5]:
+        out.append(f"  {r['key']:<22} {_rec(r):<14} ajustado {_pct(r['shrunk'])} · {r['games']} partidas")
+    if duo["by_champion"]:
+        out += ["Mejores campeones de soporte:"]
+        for r in duo["by_champion"][:5]:
+            out.append(f"  {r['key']:<22} {_rec(r):<14} ajustado {_pct(r['shrunk'])} "
+                       f"({SUPPORT_LABELS[r['archetype']].lower()})")
+    m = a["matrix"]
+    out += ["", "Matriz ADC x soporte (récord):"]
+    if m["games"]:
+        out.append("  " + " " * 15 + "".join(f"{SUPPORT_LABELS[s].split('/')[0]:<18}" for s in m["support_types"]))
+        for r in m["rows"]:
+            if r["games"]:
+                out.append("  " + f"{ADC_LABELS[r['adc']]:<15}" +
+                           "".join(f"{(_rec(c) if c else '-'):<18}" for c in r["cells"]))
+    else:
+        out.append("  Sin datos.")
     return out
 
 
@@ -1693,15 +1900,16 @@ def _summary_plans(a) -> list[str]:
 
 def _summary_draft(draft) -> list[str]:
     out = ["Recomendación por línea (alineación más común):"]
-    for role in LINE_ROLES:
+    for role in _draft_order(draft):
         e = draft["roles"].get(role)
-        if not e or role == "BOTTOM":
+        if not e or e["mode"] == "adc":         # the ADC ranking is printed on its own
             continue
         who = f" ({e['person']})" if e.get("person") else ""
+        label = e["label"] + (" (tú)" if e.get("is_main") else "")
         if e["mode"] == "fijo":
-            out.append(f"  {e['label']}{who}: {e['fixed']} (ya escogido)")
+            out.append(f"  {label}{who}: {e['fixed']} (ya escogido)")
             continue
-        out.append(f"  {e['label']}{who}:")
+        out.append(f"  {label}{who}:")
         for i, x in enumerate(e["picks"], 1):
             out.append(f"    {i}. {_pick_name(x)} (puntaje {x['score']})")
             out += [f"       - {x['reasons'][0]}"] if x["reasons"] else []
@@ -1714,8 +1922,9 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
                     notes=None, draft=None) -> str:
     """Full report with every analysis (written to reports/composiciones.md)."""
     mg = a["min_games"]
+    ml = a.get("main_role", "BOTTOM")
     out = [f"# Composiciones ({cola_text})", "",
-           f"Partidas analizadas: {a['games']} · como ADC: {a['bottom_games']} · "
+           f"Partidas analizadas: {a['games']} · como {role_name(ml)}: {a.get('own_games', a['bottom_games'])} · "
            f"con algún otro miembro del clan en tu equipo: {a['clan_games']}.", "",
            f"Los winrates con * tienen menos de {mg} partidas (muestra pequeña). El ranking usa el "
            f"winrate ajustado (victorias + {PRIOR}) / (partidas + {2 * PRIOR}); el winrate crudo "
@@ -1733,34 +1942,40 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
     else:
         out.append("Sin datos.")
 
-    duo = a["duo"]
-    out += ["", "## Dúo bot (tú de ADC)", "", f"Partidas con soporte identificado: {duo['games']}.", ""]
-    for title, rows, extra in (("Por persona de soporte", duo["by_person"], False),
-                               ("Por campeón de soporte", duo["by_champion"], True),
-                               ("Por arquetipo de soporte", duo["by_archetype"], False)):
-        out += [f"### {title}", ""]
-        body = []
-        for r in rows:
-            key = SUPPORT_LABELS.get(r["key"], r["key"]) if title.endswith("arquetipo de soporte") else r["key"]
-            if extra:
-                key = f"{key} ({SUPPORT_LABELS[r['archetype']].lower()}{', propia' if r['source'] == 'propia' else ''})"
-            body.append([key, r["games"], _rec(r), _pct(r["shrunk"]), _signed(r["gold_diff_14"]),
-                         "-" if r["deaths"] is None else f"{r['deaths']:.1f}"])
-        out += _table(["Soporte", "Partidas", "Récord", "WR ajustado", "Dif. oro @14", "Muertes"], body) \
-            if body else ["Sin datos."]
-        out.append("")
+    if ml == "BOTTOM":
+        duo = a["duo"]
+        out += ["", "## Dúo bot (tú de ADC)", "", f"Partidas con soporte identificado: {duo['games']}.", ""]
+        for title, rows, extra in (("Por persona de soporte", duo["by_person"], False),
+                                   ("Por campeón de soporte", duo["by_champion"], True),
+                                   ("Por arquetipo de soporte", duo["by_archetype"], False)):
+            out += [f"### {title}", ""]
+            body = []
+            for r in rows:
+                key = SUPPORT_LABELS.get(r["key"], r["key"]) if title.endswith("arquetipo de soporte") else r["key"]
+                if extra:
+                    key = f"{key} ({SUPPORT_LABELS[r['archetype']].lower()}{', propia' if r['source'] == 'propia' else ''})"
+                body.append([key, r["games"], _rec(r), _pct(r["shrunk"]), _signed(r["gold_diff_14"]),
+                             "-" if r["deaths"] is None else f"{r['deaths']:.1f}"])
+            out += _table(["Soporte", "Partidas", "Récord", "WR ajustado", "Dif. oro @14", "Muertes"], body) \
+                if body else ["Sin datos."]
+            out.append("")
 
-    out += ["## Matriz ADC x soporte", ""]
-    m = a["matrix"]
-    out += _table(["ADC \\ Soporte", *[SUPPORT_LABELS[s] for s in m["support_types"]]],
-                  [[ADC_LABELS[r["adc"]], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
-                   for r in m["rows"] if r["games"]]) if m["games"] else ["Sin datos."]
+        out += ["## Matriz ADC x soporte", ""]
+        m = a["matrix"]
+        out += _table(["ADC \\ Soporte", *[SUPPORT_LABELS[s] for s in m["support_types"]]],
+                      [[ADC_LABELS[r["adc"]], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
+                       for r in m["rows"] if r["games"]]) if m["games"] else ["Sin datos."]
 
-    out += ["", "## ADC x engage duro en tu equipo", ""]
-    e = a["engage"]
-    out += _table(["ADC \\ Engage", *e["buckets"]],
-                  [[ADC_LABELS[r["adc"]], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
-                   for r in e["rows"] if r["games"]]) if e["games"] else ["Sin datos."]
+        out += ["", "## ADC x engage duro en tu equipo", ""]
+        e = a["engage"]
+        out += _table(["ADC \\ Engage", *e["buckets"]],
+                      [[ADC_LABELS[r["adc"]], *[(_rec(c) + f" n={c['games']}") if c else "-" for c in r["cells"]]]
+                       for r in e["rows"] if r["games"]]) if e["games"] else ["Sin datos."]
+
+    elif ml == "UTILITY":
+        out += _md_duo_support(a)
+    else:
+        out += _md_own_pairs(a)
 
     out += _md_lines(a)
     out += _md_type_pairs(a)
@@ -1782,14 +1997,15 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
         out.append(f"Ninguna pareja llega a {mg} partidas juntos.")
 
     pen = a["penetration"]
-    out += ["", "## Itemización: penetración de armadura", "",
-            f"Partidas de 20+ min con timeline: {pen['eligible']} (excluidas: {pen['excluded']}). "
-            f"«Enemigo tanque» = algún rival con {TANKY_ARMOR}+ de armadura total al final, una "
-            "aproximación a «más de 100 de armadura adicional».", ""]
-    out += _table(["", "Con % pen. de armadura", "Sin % pen. de armadura"],
-                  [["Enemigo tanque" if r["tanky"] else "Sin enemigo tanque", _rec(r["with_pen"]) +
-                    f" n={r['with_pen']['games']}", _rec(r["without_pen"]) + f" n={r['without_pen']['games']}"]
-                   for r in pen["rows"]]) if pen["eligible"] else ["Sin datos."]
+    if ml != "UTILITY":                 # a support does not build armor penetration
+        out += ["", "## Itemización: penetración de armadura", "",
+                f"Partidas de 20+ min con timeline: {pen['eligible']} (excluidas: {pen['excluded']}). "
+                f"«Enemigo tanque» = algún rival con {TANKY_ARMOR}+ de armadura total al final, una "
+                "aproximación a «más de 100 de armadura adicional».", ""]
+        out += _table(["", "Con % pen. de armadura", "Sin % pen. de armadura"],
+                      [["Enemigo tanque" if r["tanky"] else "Sin enemigo tanque", _rec(r["with_pen"]) +
+                        f" n={r['with_pen']['games']}", _rec(r["without_pen"]) + f" n={r['without_pen']['games']}"]
+                       for r in pen["rows"]]) if pen["eligible"] else ["Sin datos."]
 
     cl = a["cleanse"]
     out += ["", "## Purificar vs CC enemigo", "",
@@ -1809,6 +2025,11 @@ def render_markdown(a: dict, ranking=None, lineup=None, cola_text="todas las col
             out.append(f"{i}. **{x['champion']}** ({ADC_LABELS[x['adc_type']].lower()}"
                        f"{', propia' if x['adc_source'] == 'propia' else ''}) · puntaje {x['score']}")
             out += [f"   - {t}" for t in x["reasons"]]
+    elif draft is not None and (lineup or notes):
+        out += ["", f"## Draft como {role_name(ml)}", ""]
+        if lineup:
+            out.append("Alineación: " + _lineup_text([(p, r) for r, p in lineup.items()]) + ".")
+        out += [f"- {n}" for n in notes or []]
     if draft is not None:
         out += _md_draft(draft)
     out += ["", "## Sobre las clasificaciones", "", CLASSIFICATION_NOTE]
@@ -1819,34 +2040,23 @@ def render_summary(a: dict, ranking=None, lineup=None, notes=None, cola_text="to
                    draft=None) -> str:
     """Concise terminal summary: top duos, matrix and recommendations for the common lineup."""
     mg = a["min_games"]
-    out = [f"Composiciones ({cola_text}): {a['games']} partidas, {a['bottom_games']} como ADC, "
-           f"{a['clan_games']} con otro miembro del clan. (* = menos de {mg} partidas)"]
-    duo = a["duo"]
-    out += ["", "Dúo bot, por soporte (WR ajustado):"]
-    for r in duo["by_person"][:5]:
-        out.append(f"  {r['key']:<22} {_rec(r):<14} ajustado {_pct(r['shrunk'])} · {r['games']} partidas")
-    if duo["by_champion"]:
-        out += ["Mejores campeones de soporte:"]
-        for r in duo["by_champion"][:5]:
-            out.append(f"  {r['key']:<22} {_rec(r):<14} ajustado {_pct(r['shrunk'])} "
-                       f"({SUPPORT_LABELS[r['archetype']].lower()})")
-    m = a["matrix"]
-    out += ["", "Matriz ADC x soporte (récord):"]
-    if m["games"]:
-        out.append("  " + " " * 15 + "".join(f"{SUPPORT_LABELS[s].split('/')[0]:<18}" for s in m["support_types"]))
-        for r in m["rows"]:
-            if r["games"]:
-                out.append("  " + f"{ADC_LABELS[r['adc']]:<15}" +
-                           "".join(f"{(_rec(c) if c else '-'):<18}" for c in r["cells"]))
+    ml = a.get("main_role", "BOTTOM")
+    out = [f"Composiciones ({cola_text}): {a['games']} partidas, {a.get('own_games', a['bottom_games'])} "
+           f"como {role_name(ml)}, {a['clan_games']} con otro miembro del clan. (* = menos de {mg} partidas)"]
+    if ml == "BOTTOM":
+        out += _summary_duo_adc(a)
+    elif ml == "UTILITY":
+        out += _summary_duo_support(a)
     else:
-        out.append("  Sin datos.")
+        out += _summary_own_pairs(a)
     out += _summary_lines(a)
     out += _summary_pairs(a)
     out += _summary_plans(a)
-    if ranking is not None:
+    if ranking is not None or (draft is not None and ml != "BOTTOM"):
         out += ["", "Alineación más común del clan: " + (_lineup_text([(p, r) for r, p in lineup.items()])
                                                          if lineup else "(ninguna)")]
         out += [f"  {n}" for n in notes or []]
+    if ranking is not None:
         out.append("Recomendación de ADC:")
         if not ranking:
             out.append("  Ningún ADC con suficientes partidas.")
