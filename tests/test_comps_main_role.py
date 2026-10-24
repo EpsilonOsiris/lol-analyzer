@@ -76,9 +76,9 @@ def test_a_typed_adc_is_part_of_the_team_when_the_main_is_not_the_adc(records):
     assert {"role": "BOTTOM", "label": "ADC", "text": "Jinx"} in with_adc["plan"]["members"]
 
 
-def test_notes_say_the_adc_rules_do_not_apply_when_the_main_is_not_the_adc(records):
+def test_notes_name_the_line_instead_of_the_adc_fit_when_the_main_is_not_the_adc(records):
     notes = comps.draft_notes({"TOP": (None, "Malphite")}, records, ENEMY, main_role="MIDDLE")
-    assert notes[0].startswith("Juegas Mid: el ranking de ADC y el encaje ADC-soporte solo aplican")
+    assert notes[0].startswith("Juegas Mid: tus picks salen de tu historial en Mid")
     assert not any(n.startswith("Soporte") for n in notes)
     assert any(n.startswith("Engage duro en tu equipo (sin contarte): 1") for n in notes)
     # with the main in the ADC slot a typed ADC would be ignored; as mid it counts

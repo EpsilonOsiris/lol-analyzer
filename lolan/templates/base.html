@@ -28,6 +28,7 @@
     {% if show_picker %}
     <form class="picker" method="get" action="{{ picker_action }}">
       <input type="hidden" name="cola" value="{{ cola }}">
+      {% if linea_choice != 'auto' %}<input type="hidden" name="linea" value="{{ linea_choice }}">{% endif %}
       <label class="sr-only" for="jugador-select">Jugador</label>
       <select id="jugador-select" name="jugador" data-autosubmit>
         {% for p in roster.players %}
@@ -36,6 +37,13 @@
       </select>
       <noscript><button type="submit" class="btn">Ver</button></noscript>
     </form>
+    {% endif %}
+    {% if show_linea %}
+    <div class="seg" role="group" aria-label="Línea">
+      {% for slug, label in linea_options %}
+      <a href="{{ switch_linea(slug) }}"{% if slug == linea_choice %} aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </div>
     {% endif %}
     <div class="seg" role="group" aria-label="Cola">
       {% for slug, label in queue_labels.items() %}

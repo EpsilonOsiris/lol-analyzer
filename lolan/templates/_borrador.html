@@ -1,5 +1,5 @@
 {#- Draft recommendation shared by Composiciones and Partida. Needs: notes, ranking (list or none), draft,
-    draft_roles (the lines to show, in order), adc_labels. -#}
+    draft_roles (the lines to show, in order), adc_labels; others_title is optional. -#}
   {% if notes %}<ul class="muted">{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
   {% if ranking is not none %}
   <h4>ADC (tú)</h4>
@@ -21,7 +21,7 @@
   {% endif %}
 
   {% if draft %}
-  <h3>Otras líneas</h3>
+  <h3>{{ others_title|default('Otras líneas') }}</h3>
   <p class="muted">Cada pick se puntúa con las reglas del marco (pesan más cuando hay pocos datos) y con tus resultados: el winrate de tu equipo con ese tipo en esa línea y con la dupla relevante (jungla × mid, jungla × top, soporte × ADC) cuando hay 10 partidas o más, y el winrate de esa persona con ese campeón. Las clasificaciones son propias, no datos de Riot.</p>
   {% for role in draft_roles %}
   {% set e = draft.roles[role] %}

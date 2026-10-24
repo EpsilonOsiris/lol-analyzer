@@ -45,6 +45,10 @@ from .sync import sync_players
 QUEUES = {"todas": None, "solo": QUEUE_ALIASES["solo"], "flex": QUEUE_ALIASES["flex"]}
 QUEUE_LABELS = {"todas": "Todas", "solo": "Solo/Dúo", "flex": "Flex"}
 DEFAULT_COLA = "solo"
+# línea selector: "auto" (the main's most played line in the queue) or one of comps.ROLES; the
+# endpoints in LINEA_PAGES are the pages that use it (the rest do not show the selector).
+LINEA_AUTO = "auto"
+LINEA_PAGES = ("comps_page",)
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 PAGE_SIZE = 50
 NL2 = "\n\n"                # end of a server-sent event
@@ -566,7 +570,23 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         g.roster = open_roster()
         # ?jugador=<slug>; missing or unknown -> the main player (None if nobody is registered).
         g.player = g.roster.by_slug(request.args.get("jugador")) or g.roster.main
+        # ?linea=<rol>; missing or unknown -> auto. g.linea is the line in use (auto resolved), only
+        # worked out on the pages that use it.
+        g.linea_choice = comps.parse_line(request.args.get("linea")) or LINEA_AUTO
+        g.linea = g.linea_auto = None
+        if request.endpoint in LINEA_PAGES:
+            g.linea_auto = comps.main_line(main_records())
+            g.linea = g.linea_auto if g.linea_choice == LINEA_AUTO else g.linea_choice
         return None
+
+    def main_records():
+        """The main player's composition records of the selected queue (cached per request)."""
+        if "main_records" not in g:
+            main = g.roster.main
+            st = g.settings
+            g.main_records = comps.filter_queue(
+                cache.comps(main.puuid if main else None, st.clan_prefix, st.clan_aliases), QUEUES[g.cola])
+        return g.main_records
 
     def rekey_minutes() -> int:
         store = Store(db_path)
@@ -585,16 +605,29 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         if param == main_slug:
             param = None
 
+        choice = g.get("linea_choice", LINEA_AUTO)
+        linea_param = None if choice == LINEA_AUTO else choice       # "auto" stays out of the links
+
         def u(endpoint, **values):
             values.setdefault("jugador", param)
             if values["jugador"] == main_slug:
                 values["jugador"] = None
-            return url_for(endpoint, cola=g.cola, **values)
+            return url_for(endpoint, cola=g.cola, linea=linea_param, **values)
 
         def switch(cola):
             if request.endpoint in (None, "static"):
-                return url_for("index", cola=cola)
-            return url_for(request.endpoint, cola=cola, jugador=param, **(request.view_args or {}))
+                return url_for("index", cola=cola, linea=linea_param)
+            return url_for(request.endpoint, cola=cola, jugador=param, linea=linea_param,
+                           **(request.view_args or {}))
+
+        def switch_linea(slug):
+            slug = None if slug == LINEA_AUTO else slug
+            if request.endpoint in (None, "static"):
+                return url_for("index", cola=g.cola, linea=slug)
+            return url_for(request.endpoint, cola=g.cola, jugador=param, linea=slug, **(request.view_args or {}))
+
+        linea_options = [(LINEA_AUTO, f"Automática: {an.role_name(g.linea_auto)}" if g.get("linea_auto")
+                          else "Automática")] + [(r, an.role_name(r)) for r in comps.ROLES]
 
         # The player picker is a GET form to the current page (a match page has no equivalent
         # for another player, so it goes to the games list).
@@ -607,6 +640,8 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
                 "key_banner": banner,
                 "key_age": age_text(st.riot_key_saved_at) if banner == "vieja" else "",
                 "switch": switch, "endpoint": request.endpoint, "roster": roster,
+                "linea_choice": choice, "linea": g.get("linea"), "linea_options": linea_options,
+                "switch_linea": switch_linea, "show_linea": request.endpoint in LINEA_PAGES,
                 "jugador": current, "picker_action": picker_action,
                 "show_picker": bool(roster) and len(roster) > 1
                 and request.endpoint not in ("clan_page", "players_page", "comps_page", "live_page",
@@ -823,32 +858,42 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         if main is None or not total.games:
             return render_template("vacio.html", reason="db" if total.total == 0 else "analizables")
         st = g.settings
-        records = comps.filter_queue(cache.comps(main.puuid, st.clan_prefix, st.clan_aliases),
-                                     QUEUES[g.cola])
+        records = main_records()
         if not records:
             return render_template("vacio.html", reason="cola" if g.cola != "todas" else "analizables")
-        analysis = comps.analyze_all(records)
+        main_role = g.linea
+        analysis = comps.analyze_all(records, main_role=main_role)
 
-        # Draft form: ?armar=1 plus p_<ROL> (person), c_<ROL> (champion), enemigos, todos.
+        # Draft form: ?armar=1 plus p_<ROL> (person), c_<ROL> (champion), enemigos, todos. The main's
+        # own line has no inputs: it is the one the recommendations are for.
         args = request.args
         submitted = args.get("armar") == "1"
         people = [p["person"] for p in analysis["pools"] if not p["is_main"]]
         person_of = lambda role: (args.get(f"p_{role}", "") if submitted
                                   else analysis["common_lineup"].get(role, ""))
+        form_roles = [r for r in comps.ROLES if r != main_role]
         form = {role: {"person": person_of(role), "champion": args.get(f"c_{role}", "").strip()[:30]}
-                for role in comps.ROLES if role != "BOTTOM"}
+                for role in form_roles}
         enemies = [e.strip()[:30] for e in re.split(r"[,;\n]", args.get("enemigos", "")) if e.strip()][:5]
         include_all = args.get("todos") == "1"
         ranking = notes = draft = None
         if submitted:
             lineup = {role: (v["person"] or None, v["champion"] or None) for role, v in form.items()}
-            ranking = comps.recommend(lineup, records, enemies, include_all=include_all)
-            notes = comps.draft_notes(lineup, records, enemies)
-            draft = comps.recommend_draft(lineup, records, enemies, include_all=include_all)
+            if main_role == "BOTTOM":
+                ranking = comps.recommend(lineup, records, enemies, include_all=include_all)
+            notes = comps.draft_notes(lineup, records, enemies, main_role=main_role)
+            draft = comps.recommend_draft(lineup, records, enemies, include_all=include_all,
+                                          main_role=main_role)
+        # Display order of the recommendations: the main's own line first, unless he is the ADC (his
+        # slot is the ranking above them).
+        draft_roles = [r for r in comps.LINE_ROLES if r != "BOTTOM"] if main_role == "BOTTOM" else \
+            [main_role] + [r for r in comps.LINE_ROLES if r != main_role]
         return render_template(
             "composiciones.html", a=analysis, form=form, people=people, submitted=submitted,
             ranking=ranking, notes=notes, draft=draft, enemies=", ".join(enemies), include_all=include_all,
-            draft_roles=[r for r in comps.ROLES if r != "BOTTOM"], c=comps,
+            main_role=main_role, form_roles=form_roles, draft_roles=draft_roles,
+            others_title="Otras líneas" if main_role == "BOTTOM" else "Tus picks y las otras líneas",
+            adc_labels=comps.ADC_LABELS, c=comps,
             min_games=analysis["min_games"], clan_prefix=st.clan_prefix, cola_text="todas las colas" if g.cola == "todas"
             else QUEUE_LABELS[g.cola])
 

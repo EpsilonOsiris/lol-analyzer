@@ -1154,8 +1154,7 @@ def draft_notes(lineup, records, enemy=(), main_role="BOTTOM") -> list[str]:
             notes.append("Soporte desconocido: se favorecen los ADC flexibles y los follow-up se "
                          "consideran malos first picks.")
     else:
-        notes.append(f"Juegas {role_name(main_role)}: el ranking de ADC y el encaje ADC-soporte solo "
-                     f"aplican cuando eres el ADC; tus picks salen de tu historial en {role_name(main_role)}.")
+        notes.append(f"Juegas {role_name(main_role)}: tus picks salen de tu historial en {role_name(main_role)}.")
     engage = _lineup_engage(lu, main_role)
     if engage is not None:
         notes.append(f"Engage duro en tu equipo (sin contarte): {engage}.")

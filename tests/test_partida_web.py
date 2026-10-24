@@ -132,7 +132,7 @@ def test_my_line_choice_comes_in_the_query_and_changes_the_recommendation(app):
     assert draft["main_role"] == "MIDDLE" and draft["role_source"] == "elegido"
     assert "ADC (tú)" not in draft["html"]
     assert '<span class="badge main">tú</span>' in draft["html"]                      # my line is a normal entry
-    assert "Juegas Mid: el ranking de ADC y el encaje ADC-soporte solo aplican" in draft["html"]
+    assert "Juegas Mid: tus picks salen de tu historial en Mid" in draft["html"]
     assert data["board"]["allies"][0]["role_label"] == "Mid" and not data["board"]["allies"][0]["role_guess"]
     assert payload(app, "?rol=nope")["draft"]["main_role"] == "BOTTOM"             # bad values are ignored
 

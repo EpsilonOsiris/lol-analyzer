@@ -22,6 +22,23 @@ SCRIPT = (
 )
 
 
+# Lalo's seat: a support main with clan ADCs (and a couple of jungle games) ...
+SUPPORT_SCRIPT = (
+    ("UTILITY", "Lulu", 5, 7, {"BOTTOM": (ALFA, "Jinx"), "JUNGLE": (BETA, "Viego"), "MIDDLE": (GAMMA, "Ahri"), "TOP": (None, "Ornn")}),
+    ("UTILITY", "Leona", 3, 6, {"BOTTOM": (ALFA, "Kaisa"), "JUNGLE": (BETA, "LeeSin"), "MIDDLE": (None, "Zed"), "TOP": (None, "Malphite")}),
+    ("UTILITY", "Thresh", 2, 4, {"BOTTOM": (GAMMA, "Vayne"), "JUNGLE": (BETA, "Zac"), "MIDDLE": (None, "Ahri"), "TOP": (None, "Garen")}),
+    ("UTILITY", "Janna", 3, 4, {"BOTTOM": (None, "Ashe"), "JUNGLE": (BETA, "Viego"), "MIDDLE": (GAMMA, "Orianna"), "TOP": (None, "Ornn")}),
+    ("JUNGLE", "Viego", 1, 2, {"BOTTOM": (ALFA, "Jinx"), "UTILITY": (None, "Lulu"), "MIDDLE": (GAMMA, "Ahri"), "TOP": (None, "Garen")}),
+)
+# ... and a jungle main with a clan mid, a clan ADC and a clan support
+JUNGLE_SCRIPT = (
+    ("JUNGLE", "Viego", 4, 6, {"MIDDLE": (GAMMA, "Ahri"), "TOP": (None, "Garen"), "BOTTOM": (ALFA, "Jinx"), "UTILITY": (BETA, "Lulu")}),
+    ("JUNGLE", "Zac", 3, 5, {"MIDDLE": (GAMMA, "Orianna"), "TOP": (None, "Ornn"), "BOTTOM": (ALFA, "Kaisa"), "UTILITY": (BETA, "Leona")}),
+    ("JUNGLE", "LeeSin", 2, 4, {"MIDDLE": (None, "Zed"), "TOP": (None, "Fiora"), "BOTTOM": (None, "Ashe"), "UTILITY": (BETA, "Thresh")}),
+    ("UTILITY", "Lulu", 1, 2, {"MIDDLE": (GAMMA, "Ahri"), "TOP": (None, "Garen"), "BOTTOM": (ALFA, "Jinx"), "JUNGLE": (BETA, "Zac")}),
+)
+
+
 def script_matches(script=SCRIPT):
     """(match_id, match, None) per game of a script, in the order build_records reads them."""
     items = []
