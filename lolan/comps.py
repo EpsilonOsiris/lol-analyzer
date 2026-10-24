@@ -1018,10 +1018,11 @@ FIT = {
     "followup": {"engage": 1.0, "mixto": 0.5, "peel": -0.4, "poke": -0.5, "otro": 0.0},
     "kiting": {"engage": -0.2, "mixto": 0.5, "peel": 1.0, "poke": 0.3, "otro": 0.0},
     "flexible": {s: 0.4 for s in SUPPORT_ORDER},
-    # Own judgment, not from the video and not calibrated with data yet: a mage ADC (Ziggs, Lux,
-    # Brand, Seraphine...) is fragile like a kiting ADC but does not need to be chased, so peel and
-    # mixed supports fit a little, engage is neutral and a poke support doubles up (neutral).
-    "mago": {"engage": 0.1, "mixto": 0.3, "peel": 0.3, "poke": 0.0, "otro": 0.0},
+    # Own judgment, not from the video and NOT calibrated with data yet, so deliberately neutral:
+    # for every support type it sits at or below the median of the three video types (and below
+    # "flexible"), never the best fit anywhere. Peel and mixed supports fit a little (mages are
+    # fragile), engage and poke are neutral. Calibrate with data before raising any of these.
+    "mago": {"engage": 0.0, "mixto": 0.2, "peel": 0.2, "poke": 0.0, "otro": 0.0},
     "otro": {s: 0.0 for s in SUPPORT_ORDER},
 }
 # No idea who the support will be: follow-ups are bad first picks, flexible ones are safe.
@@ -1030,8 +1031,8 @@ FIT_UNKNOWN_SUPPORT = {"followup": -0.6, "kiting": 0.0, "flexible": 0.6, "mago":
 ENGAGE_FIT = {
     "followup": {"0": -0.3, "1": 0.1, "2": 0.4, "3+": 0.5},
     "kiting": {"0": 0.0, "1": 0.0, "2": -0.2, "3+": -0.4},
-    # Own judgment (not calibrated): a mage ADC gains slightly from teammates who start the fight.
-    "mago": {"0": 0.0, "1": 0.0, "2": 0.1, "3+": 0.2},
+    # Own judgment, neutral until calibrated with data: the team's engage does not move a mage ADC.
+    "mago": {"0": 0.0, "1": 0.0, "2": 0.0, "3+": 0.0},
 }
 # Weights of the final score (a weighted average of values in [-1, 1]):
 #   rule fit   weight 1 (constant)
@@ -1417,17 +1418,13 @@ def _line_rules(role, kind, slots) -> list[tuple[float, str | None]]:
         elif kind == "bruiser":
             parts.append((0.3, "Un bruiser es el pick seguro del top: aguanta y pega."))
         elif kind == "split":
-            # own judgment: a mage ADC also zones the enemy while the top is away
-            hold = _union(_p_type(slots, "UTILITY", "peel", "mixto"), _p_type(slots, "MIDDLE", "control"),
-                          _p_type(slots, "BOTTOM", "mago"))
+            hold = _union(_p_type(slots, "UTILITY", "peel", "mixto"), _p_type(slots, "MIDDLE", "control"))
             v = -0.4 + 0.9 * hold
             text = ("El resto puede aguantar el 4v4 (peel o control), así que el split push es viable."
                     if v > 0.2 else "El split push solo funciona si el resto aguanta 4v4 (peel o control) "
                     "y eso no está asegurado.")
             parts.append((v, text))
-        elif kind == "mago":
-            # own judgment, kept neutral until it is calibrated with data
-            parts.append((0.1, "Un top mago no depende del resto del equipo: pick neutro, sin una regla clara."))
+        # kind == "mago": no rule of its own (neutral, 0) until it is calibrated with data
     elif role == "UTILITY":
         adc = slots["BOTTOM"]
         if adc["champs"]:

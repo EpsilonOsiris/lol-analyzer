@@ -132,12 +132,22 @@ def test_mago_exists_in_top_and_bottom_with_labels_and_order():
         assert "mago" not in {e["type"] for e in (comps.ROLE_CLASS.get(role) or comps.SUPPORT_CLASS).values()}
 
 
-def test_fit_has_a_modest_mago_row_for_every_support_type():
+def median(values):
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2] if len(ordered) % 2 else sum(ordered[len(ordered) // 2 - 1:][:2]) / 2
+
+
+def test_mago_fit_is_neutral_never_the_best_anywhere():
     assert set(comps.FIT["mago"]) == set(comps.SUPPORT_ORDER) and set(comps.FIT_UNKNOWN_SUPPORT) == set(comps.ADC_ORDER)
-    assert all(-0.5 <= v <= 0.5 for v in comps.FIT["mago"].values())
-    assert comps.FIT["mago"]["peel"] > comps.FIT["mago"]["poke"]
+    video = ("followup", "kiting", "flexible")
+    for support in ("engage", "peel", "mixto", "poke"):
+        values = [comps.FIT[t][support] for t in video]
+        assert comps.FIT["mago"][support] <= median(values), support
+        assert comps.FIT["mago"][support] < max(values) and comps.FIT["mago"][support] < comps.FIT["flexible"][support]
+    assert comps.FIT_UNKNOWN_SUPPORT["mago"] <= median([comps.FIT_UNKNOWN_SUPPORT[t] for t in video])
+    assert comps.FIT_UNKNOWN_SUPPORT["mago"] < comps.FIT_UNKNOWN_SUPPORT["flexible"]
     assert set(comps.ENGAGE_FIT["mago"]) == set(comps.ENGAGE_BUCKETS)
-    assert all(abs(v) <= 0.3 for v in comps.ENGAGE_FIT["mago"].values())
+    assert set(comps.ENGAGE_FIT["mago"].values()) == {0.0}
 
 
 def test_a_top_mage_is_not_split_and_an_artillery_mage_is_poke():
@@ -169,12 +179,41 @@ def test_type_representatives_for_mago_carry_no_plan_signal():
         assert not any(sig.values()), (role, champion)
 
 
-def test_the_draft_suggests_the_top_mago_type_and_explains_it():
+def test_the_draft_suggests_the_top_mago_type_without_a_boost():
     top = comps.recommend_draft({}, [], max_picks=4)["roles"]["TOP"]["picks"]
     mago = next(p for p in top if p["type"] == "mago")
     assert mago["type_label"] == "Mago" and mago["kind"] == "tipo" and mago["plan"] != "split"
-    assert any("top mago" in r for r in mago["reasons"])
+    assert mago["reasons"] == ["Sin una regla clara ni datos suficientes: pick neutro."]
     assert len(comps.recommend_draft({}, [])["roles"]["TOP"]["picks"]) == comps.MAX_PICKS
+
+
+EXTRA_TEAMS = ({}, {"TOP": (None, "Malphite"), "JUNGLE": (None, "Sejuani")},
+               {"TOP": (None, "Malphite"), "JUNGLE": (None, "Sejuani"), "MIDDLE": (None, "Galio")},
+               {"MIDDLE": (None, "Orianna"), "JUNGLE": (None, "Zac")})
+
+
+@pytest.mark.parametrize("support", [None, "Leona", "Lulu", "Taric", "Thresh", "Lux", "Garen"])
+@pytest.mark.parametrize("extra", range(len(EXTRA_TEAMS)))
+def test_a_mago_never_ranks_first_on_rule_fit_alone_in_the_adc_ranking(support, extra):
+    lineup = {**EXTRA_TEAMS[extra], **({"UTILITY": (None, support)} if support else {})}
+    ranking = comps.recommend(lineup, [], include_all=True)               # nobody has games: rules only
+    assert ranking[0]["adc_type"] != "mago"
+    mages = [x["raw_score"] for x in ranking if x["adc_type"] == "mago"]
+    flexible = [x["raw_score"] for x in ranking if x["adc_type"] == "flexible" and x["adc_source"] == "video"]
+    assert mages and flexible and max(mages) <= min(flexible)           # equal evidence: video flexibles win
+
+
+@pytest.mark.parametrize("extra", range(len(EXTRA_TEAMS)))
+@pytest.mark.parametrize("support", [None, "Lulu", "Leona"])
+@pytest.mark.parametrize("main_role", ["BOTTOM", "TOP"])
+def test_a_mago_never_ranks_first_in_a_type_only_top_suggestion(extra, support, main_role):
+    lineup = {**{k: v for k, v in EXTRA_TEAMS[extra].items() if k != "TOP"},
+              **({"UTILITY": (None, support)} if support else {})}
+    picks = comps.recommend_draft(lineup, [], max_picks=4, main_role=main_role)["roles"]["TOP"]["picks"]
+    assert {p["kind"] for p in picks} == {"tipo"} and "mago" in {p["type"] for p in picks}
+    assert picks[0]["type"] != "mago"
+    by_type = {p["type"]: p["raw_score"] for p in picks}
+    assert by_type["mago"] <= by_type["bruiser"]
 
 
 def test_a_mage_adc_is_recommended_with_a_neutral_reason_and_a_label():
