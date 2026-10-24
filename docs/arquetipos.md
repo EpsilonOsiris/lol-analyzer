@@ -1,275 +1,144 @@
-# Arquetipos por línea: propuesta basada en clases oficiales
+# Arquetipos por línea: clases oficiales, criterio y datos
 
 Fecha de los datos: 23-oct-2026 (Data Dragon 16.21.1). Archivo con todo el detalle por campeón:
-`lolan/data/champion_classes.json` (173 campeones, todos con clase oficial; ninguno quedó "sin clase oficial").
+`lolan/data/champion_classes.json` (173 campeones, todos con clase oficial).
 
-Esto es una **propuesta para revisar**. No se cambió `comps.py`.
+**Estado: aplicado.** `lolan/comps.py` ya no tiene listas escritas a mano: construye las tablas de tipos
+(ADC, soporte, top, jungla, mid) desde ese JSON cuando se importa. Los ADC y soportes del video de
+coaching se conservan tal cual y ganan al JSON. Los casos dudosos quedan marcados «pendiente de datos» hasta
+que `python -m lolan arquetipos --decidir` los decida con la muestra Diamante+.
 
 ## 1. Fuentes
 
 - **Clase y subclases oficiales de Riot**: League of Legends Wiki, módulo `Module:ChampionData/data`
   (campo `role`, la fuente de la página "List of champions"). Verificado contra la tabla de
-  <https://wiki.leagueoflegends.com/en-us/List_of_champions> (173 de 173 coinciden) y contra las páginas
-  individuales de Singed, Ambessa, K'Sante, Zaahen, Bard, Nunu, Mel, Yunara, Locke y Dr. Mundo.
-  Los campeones nuevos (Zaahen, Yunara, Mel, Locke, Ambessa, Aurora, Hwei...) ya traen clase en la wiki.
-  La espejo de Fandom no hizo falta. 19 campeones tienen dos subclases (se guardan todas).
-- **Tags de Data Dragon** (Fighter/Tank/Mage/Assassin/Marksman/Support): versión 16.21.1, `en_US`.
-  Se guardan, pero son el sistema viejo y no se usan para decidir.
-- **Roles de OP.GG** por línea: herramienta `lol_get_champion_analysis` del MCP de OP.GG (partidas ranked,
-  todos los rangos). Devuelve, por línea, el reparto de `MAGE / FIGHTER / TANK / SLAYER / MARKSMAN /
-  CONTROLLER`. Ojo: es **cómo se construye** el campeón en esa línea (por los objetos), no su diseño.
-  Por eso Gwen top sale 99% MAGE y Ezreal 96% FIGHTER. Sirve para desempatar, no para clasificar solo.
-- **Tus partidas**: `data/lol.db`, 551 partidas de Grieta, 1102 apariciones por línea (los 10 jugadores).
-  Las tablas van ordenadas por esa frecuencia ("apar.").
+  <https://wiki.leagueoflegends.com/en-us/List_of_champions> (173 de 173 coinciden). 19 campeones tienen dos
+  subclases (se guardan todas).
+- **Tags de Data Dragon** (Fighter/Tank/Mage/Assassin/Marksman/Support), versión 16.21.1: se guardan, pero
+  son el sistema viejo y no se usan para decidir.
+- **Roles de OP.GG** por línea (`lol_get_champion_analysis`, partidas ranked de todos los rangos): cómo se
+  *construye* el campeón en esa línea, no su diseño (Gwen top sale 99% MAGE). Sirve para desempatar.
+- **El video de coaching** (un soporte Challenger): solo ADC y soportes.
+- **Muestra Diamante+** (`data/lineas/`, fuente `diamante`): decide los casos dudosos (sección 5).
 
-## 2. Cobertura (% de apariciones en tus partidas con tipo asignado)
+## 2. De dónde sale cada tipo (el «origen»)
 
-| Línea | Hoy | Con la propuesta |
+Cada entrada de las tablas lleva un origen, que el panel y los reportes muestran en español:
+
+| Origen (`source`) | Se muestra como | Qué es |
 |---|---|---|
-| Top | 91.9% | 99.1% |
-| Jungla | 93.2% | 99.9% |
-| Mid | 93.4% | 97.7% |
-| ADC (bot) | 89.0% | 97.5% |
-| Soporte | 92.8% | 99.1% |
+| `video` | del video | ADC y soportes que nombra el video. Ganan siempre al JSON. |
+| `oficial` | clase oficial de Riot | Regla aplicada a la subclase oficial (`basis: regla` en el JSON). |
+| `criterio` | criterio | La subclase no decide y hay un juicio manual (`basis: manual`), o se mantiene lo que había (`basis: actual`). |
+| `datos` | por datos | Decidido por `arquetipos --decidir` (`basis: datos`, con la evidencia y la fecha en el JSON). |
+| `pendiente` | pendiente de datos | Caso dudoso de `comps.PENDING_DATA`: conserva el valor de la propuesta hasta que los datos decidan. |
+
+Los 4 campeones que estaban en las tablas viejas pero no en la propuesta (Rammus y Skarner top, Rell jungla,
+Corki mid) se añadieron al JSON con `basis: actual`. Fiddlesticks lleva el alias `FiddleSticks`, que es como lo
+escribe la API de partidas: las tablas usan esa ortografía.
+
+Cobertura de las tablas: top 88, jungla 75, mid 74, ADC 44 (17 del video, 19 magos), soporte 60 campeones.
+Quien no aparece figura «Sin clasificar» (picks fuera de rol).
 
 ## 3. Cómo se traduce subclase -> arquetipo
 
 Las subclases oficiales son: Controller (Enchanter, Catcher), Fighter (Juggernaut, Diver), Mage (Burst,
 Battlemage, Artillery), Marksman, Slayer (Assassin, Skirmisher), Tank (Vanguard, Warden) y Specialist.
-Una columna "criterio" significa que la subclase no decide y puse un juicio mío (se explica en la nota).
 
-| Línea | Regla de la propuesta |
+| Línea | Regla |
 |---|---|
-| **Top** | Vanguard / Warden -> `tanque`. Juggernaut -> `bruiser` (si OP.GG lo marca TANK >= 90%, `tanque`: Dr. Mundo). Diver -> `bruiser`. Skirmisher / Assassin -> `split`. Burst / Battlemage / Artillery -> **`mago` (tipo nuevo)**. Specialist: a mano. |
+| **Top** | Vanguard / Warden -> `tanque`. Juggernaut -> `bruiser` (Dr. Mundo, con OP.GG TANK >= 90%, `tanque`). Diver -> `bruiser`. Skirmisher / Assassin -> `split`. Burst / Battlemage / Artillery -> **`mago`**. Specialist: a mano (criterio). |
 | **Jungla** | Vanguard / Warden -> `tanque`. Diver / Assassin -> `early`. Skirmisher / Juggernaut / Marksman / magos -> `farm`. Specialist: a mano. |
-| **Mid** | Assassin (y Burst/Assassin) -> `asesino`. Burst / Battlemage / Artillery -> `control`. Skirmisher / Diver / Juggernaut / Vanguard / Warden -> `melee`. Assassin + Skirmisher (Yone) -> `melee`. |
-| **ADC** | Se **mantienen** followup / kiting / flexible tal cual (vienen del video). Magos oficiales sin tipo -> **`mago` (tipo nuevo)**. |
+| **Mid** | Assassin -> `asesino`. Burst / Battlemage / Artillery -> `control`. Skirmisher / Diver / Juggernaut / Vanguard / Warden -> `melee`. Assassin + Skirmisher (Yone) -> `melee`. Ahri, Zoe y Twisted Fate (Burst) se quedan `asesino` a mano. |
+| **ADC** | followup / kiting / flexible del video, intactos. Magos oficiales sin tipo -> **`mago`**. Los demás ADC que ya estaban (Jhin, Yunara, Miss Fortune, Kalista, Nilah, Xayah, Smolder, Corki) mantienen su tipo con origen «criterio». |
 | **Soporte** | Vanguard -> `engage`. Catcher -> `engage` (si OP.GG lo marca MAGE >= 60%, `poke`). Enchanter -> `peel`. Warden -> `peel`. Burst / Artillery / Battlemage -> `poke`. Thresh y Bard -> `mixto` a mano. |
 
-Sobre los tipos de la propuesta:
+**Cambios más visibles respecto a las tablas anteriores** (el detalle por campeón está en el JSON, campo
+`proposal[línea].current`): Vladimir, Rumble, Jayce, Kennen, Heimerdinger y otros top -> `mago`; Zaahen top
+`tanque` -> `split`; Volibear top `tanque` -> `bruiser`; Diana, Ekko y Hecarim jungla `farm` -> `early`; Zaahen
+jungla `tanque` -> `farm`; Galio mid `asesino` -> `control`; Neeko mid `asesino` -> `control`; Locke mid `melee`
+-> `asesino`; Poppy soporte `engage` -> `peel` (sigue en `HARD_ENGAGE`); Zilean soporte `poke` -> `peel`; Mel ADC
+`flexible` -> `mago`; unos 18 magos que eran «Sin clasificar» en el ADC (Ziggs, Hwei, Viktor, Lux...).
 
-- **Soporte**: los cuatro tipos actuales (engage, peel, mixto, poke) encajan bien con Vanguard+Catcher / Warden+Enchanter
-  / mixto / magos. No propongo separar Catcher de Vanguard: para el ADC follow-up ambos son "alguien que abre pelea".
-  Lo que sí cambia es que **Warden -> peel** (Braum, Taric y Tahm Kench ya eran peel en el video).
-- **Top y ADC necesitan un tipo `mago`**: hoy Vladimir, Rumble, Jayce, Kennen y compañía figuran como "split pusher" o
-  "tanque", y eso contamina `team_plan` (la señal `split` exige un top de presión de carril y poco engage). En ADC, unos 19
-  magos (Ziggs, Hwei, Viktor, Veigar, Syndra, Swain, Lux, Seraphine, Brand...) suman 8% de las apariciones y no
-  encajan en followup/kiting/flexible. Si se acepta `mago`, hay que añadirle fila en la tabla `FIT` (qué soporte le sirve).
-  Alternativa sin tipo nuevo: top `mago` -> `split` (como hoy) y ADC mago -> `kiting` (piden peel, son frágiles).
-- **Jungla y mid**: los tres tipos actuales sirven; solo cambian algunos campeones.
+## 4. El tipo `mago`
 
-**Los tipos de ADC vienen de un video de coaching** (followup, kiting, flexible). Los cambios que propongo ahí son solo
-añadir el tipo `mago` para los que no tenían y mover a Mel (que era "propia"). No toco ninguno del video.
+Existe en **top** y en **ADC** (en soporte y mid los magos ya caben en `poke` y `control`). En top: Vladimir,
+Rumble, Jayce, Kennen, Heimerdinger, Ryze, Swain, Viktor, Syndra... En ADC unos 19 (8% de las apariciones en la
+línea). Qué cambia en el código:
 
+- Etiqueta «Mago», orden de los tipos, fila en las tablas por línea, matriz ADC x soporte y ADC x engage.
+- `team_plan`: un top mago **no** cuenta como `split`; un mago de artillería en el ADC (Ziggs, Hwei, Xerath, Lux,
+  Vel'Koz, Mel) cuenta como fuente de `poke`, igual que esos campeones en mid.
+- Draft: top y ADC ofrecen el tipo «Mago» (representantes neutros: Vladimir y Syndra); un ADC mago puntúa por la
+  tabla `FIT`.
+- **Números propios, sin calibrar** (están comentados como tales en `comps.py`): `FIT["mago"]` = engage 0.1,
+  mixto 0.3, peel 0.3, poke 0.0; `ENGAGE_FIT["mago"]` = 0 / 0 / 0.1 / 0.2 según haya 0, 1, 2 o 3+ engages;
+  soporte desconocido 0.0; regla del top mago = +0.1 neutra; un ADC mago suma a «el resto aguanta el 4v4» en la
+  regla del split. Se calibrarán con datos.
 
-## 4.1 Top
+## 5. Casos dudosos y cómo los decide la muestra
 
-### Cambios sobre lo que hay hoy (ordenados por apariciones)
+`comps.PENDING_DATA` lista, por línea, los campeones cuyo tipo es un juicio y no una regla:
 
-| Campeón | Apar. | Subclase oficial | OP.GG en la línea | Hoy -> propuesta | Por qué |
-|---|---|---|---|---|---|
-| Volibear | 25 | Juggernaut | Mage 39%, Tank 38% | tanque -> **bruiser** (regla) | Juggernaut. |
-| Jayce | 20 | Artillery | Slayer 52%, Fighter 47% | split -> **mago** (criterio) | Artillery oficial (OP.GG lo reparte SLAYER/FIGHTER por sus builds). Dudoso: hoy es split. |
-| Zaahen | 15 | Skirmisher | Fighter 98% | tanque -> **split** (criterio) | Skirmisher oficial; hoy figura como tanque y no lo parece. Dudoso: podria ser bruiser. |
-| Kennen | 8 | Specialist | Mage 98% | tanque -> **mago** (criterio) | Specialist con OP.GG MAGE 98%: mago a distancia. Su entrada sigue en HARD_ENGAGE. Dudoso: hoy es 'tanque'. |
-| Vladimir | 8 | Battlemage | Mage 100% | split -> **mago** (regla) | Mago oficial (Battlemage). |
-| Rumble | 5 | Battlemage | Mage 100% | split -> **mago** (regla) | Mago oficial (Battlemage). |
+- **Top (18)**: los Diver con presencia real en la línea (Ambessa, Olaf, Pantheon, Renekton, Warwick, Wukong),
+  Camille, Irelia, Volibear, Zaahen, Singed, y los casos manuales (Cho'Gath, Gangplank, Gnar, Kayle, Quinn,
+  Teemo, Vayne).
+- **Jungla (10)**: Diana, Ekko, Hecarim y los casos manuales early/farm (Fiddlesticks, Graves, Nidalee, Quinn,
+  Teemo, Trundle, Zyra).
+- **Mid (5)**: Locke, Ahri, Zoe, Twisted Fate y Sylas (asesino o melee).
+- Siguen siendo «criterio» (no los decide ningún dato por ahora): los magos de top que no son `mago` por regla
+  (Jayce, Kennen, Heimerdinger), Galio y Azir en mid, Bard y Thresh en soporte, e Ivern, Cho'Gath y Volibear
+  en jungla.
 
-(Hay 1 cambio(s) más en campeones que no salieron en tus partidas ni son habituales de la línea: están en el JSON.)
+`python -m lolan arquetipos [--decidir] [--linea X]` (módulo `lolan/archetypes_data.py`) usa las filas `diamante`
+de los **3 parches más recientes** y calcula, por campeón y línea, **puntajes z contra el promedio de la línea**
+(media y desviación de los campeones de esa línea con al menos 30 partidas; 0 = un campeón típico):
 
-### Hoy sin clasificar -> propuesta (solo los vistos en tus partidas, más frecuentes primero)
+| Evidencia | De qué se compone |
+|---|---|
+| **early-ness** | oro+exp ganado por minuto contra el rival en los niveles 1-5; `diff14`; win rate en partidas de menos de 25 min menos el de partidas de 35+ min (si hay 8+ de cada una) |
+| **tank-ness** | parte del daño recibido + automitigado del equipo; segundos de CC por minuto |
+| **split-ness** | daño a edificios por minuto; placas de torre; y una participación en kills **menor** |
+| **carry** | parte del daño a campeones del equipo (se muestra, no decide) |
 
-| Campeón | Apar. | Subclase oficial | Propuesta | Por qué |
-|---|---|---|---|---|
-| Singed | 17 | Specialist | **tanque** (criterio) | Specialist: la subclase no decide; la wiki lo tuvo como Tank y OP.GG lo reparte MAGE 74% / TANK 26%. Dudoso (podria ser split/proxy). |
-| Varus | 6 | Marksman/Artillery | **mago** (regla) | Mago oficial (Marksman/Artillery). |
-| Heimerdinger | 5 | Specialist | **mago** (criterio) | Specialist con OP.GG MAGE 100%. |
-| Zed | 4 | Assassin | **split** (regla) | Subclase Assassin. |
-| Gragas | 4 | Vanguard | **tanque** (regla) | Subclase Vanguard. |
-| Swain | 3 | Battlemage | **mago** (regla) | Mago oficial (Battlemage). |
-| Master Yi | 3 | Skirmisher | **split** (regla) | Subclase Skirmisher. |
-| Ryze | 3 | Battlemage | **mago** (regla) | Mago oficial (Battlemage). |
-| Zac | 3 | Vanguard | **tanque** (regla) | Subclase Vanguard. |
-| Kayn | 3 | Skirmisher | **split** (regla) | Subclase Skirmisher. |
-| Anivia | 2 | Battlemage | **mago** (regla) | Mago oficial (Battlemage). |
-| Twisted Fate | 2 | Burst | **mago** (regla) | Mago oficial (Burst). |
-| Locke | 2 | Assassin | **split** (regla) | Subclase Assassin. |
-| Viktor | 2 | Battlemage | **mago** (regla) | Mago oficial (Battlemage). |
-| Ahri | 2 | Burst | **mago** (regla) | Mago oficial (Burst). |
-| Rengar | 2 | Assassin/Diver | **bruiser** (regla) | Diver (la subclase no decide entre bruiser y split). |
-| Vi | 2 | Diver | **bruiser** (regla) | Diver (la subclase no decide entre bruiser y split). |
+Reglas (M = 0.25 de margen; hace falta un mínimo de **30 partidas** del campeón en esa línea y los puntajes que
+la regla usa, si no el campeón sigue «pendiente»):
 
-Con 1 aparición: Katarina (split), Veigar (mago), Cassiopeia (mago), Lissandra (mago), Aurelion Sol (mago), Shyvana (bruiser), Briar (bruiser), Malzahar (mago), Alistar (tanque), Brand (mago), Syndra (mago), Xin Zhao (bruiser), Diana (bruiser), Rek'Sai (bruiser).
+- **Jungla**: `early` si early-ness >= +M, `farm` si <= -M, si no, evidencia ambigua (pendiente).
+- **Top**: `tanque` si tank >= +M y tank - split >= M; `split` si split >= +M y split - tank >= M; `bruiser` en
+  cualquier otro caso (es el punto medio entre los dos).
+- **Mid**: se mide `lean = tank - 0.5 * early` (los duelistas melee reciben daño, los asesinos explotan temprano):
+  `melee` si lean >= +M, `asesino` si <= -M, si no, pendiente.
 
-Siguen sin tipo (picks fuera de rol, sin encaje): Corki (2), Zilean (2), Graves (1), Smolder (1), Janna (1), Azir (1), Jhin (1), Senna (1).
+Sin `--decidir` solo imprime la tabla de evidencia y un **reporte de sanidad**: campeones con 30+ partidas cuya
+evidencia contradice con fuerza (|z| >= 1) su tipo actual. No cambia nada. Con `--decidir` escribe en el JSON
+`proposal[línea].type`, `basis: "datos"`, `evidence` (los puntajes y las medidas), `n` (partidas), `patches`,
+`date` y `previous` (el tipo anterior). Repetirlo con datos nuevos vuelve a decidir; si los datos ya no alcanzan,
+la decisión anterior se conserva. Hay que reiniciar el panel para que cargue las tablas nuevas.
 
-### Preguntas abiertas
+**Limitaciones**: las medidas de línea (oro+exp, diff14) están contra el rival, así que mezclan «es temprano» con
+«es fuerte»; el win rate corto menos largo ayuda a separarlos. Los campos de estilo (daño a edificios, daño
+recibido, CC, participación en kills, placas) se guardan desde las filas nuevas; las anteriores no los tienen.
 
-- ¿Quieres el tipo nuevo `mago` en top (Vladimir, Rumble, Jayce, Kennen, Heimerdinger, Ryze...)? Si no, ellos se quedan en `split`.
-- Diver top (Renekton, Olaf, Pantheon, Wukong, Ambessa, Warwick) -> `bruiser` por defecto. Camille e Irelia los dejé en `split`. ¿Estás de acuerdo?
-- Volibear es Juggernaut oficial (propuesta `bruiser`), pero se juega de frontline y está en HARD_ENGAGE. ¿Lo dejamos `tanque`?
-- Zaahen: Skirmisher oficial (propuesta `split`). No sé si es duelista de split o bruiser; hoy figura como `tanque`.
-- Singed: la subclase (Specialist) no decide. Propuse `tanque`; también podría ser `split` (proxy).
+### Estado con los datos del 23-oct-2026
 
-## 4.2 Jungla
+Las filas Diamante+ ya descargadas (parches 16.19-16.21) no traen los campos de estilo (el descargador arrancó
+antes del cambio). Hoy solo se puede decidir la **jungla** (usa solo medidas que ya existen): de 10 casos, 8 tienen
+decisión y 2 (Ekko, Trundle) quedan ambiguos. Top y mid quedan pendientes hasta que el descargador, reiniciado
+con el código nuevo, acumule partidas con los campos nuevos (30 por campeón y línea).
 
-### Cambios sobre lo que hay hoy (ordenados por apariciones)
+## 6. `HARD_ENGAGE`
 
-| Campeón | Apar. | Subclase oficial | OP.GG en la línea | Hoy -> propuesta | Por qué |
-|---|---|---|---|---|---|
-| Diana | 24 | Assassin/Diver | Mage 99% | farm -> **early** (regla) | Subclase Assassin/Diver. |
-| Ekko | 17 | Assassin | Mage 100% | farm -> **early** (regla) | Subclase Assassin. |
-| Hecarim | 13 | Diver | Fighter 89%, Slayer 10% | farm -> **early** (regla) | Subclase Diver. |
-| Zaahen | 12 | Skirmisher | - | tanque -> **farm** (regla) | Subclase Skirmisher. |
+La lista coincide casi del todo con las subclases: están todos los Vanguard (falta solo Nunu), los Catcher de
+engage y varios Diver. Los que **no** son Vanguard/Catcher/Warden/Diver son Kennen (Specialist), Nocturne
+(Assassin) y Sett (Juggernaut): son excepciones por habilidad. Los Warden Braum, Shen, Tahm Kench y Taric no
+están, y eso es coherente con ser peel. No se cambió la lista.
 
-### Hoy sin clasificar -> propuesta (solo los vistos en tus partidas, más frecuentes primero)
+## 7. Cómo usar el JSON
 
-| Campeón | Apar. | Subclase oficial | Propuesta | Por qué |
-|---|---|---|---|---|
-| Ambessa | 18 | Diver/Skirmisher | **early** (regla) | Subclase Diver/Skirmisher. |
-| Shaco | 11 | Assassin | **early** (regla) | Subclase Assassin. |
-| Malphite | 9 | Vanguard | **tanque** (regla) | Subclase Vanguard. |
-| Zed | 8 | Assassin | **early** (regla) | Subclase Assassin. |
-| Jax | 7 | Skirmisher | **farm** (regla) | Subclase Skirmisher. |
-| Locke | 4 | Assassin | **early** (regla) | Subclase Assassin. |
-| Gragas | 3 | Vanguard | **tanque** (regla) | Subclase Vanguard. |
-| Taliyah | 2 | Battlemage | **farm** (regla) | Subclase Battlemage. |
-| Zyra | 2 | Catcher | **farm** (criterio) | Catcher oficial pero OP.GG MAGE 100% en jungla (muy pocas partidas). |
-
-Con 1 aparición: Camille (early), Tryndamere (farm), Draven (farm), Sion (tanque), Yorick (farm), Twitch (farm), Olaf (early), Fizz (early), Mordekaiser (farm), Brand (farm).
-
-Siguen sin tipo (picks fuera de rol, sin encaje): Morgana (1).
-
-### Preguntas abiertas
-
-- Diana, Ekko y Hecarim son `farm` hoy, pero Assassin/Diver oficial los manda a `early`. ¿Mantenemos `farm` para ellos (la subclase no distingue early de farm)?
-- Dr. Mundo sigue `tanque` solo por la excepción de OP.GG (TANK 98%); su subclase oficial (Juggernaut) diría `farm`.
-- Ivern (Catcher oficial) se queda `tanque` porque protege a un carry; es un caso aparte.
-- Zaahen en jungla: Skirmisher -> `farm` (hoy `tanque`).
-
-## 4.3 Mid
-
-### Cambios sobre lo que hay hoy (ordenados por apariciones)
-
-| Campeón | Apar. | Subclase oficial | OP.GG en la línea | Hoy -> propuesta | Por qué |
-|---|---|---|---|---|---|
-| Galio | 29 | Warden | Mage 64%, Tank 24% | asesino -> **control** (criterio) | Warden oficial, pero en mid OP.GG lo marca MAGE 64%: waveclear y control. Hoy es 'asesino'. Dudoso. |
-| Locke | 22 | Assassin | Mage 100% | melee -> **asesino** (regla) | Subclase Assassin. |
-| Neeko | 3 | Burst/Catcher | - | asesino -> **control** (regla) | Mago oficial (Burst/Catcher). |
-
-### Hoy sin clasificar -> propuesta (solo los vistos en tus partidas, más frecuentes primero)
-
-| Campeón | Apar. | Subclase oficial | Propuesta | Por qué |
-|---|---|---|---|---|
-| Annie | 16 | Burst | **control** (regla) | Mago oficial (Burst). |
-| Nasus | 3 | Juggernaut | **melee** (regla) | Subclase Juggernaut. |
-| Camille | 3 | Diver | **melee** (regla) | Subclase Diver. |
-| Riven | 3 | Skirmisher | **melee** (regla) | Subclase Skirmisher. |
-| Kayle | 3 | Specialist | **control** (criterio) | Specialist con OP.GG MAGE 97%. |
-| Mordekaiser | 3 | Juggernaut | **melee** (regla) | Subclase Juggernaut. |
-| Brand | 2 | Burst | **control** (regla) | Mago oficial (Burst). |
-| Gragas | 2 | Vanguard | **melee** (regla) | Subclase Vanguard. |
-| Kog'Maw | 2 | Marksman | **control** (criterio) | Marksman oficial pero OP.GG MAGE 98% en mid (muy pocas partidas). |
-| Ambessa | 2 | Diver/Skirmisher | **melee** (regla) | Subclase Diver/Skirmisher. |
-
-Con 1 aparición: Dr. Mundo (melee), Illaoi (melee), Zaahen (melee), Jax (melee), Xin Zhao (melee), Aatrox (melee), Tryndamere (melee), Rumble (control), Seraphine (control).
-
-Siguen sin tipo (picks fuera de rol, sin encaje): Tristana (4), Jayce (4), Kennen (3), Quinn (2), Smolder (2), Singed (1), Rakan (1), Draven (1), Lucian (1), Gangplank (1).
-
-### Preguntas abiertas
-
-- Locke (22 apariciones): hoy `melee`, pero Riot lo clasifica Assassin (propuesta `asesino`). Es un campeón nuevo y OP.GG lo marca 100% MAGE; ¿lo juegas/ves como asesino o como duelista?
-- Ahri, Zoe y Twisted Fate son Burst oficial (la regla diría `control`) pero se juegan de pick/roam: los dejé `asesino` a mano.
-- Galio (Warden oficial) pasa de `asesino` a `control` por su waveclear de mago. Su rol de engage sigue en HARD_ENGAGE.
-
-## 4.4 ADC (bot)
-
-### Cambios sobre lo que hay hoy (ordenados por apariciones)
-
-| Campeón | Apar. | Subclase oficial | OP.GG en la línea | Hoy -> propuesta | Por qué |
-|---|---|---|---|---|---|
-| Mel | 8 | Artillery | Mage 100% | flexible -> **mago** (regla) | Mago oficial (Artillery) clasificado a mano como flexible; propuesta: tipo propio 'mago'. |
-
-### Hoy sin clasificar -> propuesta (solo los vistos en tus partidas, más frecuentes primero)
-
-| Campeón | Apar. | Subclase oficial | Propuesta | Por qué |
-|---|---|---|---|---|
-| Ziggs | 16 | Artillery | **mago** (regla) | Mago oficial (Artillery) sin tipo hoy. |
-| Viktor | 9 | Battlemage | **mago** (regla) | Mago oficial (Battlemage) sin tipo hoy. |
-| Hwei | 9 | Artillery | **mago** (regla) | Mago oficial (Artillery) sin tipo hoy. |
-| Lux | 7 | Burst/Artillery | **mago** (regla) | Mago oficial (Burst/Artillery) sin tipo hoy. |
-| Veigar | 7 | Burst | **mago** (regla) | Mago oficial (Burst) sin tipo hoy. |
-| Swain | 7 | Battlemage | **mago** (regla) | Mago oficial (Battlemage) sin tipo hoy. |
-| Seraphine | 7 | Burst/Enchanter | **mago** (regla) | Mago oficial (Burst/Enchanter) sin tipo hoy. |
-| Syndra | 7 | Burst | **mago** (regla) | Mago oficial (Burst) sin tipo hoy. |
-| Brand | 5 | Burst | **mago** (regla) | Mago oficial (Burst) sin tipo hoy. |
-| Vel'Koz | 4 | Artillery | **mago** (regla) | Mago oficial (Artillery) sin tipo hoy. |
-| Xerath | 4 | Artillery | **mago** (regla) | Mago oficial (Artillery) sin tipo hoy. |
-| Karthus | 3 | Battlemage | **mago** (regla) | Mago oficial (Battlemage) sin tipo hoy. |
-| Cassiopeia | 3 | Battlemage | **mago** (regla) | Mago oficial (Battlemage) sin tipo hoy. |
-| Vladimir | 2 | Battlemage | **mago** (regla) | Mago oficial (Battlemage) sin tipo hoy. |
-
-Con 1 aparición: LeBlanc (mago), Aurelion Sol (mago), Aurora (mago), Malzahar (mago).
-
-Siguen sin tipo (picks fuera de rol, sin encaje): Yasuo (7), Soraka (3), Locke (3), Kindred (2), Katarina (2), Yone (1), Quinn (1), Fizz (1), Viego (1), Morgana (1).
-
-### Preguntas abiertas
-
-- ¿Aceptas el tipo `mago` para ADC? Si no, ¿van a `kiting`?
-- Mel pasa de `flexible` (propia) a `mago`; Corki sigue `flexible`.
-- Yasuo, Katarina y similares (Skirmisher/Assassin en bot) quedan sin tipo: son picks fuera de rol.
-
-## 4.5 Soporte
-
-### Cambios sobre lo que hay hoy (ordenados por apariciones)
-
-| Campeón | Apar. | Subclase oficial | OP.GG en la línea | Hoy -> propuesta | Por qué |
-|---|---|---|---|---|---|
-| Zilean | 8 | Specialist | Controller 82%, Mage 15% | poke -> **peel** (regla) | Specialist; OP.GG lo marca CONTROLLER 82%. |
-| Poppy | 8 | Warden | Tank 60%, Controller 34% | engage -> **peel** (regla) | Warden. |
-
-### Hoy sin clasificar -> propuesta (solo los vistos en tus partidas, más frecuentes primero)
-
-| Campeón | Apar. | Subclase oficial | Propuesta | Por qué |
-|---|---|---|---|---|
-| Bard | 13 | Catcher | **mixto** (criterio) | Catcher oficial; hace picks pero tambien cura/protege. Dudoso: engage o mixto. |
-| Mel | 8 | Artillery | **poke** (regla) | Mago oficial (Artillery). |
-| Camille | 8 | Diver | **engage** (regla) | Diver (entra a pelear; pick fuera de rol). |
-| Shen | 6 | Warden | **peel** (regla) | Warden. |
-| Pantheon | 5 | Diver | **engage** (regla) | Diver (entra a pelear; pick fuera de rol). |
-| Sylas | 3 | Burst/Skirmisher | **poke** (regla) | Mago oficial (Burst/Skirmisher). |
-| Fiddlesticks | 3 | Specialist | **poke** (regla) | Specialist; OP.GG lo marca MAGE. |
-| Zoe | 2 | Burst | **poke** (regla) | Mago oficial (Burst). |
-| Ziggs | 2 | Artillery | **poke** (regla) | Mago oficial (Artillery). |
-| Viktor | 2 | Battlemage | **poke** (regla) | Mago oficial (Battlemage). |
-| Galio | 2 | Warden | **peel** (regla) | Warden. |
-| Anivia | 2 | Battlemage | **poke** (regla) | Mago oficial (Battlemage). |
-| Malphite | 2 | Vanguard | **engage** (regla) | Vanguard. |
-
-Con 1 aparición: Malzahar (poke), Ornn (engage), Singed (poke), Ahri (poke), Jayce (poke), Elise (poke), Veigar (poke), Nunu & Willump (engage), Ivern (engage), Sion (engage), Rammus (engage).
-
-Siguen sin tipo (picks fuera de rol, sin encaje): Shaco (4), Miss Fortune (2), Dr. Mundo (1), Darius (1), Qiyana (1), Ashe (1).
-
-### Preguntas abiertas
-
-- Bard (13 apariciones, Catcher oficial): propongo `mixto` (picks + curas). La regla pura diría `engage`.
-- Poppy pasa de `engage` a `peel` (Warden oficial). Sigue en HARD_ENGAGE, así que cuenta como engage para el plan de equipo.
-- Zilean pasa de `poke` a `peel`: la subclase (Specialist) no decide; OP.GG lo marca CONTROLLER 82%.
-- Senna sigue `poke` aunque es Enchanter oficial: OP.GG casi no la construye como controller (5%).
-- Rakan (Catcher) queda `engage`. Podría ser `mixto` (su escudo protege), pero no lo cambié.
-
-## 5. Aparte: `HARD_ENGAGE`
-
-La lista actual coincide casi del todo con las subclases: están todos los Vanguard (falta solo Nunu), los Catcher de
-engage y varios Diver. Los que **no** son Vanguard/Catcher/Warden/Diver son Kennen (Specialist), Nocturne (Assassin)
-y Sett (Juggernaut): son tus excepciones por habilidad. Los Warden Braum, Shen, Tahm Kench y Taric no están,
-y eso es coherente con ser peel. No propongo cambiar la lista salvo evaluar a Nunu.
-
-## 6. Cómo usar el JSON
-
-Cada campeón (clave = id de Data Dragon; Fiddlesticks lleva el alias `FiddleSticks`, que es como lo escribe la API de partidas)
-tiene `riot_class`, `riot_classes`, `riot_subclasses`, `dd_tags`, `opgg_roles` por línea (`role`, `rate`),
-`lanes` (parte de sus partidas en cada línea según OP.GG, solo >= 5%), `sources` y `proposal` por línea con
-`type`, `basis` (`regla`, `manual` o `actual` = se mantiene lo que hay), `current` y `note`.
-`proposal` incluye las líneas con >= 5% de uso más las que aparecen en tus partidas.
-
+Cada campeón (clave = id de Data Dragon; Fiddlesticks lleva el alias `FiddleSticks`) tiene `riot_class`,
+`riot_classes`, `riot_subclasses`, `dd_tags`, `opgg_roles` por línea (`role`, `rate`), `lanes` (parte de sus
+partidas en cada línea según OP.GG, solo >= 5%), `sources` y `proposal` por línea con `type`, `basis` (`regla`,
+`manual`, `actual` o `datos`), `current` y `note`; las entradas decididas por datos añaden `evidence`, `n`,
+`patches`, `date` y `previous`. `proposal` incluye las líneas con >= 5% de uso más las que aparecen en las
+partidas del clan. Un tipo `otro` significa «sin clasificar».
