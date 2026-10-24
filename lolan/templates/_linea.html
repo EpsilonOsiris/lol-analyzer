@@ -1,0 +1,6 @@
+{# What an aggregate page says about the line it shows. `line_ctx` comes from web.line_context (None for a laner's own games). #}
+{% if line_ctx %}
+<p class="muted line-note">Línea: <strong>{{ line_ctx.name }}</strong> · {{ line_ctx.shown }} de {{ line_ctx.total }} partidas.
+  {% if line_ctx.note %}{{ line_ctx.note }}{% endif %}
+  Se cambia arriba, en «Línea».</p>
+{% endif %}

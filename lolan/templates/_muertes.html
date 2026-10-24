@@ -5,7 +5,7 @@
   <h2>Tus muertes</h2>
   <p class="muted">
     Tú: <strong>{{ dv.my_champion }}</strong> ({{ dv.role }}).
-    {% if dv.lane_opponent %}Rival de línea: <strong>{{ dv.lane_opponent }}</strong>. {% endif %}
+    {% if dv.lane_opponent %}{{ dv.rival_label }}: <strong>{{ dv.lane_opponent }}</strong>. {% endif %}
     {% if dv.enemy_jungler %}Jungla enemiga: <strong>{{ dv.enemy_jungler }}</strong>. {% endif %}
     {% if dv.enemy_bot %}Dúo de bot enemigo: <strong>{{ dv.enemy_bot|join(' + ') }}</strong>.{% endif %}
   </p>

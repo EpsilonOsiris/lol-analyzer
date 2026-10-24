@@ -5,17 +5,22 @@
 <h1>{{ name }} <span class="sub">{% if show_picker and jugador %}{{ jugador.riot_id }} · {% endif %}{{ queue_labels[cola] }}</span></h1>
 {% if not ins %}
 <section class="empty card">
+  {% if other_line %}
+  <p>{{ 'No tienes' if not jugador or jugador.is_main else jugador.riot_id ~ ' no tiene' }} partidas con {{ name }} como {{ line_name }} en {{ queue_labels[cola] }}, pero sí en otras líneas. Prueba con la línea <a href="{{ switch_linea('todas') }}">Todas</a>.</p>
+  {% else %}
   <p>{{ 'No tienes' if not jugador or jugador.is_main else jugador.riot_id ~ ' no tiene' }} partidas con {{ name }} en {{ queue_labels[cola] }}. Prueba con <a href="{{ switch('todas') }}">Todas las colas</a>.</p>
+  {% endif %}
 </section>
 {% else %}
 {% set st = ins.stats %}
+{% include "_linea.html" %}
 <section class="stats" aria-label="Indicadores">
   {{ m.stat("Partidas", st.games, ins.wins ~ " victorias · " ~ ins.losses ~ " derrotas") }}
   {{ m.stat("Winrate", st.winrate|pct, tone=('win' if st.winrate >= 0.5 else 'loss')) }}
   {{ m.stat("KDA", st.kda|num) }}
-  {{ m.stat("CS/min", st.cs_per_min|num) }}
+  {% for k in profile.tiles %}{{ m.stat(column_labels[k], st[k]|val(k)) }}{% endfor %}
   {{ m.stat("Muertes/10 min", st.deaths_per_10|num) }}
-  {{ m.stat("Dif. oro @14", st.gold_diff_14|val('gold_diff_14')) }}
+  {% if profile.key == 'lane' or profile.key == 'jungle' %}{{ m.stat("Dif. oro @14", st.gold_diff_14|val('gold_diff_14')) }}{% endif %}
 </section>
 
 <div class="grid-2">
@@ -23,15 +28,9 @@
     <h2>Promedios</h2>
     <div class="table-wrap"><table>
       <tbody>
-        <tr><th scope="row">KDA</th><td class="num">{{ st.kda|num }}</td></tr>
-        <tr><th scope="row">CS por minuto</th><td class="num">{{ st.cs_per_min|num }}</td></tr>
-        <tr><th scope="row">Oro por minuto</th><td class="num">{{ st.gold_per_min|val('gold_per_min') }}</td></tr>
-        <tr><th scope="row">Muertes por 10 min</th><td class="num">{{ st.deaths_per_10|num }}</td></tr>
-        <tr><th scope="row">Participación en kills</th><td class="num">{{ st.kp|pct }}</td></tr>
-        <tr><th scope="row">Visión por minuto</th><td class="num">{{ st.vision_per_min|num }}</td></tr>
-        <tr><th scope="row">Dif. de oro @14</th><td class="num">{{ st.gold_diff_14|val('gold_diff_14') }}</td></tr>
-        <tr><th scope="row">Dif. de CS @14</th><td class="num">{{ st.cs_diff_14|val('cs_diff_14') }}</td></tr>
-        <tr><th scope="row">Dif. de XP @14</th><td class="num">{{ st.xp_diff_14|val('xp_diff_14') }}</td></tr>
+        {% for k in profile.averages %}
+        <tr><th scope="row">{{ metric_labels[k] }}</th><td class="num">{{ st[k]|val(k) }}</td></tr>
+        {% endfor %}
       </tbody>
     </table></div>
   </section>
@@ -61,7 +60,7 @@
 
 <section class="card flush">
   <h2 class="pad">Partidas con {{ name }}</h2>
-  {{ m.games_table(games) }}
+  {{ m.games_table(games, profile) }}
 </section>
 {% endif %}
 {% endblock %}

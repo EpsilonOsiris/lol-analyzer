@@ -753,7 +753,7 @@ def describe_death(d: dict, game: dict, display=champion_display) -> list[str]:
         else:
             text += " en solitario"
         jg = ctx.get("enemy_jungler")
-        if jg:
+        if jg and game.get("role") != "JUNGLE":
             if d["enemy_jungler_involved"]:
                 text += f"; su jungla ({display(jg)}) participó"
             else:
@@ -881,6 +881,10 @@ def _rival_table(analyses, role):
         pid_func=lambda a: a["context"].get(pid))
 
 
+def _in_enemy_jungle(d) -> bool:
+    return d["zone"] == "jungla" and d["side"] == "enemigo"
+
+
 def aggregate(analyses: list[dict]) -> dict:
     """Patterns over a player's games (each analysis from `analyze_game`), split wins vs losses."""
     items = deaths_of(analyses)
@@ -920,6 +924,8 @@ def aggregate(analyses: list[dict]) -> dict:
         "enemy_side": _split(items, lambda d: d["side"] == "enemigo", lambda d: d["side"] is not None),
         "zones": zone_rows,
         "objectives": objectives,
+        "enemy_jungle_early": _split(items, _in_enemy_jungle, lambda d: d["early"] and d["zone"] is not None),
+        "enemy_jungle_all": _split(items, _in_enemy_jungle, lambda d: d["zone"] is not None),
         "junglers": _rival_table(analyses, "jungler"),
         "adcs": _rival_table(analyses, "adc"),
         "supports": _rival_table(analyses, "support"),
@@ -959,7 +965,11 @@ PLAN_METRICS = (
      "value": lambda a: _count(a, lambda d: d["after_own_kill"])},
     {"key": "jungler_early", "label": "Muertes antes del min 14 con el jungla enemigo", "goal": 1,
      "goal_text": "Máximo 1 muerte antes del minuto 14 en la que participe el jungla enemigo",
-     "value": lambda a: _count(a, lambda d: d["early"] and d["enemy_jungler_involved"])},
+     "value": lambda a: _count(a, lambda d: d["early"] and d["enemy_jungler_involved"]),
+     "lines": ("lane", "support")},
+    {"key": "invade_early", "label": "Muertes antes del min 14 en la jungla enemiga", "goal": 1,
+     "goal_text": "Máximo 1 muerte antes del minuto 14 en la jungla enemiga",
+     "value": lambda a: _count(a, lambda d: d["early"] and _in_enemy_jungle(d)), "lines": ("jungle",)},
     {"key": "unspent", "label": "Muertes con 1000 de oro o más sin gastar", "goal": 0,
      "goal_text": "Ninguna muerte con 1000 de oro o más sin gastar (vuelve a base a comprar)",
      "value": lambda a: _count(a, lambda d: d["unspent_1000"])},
@@ -977,6 +987,9 @@ PLAN_METRICS = (
      "goal_text": "Máximo 1 muerte antes del minuto 14",
      "value": lambda a: _count(a, lambda d: d["early"])},
 )
+# A candidate with "lines" only applies to those kinds of line (analyze.LINE_PROFILES keys): when the
+# enemy jungler is the player's own rival the gank metric means nothing, and a jungler's early
+# deaths are better told by where they happen (invading). The default line is the laner's.
 PLAN_MIN_GAMES = 8
 PLAN_MIN_EFFECT = 0.1
 PLAN_MIN_MISS = 0.2
@@ -984,8 +997,9 @@ PLAN_TOP = 3
 PLAN_LAST = 10
 
 
-def improvement_plan(analyses: list[dict], top_n=PLAN_TOP, last_n=PLAN_LAST) -> dict:
-    """Top priorities from the candidates in PLAN_METRICS.
+def improvement_plan(analyses: list[dict], top_n=PLAN_TOP, last_n=PLAN_LAST, line="lane") -> dict:
+    """Top priorities from the candidates in PLAN_METRICS that apply to `line` ("lane", "support",
+    "jungle" or "mixed": the kind of line of the games, see analyze.profile_for_games).
 
     For each candidate, per game: value = how many times it happened and "met" = value <= goal.
     score = effect * miss, where effect = (mean value in losses - mean in wins) / pooled std (how
@@ -1000,6 +1014,8 @@ def improvement_plan(analyses: list[dict], top_n=PLAN_TOP, last_n=PLAN_LAST) -> 
         return {"enough": False, "games": len(games), "priorities": [], "min_games": PLAN_MIN_GAMES}
     ranked = []
     for spec in PLAN_METRICS:
+        if "lines" in spec and line not in spec["lines"]:
+            continue
         values = [spec["value"](a) for a in games]
         effect = effect_size([spec["value"](a) for a in losses], [spec["value"](a) for a in wins])
         met = [v <= spec["goal"] for v in values]

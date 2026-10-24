@@ -25,6 +25,7 @@
       <th class="num" data-type="num">Muertes antes del min 14/partida</th>
       <th class="num" data-type="num">CS/min</th>
       <th class="num" data-type="num">Visión/min</th>
+      {% if line_stat %}<th class="num" data-type="num">Métrica de su línea</th>{% endif %}
       <th>Rol más jugado</th>
       <th>Campeón más jugado</th>
     </tr></thead>
@@ -41,6 +42,7 @@
       <td class="num" data-v="{{ o.early_deaths_pg }}">{{ o.early_deaths_pg|num }}</td>
       <td class="num" data-v="{{ o.cs_per_min }}">{{ o.cs_per_min|num }}</td>
       <td class="num" data-v="{{ o.vision_per_min }}">{{ o.vision_per_min|num }}</td>
+      {% if line_stat %}<td class="num" data-v="{{ o.line_stat.value if o.line_stat else '' }}">{% if o.line_stat %}{{ o.line_stat.label }}: {{ o.line_stat.value|val(o.line_stat.key) }}{% else %}-{% endif %}</td>{% endif %}
       <td>{{ o.top_role or '-' }}{% if o.top_role %} <span class="muted">({{ o.top_role_games }})</span>{% endif %}</td>
       <td>{% if o.top_champion %}<a href="{{ u('champion', nombre=o.top_champion, jugador=r.slug) }}">{{ o.top_champion }}</a> <span class="muted">({{ o.top_champion_games }})</span>{% else %}-{% endif %}</td>
     </tr>
@@ -49,6 +51,7 @@
   </table>
   </div>
   <p class="note pad">Haz clic en el encabezado de una columna para ordenar. Cada jugador se mide con sus propias partidas de {{ cola_text }}{% if rows|selectattr('stored', 'equalto', 0)|list %}; quien aparece sin partidas aún no tiene nada descargado (Sincronizar → Todo el clan){% endif %}.</p>
+  {% if line_note %}<p class="note pad">{{ line_note }}</p>{% endif %}
 </section>
 
 <section class="card flush">

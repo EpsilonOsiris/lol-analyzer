@@ -12,9 +12,14 @@
   <table>
     <thead><tr><th>De todas tus muertes…</th><th class="num">Todas</th><th class="num">En victorias</th><th class="num">En derrotas</th></tr></thead>
     <tbody>
+    {% if pat.line == 'jungle' %}
+    {{ row("…antes del minuto 14, fueron en la jungla enemiga", a.enemy_jungle_early) }}
+    {{ row("…fueron en la jungla enemiga (toda la partida)", a.enemy_jungle_all) }}
+    {% elif pat.line != 'mixed' %}
     {{ row("…antes del minuto 14, participó el jungla enemigo", a.jungler_early) }}
     {{ row("…después del minuto 14, participó el jungla enemigo", a.jungler_late) }}
     {{ row("…participó el jungla enemigo (toda la partida)", a.jungler_all) }}
+    {% endif %}
     {{ row("…te mató 1 solo rival (1v1)", a.enemies_1) }}
     {{ row("…participaron 2 rivales", a.enemies_2) }}
     {{ row("…participaron 3 o más rivales", a.enemies_3p) }}

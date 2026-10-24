@@ -123,7 +123,7 @@ def test_each_page_works_per_player(client):
 def test_unknown_player_falls_back_to_main_and_queue_switcher_keeps_player(client):
     assert text(client.get("/partidas?jugador=nadie")) == text(client.get("/partidas"))
     html = text(client.get("/partidas?cola=flex&jugador=amigo-fiel"))
-    seg = html.split('class="seg"')[1].split("</div>")[0]
+    seg = html.split('aria-label="Cola"')[1].split("</div>")[0]
     hrefs = re.findall(r'href="([^"]+)"', seg)
     assert len(hrefs) == 3 and all("jugador=amigo-fiel" in h for h in hrefs)
     nav = html.split('aria-label="Secciones"')[1].split("</nav>")[0]

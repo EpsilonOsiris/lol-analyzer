@@ -39,12 +39,15 @@
 <span class="{{ 'pos' if value is not none and value > 0 else 'neg' if value is not none and value < 0 else '' }}">{{ value|val(key) }}</span>
 {% endmacro %}
 
-{% macro games_table(games) %}
+{# `profile` (analyze.LineProfile) picks the stats after the KDA; the laner's by default. A stat that
+   does not apply to a game's role shows "-". #}
+{% macro games_table(games, profile=None) %}
+{% set cols = (profile or lane_profile).game_cols %}
 <div class="table-wrap">
 <table>
   <thead><tr>
     <th>Fecha</th><th>Campeón</th><th>Rol</th><th>Cola</th><th>Resultado</th>
-    <th class="num">KDA</th><th class="num">CS/min</th><th class="num">Dif. oro @14</th><th class="num">Duración</th>
+    <th class="num">KDA</th>{% for k in cols %}<th class="num">{{ column_labels[k] }}</th>{% endfor %}<th class="num">Duración</th>
   </tr></thead>
   <tbody>
   {% for x in games %}
@@ -55,8 +58,7 @@
     <td>{{ x.queue_id|queue }}</td>
     <td>{{ result(x.win) }}</td>
     <td class="num">{{ x.kills }}/{{ x.deaths }}/{{ x.assists }} <span class="muted">({{ x.kda|num }})</span></td>
-    <td class="num">{{ x.cs_per_min|num }}</td>
-    <td class="num">{{ diff(x.gold_diff_14, 'gold_diff_14') }}</td>
+    {% for k in cols %}<td class="num">{% if k == 'gold_diff_14' %}{{ diff(row_stat(x, k), k) }}{% else %}{{ row_stat(x, k)|val(k) }}{% endif %}</td>{% endfor %}
     <td class="num">{{ x.duration_min|minutes }}</td>
   </tr>
   {% endfor %}
@@ -65,13 +67,15 @@
 </div>
 {% endmacro %}
 
-{% macro group_table(rows, header, champion_links=False) %}
+{# `cols`: stats after the winrate (analyze.LineProfile.columns); the laner's by default. A stat with no
+   value for a row (it does not apply to that line) shows "-". #}
+{% macro group_table(rows, header, champion_links=False, cols=None) %}
+{% set cols = cols or lane_profile.columns %}
 <div class="table-wrap">
 <table class="sortable">
   <thead><tr>
     <th>{{ header }}</th><th class="num" data-type="num">Partidas</th><th class="num" data-type="num">Winrate</th>
-    <th class="num" data-type="num">KDA</th><th class="num" data-type="num">CS/min</th>
-    <th class="num" data-type="num">Muertes/10 min</th><th class="num" data-type="num">Dif. oro @14</th>
+    {% for k in cols %}<th class="num" data-type="num">{{ column_labels[k] }}</th>{% endfor %}
   </tr></thead>
   <tbody>
   {% for r in rows %}
@@ -79,10 +83,7 @@
     <td>{% if champion_links %}<a href="{{ u('champion', nombre=r.key) }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</td>
     <td class="num" data-v="{{ r.games }}">{{ r.games }}</td>
     <td class="num" data-v="{{ r.winrate }}">{{ wr(r.winrate) }}</td>
-    <td class="num" data-v="{{ r.kda }}">{{ r.kda|num }}</td>
-    <td class="num" data-v="{{ r.cs_per_min }}">{{ r.cs_per_min|num }}</td>
-    <td class="num" data-v="{{ r.deaths_per_10 }}">{{ r.deaths_per_10|num }}</td>
-    <td class="num" data-v="{{ r.gold_diff_14 }}">{{ diff(r.gold_diff_14, 'gold_diff_14') }}</td>
+    {% for k in cols %}<td class="num" data-v="{{ r[k] }}">{% if k == 'gold_diff_14' %}{{ diff(r[k], k) }}{% else %}{{ r[k]|val(k) }}{% endif %}</td>{% endfor %}
   </tr>
   {% endfor %}
   </tbody>

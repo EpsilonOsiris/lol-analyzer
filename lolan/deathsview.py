@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from . import deaths as dx
 from . import mapview
-from .analyze import role_name
+from .analyze import profile_for_role, role_name
 
 DAMAGE_TYPES = {"fisico": "Daño físico", "magico": "Daño mágico", "verdadero": "Daño verdadero"}
 
@@ -80,7 +80,7 @@ def build_view(analysis, label_for, icon_for, map_url, uid="g") -> dict:
                {"torre": "Te mató una torre", "minion": "Te mataron los minions",
                 "monstruo": "Te mató un monstruo"}.get(d["kind"], "Moriste sin un campeón"))
         badges = []
-        if d["enemy_jungler_involved"]:
+        if d["enemy_jungler_involved"] and analysis["role"] != "JUNGLE":
             badges.append("Jungla enemiga")
         if d["after_own_kill"]:
             badges.append("Tras una kill tuya")
@@ -137,8 +137,11 @@ def build_view(analysis, label_for, icon_for, map_url, uid="g") -> dict:
     return {
         "my_champion": label_for(analysis["champion"]),
         "role": role_name(analysis["role"]),
+        "rival_label": profile_for_role(analysis["role"]).rival,
         "lane_opponent": label_for(ctx["lane_opponent"]) if ctx["lane_opponent"] else None,
-        "enemy_jungler": label_for(ctx["enemy_jungler"]) if ctx["enemy_jungler"] else None,
+        # a jungler's enemy jungler is already the rival above
+        "enemy_jungler": (label_for(ctx["enemy_jungler"])
+                          if ctx["enemy_jungler"] and analysis["role"] != "JUNGLE" else None),
         "enemy_bot": [label_for(c) for c in ctx["enemy_bot"]],
         "deaths": deaths_view, "fights": fights_view, "lost": lost,
     }

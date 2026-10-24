@@ -12,6 +12,9 @@
   {% elif reason == 'cola' %}
   <h1>No hay partidas en esta cola</h1>
   <p>Hay partidas guardadas, pero ninguna de {{ queue_labels[cola] }}. Prueba con <a href="{{ switch('todas') }}">Todas las colas</a> o descarga más partidas en <a href="{{ u('sync_page') }}">Sincronizar</a>.</p>
+  {% elif reason == 'linea' %}
+  <h1>No hay partidas de esta línea</h1>
+  <p>Hay partidas, pero ninguna en la línea elegida con {{ queue_labels[cola] }}. Prueba con la línea <a href="{{ switch_linea('todas') }}">Todas</a> o con otra línea.</p>
   {% else %}
   <h1>Ninguna partida es analizable</h1>
   <p>Hay partidas guardadas, pero son remakes o de colas que no son de la Grieta del Invocador.</p>

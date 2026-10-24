@@ -96,8 +96,9 @@ def test_an_invalid_line_falls_back_to_auto(root, value):
 
 def test_the_selector_only_shows_on_pages_that_use_it(root):
     client = client_for(root, SUPPORT_SCRIPT)
-    assert 'aria-label="Línea"' in text(client.get("/composiciones?cola=flex"))
-    for path in ("/?cola=flex", "/clan?cola=flex", "/partidas?cola=flex", "/jugadores"):
+    for path in ("/composiciones?cola=flex", "/?cola=flex", "/clan?cola=flex", "/partidas?cola=flex"):
+        assert 'aria-label="Línea"' in text(client.get(path)), path
+    for path in ("/jugadores", "/sincronizar", "/configuracion"):
         assert 'aria-label="Línea"' not in text(client.get(path)), path
 
 

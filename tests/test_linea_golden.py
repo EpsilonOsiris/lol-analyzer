@@ -1,6 +1,7 @@
 """A laner main sees exactly what the pages and commands showed before the per-line metrics existed."""
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,11 @@ def test_regenerate_golden(root, capsys):
     GOLDEN.write_text(json.dumps(capture_all(root, capsys), ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+def squash(pages):
+    """Pages without insignificant whitespace (templates may be laid out differently)."""
+    return {k: re.sub(r">\s+<", "><", re.sub(r"\s+", " ", v)).strip() for k, v in pages.items()}
+
+
 def restrict_csv(got, want):
     """New metrics may add CSV columns; the ones from the golden must keep their values."""
     for name, entry in want["comandos"].items():
@@ -50,5 +56,5 @@ def test_laner_main_gets_the_same_pages_and_reports(root, capsys, how):
         got["paginas"] = {k: drop_linea(v) for k, v in got["paginas"].items()}
         want["paginas"] = {k: v for k, v in want["paginas"].items() if k in got["paginas"]}
     got = restrict_csv(got, want)
-    assert got["paginas"] == want["paginas"]
+    assert squash(got["paginas"]) == squash(want["paginas"])
     assert got["comandos"] == want["comandos"]

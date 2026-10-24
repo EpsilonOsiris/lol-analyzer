@@ -4,8 +4,9 @@
 {% block content %}
 <h1>Partidas <span class="sub">{% if show_picker and jugador %}{{ jugador.riot_id }} · {% endif %}{{ queue_labels[cola] }}</span></h1>
 <p class="muted">Mostrando {{ start }}–{{ end }} de {{ total }}, de la más reciente a la más antigua.</p>
+{% include "_linea.html" %}
 <section class="card flush">
-  {{ m.games_table(games) }}
+  {{ m.games_table(games, profile) }}
 </section>
 {% if pages > 1 %}
 <nav class="pager" aria-label="Páginas">

@@ -45,10 +45,13 @@ from .sync import sync_players
 QUEUES = {"todas": None, "solo": QUEUE_ALIASES["solo"], "flex": QUEUE_ALIASES["flex"]}
 QUEUE_LABELS = {"todas": "Todas", "solo": "Solo/Dúo", "flex": "Flex"}
 DEFAULT_COLA = "solo"
-# línea selector: "auto" (the main's most played line in the queue) or one of comps.ROLES; the
-# endpoints in LINEA_PAGES are the pages that use it (the rest do not show the selector).
+# línea selector: "auto" (the most played line in the queue: the main's on Composiciones, the viewed
+# player's on the aggregate pages), one of comps.ROLES or, on the aggregate pages, "todas" (no
+# filter); the endpoints in LINEA_PAGES are the pages that use it (the rest do not show the selector).
 LINEA_AUTO = "auto"
-LINEA_PAGES = ("comps_page",)
+LINEA_TODAS = "todas"
+LINEA_AGGREGATE = ("index", "champion", "games_list", "clan_page")
+LINEA_PAGES = ("comps_page",) + LINEA_AGGREGATE
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 PAGE_SIZE = 50
 NL2 = "\n\n"                # end of a server-sent event
@@ -530,6 +533,9 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     app.extensions["lolan"]["warm_up"] = warm_up
     app.extensions["lolan"]["warm_up_async"] = warm_up_async
 
+    app.jinja_env.globals.update(
+        column_labels=an.COLUMN_LABELS, row_stat=an.row_stat, lane_profile=an.LINE_PROFILES["lane"],
+        metric_labels={k: v[0] for k, v in an.METRICS.items()})
     app.jinja_env.filters.update(
         val=lambda v, key: an.fmt_value(key, v), pct=an.fmt_pct, minutes=an.fmt_minutes,
         queue=an.queue_name, role=an.role_name,
@@ -572,11 +578,21 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         g.player = g.roster.by_slug(request.args.get("jugador")) or g.roster.main
         # ?linea=<rol>; missing or unknown -> auto. g.linea is the line in use (auto resolved), only
         # worked out on the pages that use it.
-        g.linea_choice = comps.parse_line(request.args.get("linea")) or LINEA_AUTO
+        raw = (request.args.get("linea") or "").strip().casefold()
+        g.linea_choice = LINEA_TODAS if raw == LINEA_TODAS else comps.parse_line(raw) or LINEA_AUTO
         g.linea = g.linea_auto = None
-        if request.endpoint in LINEA_PAGES:
+        if request.endpoint == "comps_page":
+            if g.linea_choice == LINEA_TODAS:       # Composiciones is always seen from one seat
+                g.linea_choice = LINEA_AUTO
             g.linea_auto = comps.main_line(main_records())
             g.linea = g.linea_auto if g.linea_choice == LINEA_AUTO else g.linea_choice
+        elif request.endpoint in LINEA_AGGREGATE:
+            # g.linea is None for "todas" (every game). The clan has no single auto line: each
+            # player's own is used.
+            if request.endpoint != "clan_page":
+                g.linea_auto = an.main_line_of(data().games)
+            g.linea = (None if g.linea_choice == LINEA_TODAS
+                       else g.linea_auto if g.linea_choice == LINEA_AUTO else g.linea_choice)
         return None
 
     def main_records():
@@ -626,8 +642,10 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
                 return url_for("index", cola=g.cola, linea=slug)
             return url_for(request.endpoint, cola=g.cola, jugador=param, linea=slug, **(request.view_args or {}))
 
-        linea_options = [(LINEA_AUTO, f"Automática: {an.role_name(g.linea_auto)}" if g.get("linea_auto")
-                          else "Automática")] + [(r, an.role_name(r)) for r in comps.ROLES]
+        auto_label = ("Automática: la de cada jugador" if request.endpoint == "clan_page"
+                      else f"Automática: {an.role_name(g.linea_auto)}" if g.get("linea_auto") else "Automática")
+        linea_options = ([(LINEA_AUTO, auto_label)] + [(r, an.role_name(r)) for r in comps.ROLES]
+                         + ([(LINEA_TODAS, "Todas")] if request.endpoint in LINEA_AGGREGATE else []))
 
         # The player picker is a GET form to the current page (a match page has no equivalent
         # for another player, so it goes to the games list).
@@ -652,6 +670,18 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     def data() -> Data:
         return cache.get(g.player.puuid if g.player else None, QUEUES[g.cola])
 
+    def line_games(d: Data) -> list:
+        """The games of the selected line (every game on "Todas") of the player and queue in use."""
+        return an.games_in_line(d.games, g.linea)
+
+    def line_context(d: Data, games, profile):
+        """What the aggregate pages say about the line they show; None when it is a laner's own games."""
+        if profile.key == "lane" and len(games) == len(d.games):
+            return None
+        roles = sorted({an.role_name(x.get("role")) for x in games})
+        return {"name": ", ".join(roles) if len(roles) < 3 else "varias líneas", "shown": len(games),
+                "total": len(d.games), "note": profile.note, "mixed": profile.key == "mixed"}
+
     def empty_page(d: Data):
         """Friendly page when there is nothing to show; None when there is data."""
         if d.games:
@@ -668,9 +698,9 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
     def asset_url(rel):
         return url_for("ddragon_file", rel=rel) if rel else None
 
-    def death_patterns(d: Data):
+    def death_patterns(d: Data, games, profile):
         """Context of the "Patrones de tus muertes" section; None when no game has a timeline."""
-        chrono = [d.analyses[x["match_id"]] for x in d.games if x["match_id"] in d.analyses]
+        chrono = [d.analyses[x["match_id"]] for x in games if x["match_id"] in d.analyses]
         if not chrono:
             return None
         chrono.sort(key=lambda a: (a["created"] or 0, str(a["match_id"])))
@@ -683,10 +713,11 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         points = dx.heat_points(chrono, phase, result)
         map_rel = dd.minimap_rel()
         return {
-            "agg": dx.aggregate(chrono), "plan": dx.improvement_plan(chrono),
+            "agg": dx.aggregate(chrono), "plan": dx.improvement_plan(chrono, line=profile.key),
+            "line": profile.key,
             "heat": mapview.heatmap(points, asset_url(map_rel), "heat"), "heat_points": len(points),
             "phase": phase, "result": result, "phases": HEAT_PHASES, "results": HEAT_RESULTS,
-            "n_games": len(chrono), "n_total": len(d.games), "real_map": bool(map_rel),
+            "n_games": len(chrono), "n_total": len(games), "real_map": bool(map_rel),
         }
 
     def match_deaths(game):
@@ -729,9 +760,13 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         d = data()
         if (page := empty_page(d)) is not None:
             return page
-        games = d.games
+        games = line_games(d)
+        if not games:
+            return render_template("vacio.html", reason="linea")
+        profile = an.profile_for_games(games)
         s = an.summarize(games)
-        sess = an.trend_by_session_game(games)
+        sess = an.trend_by_session_game(d.games, None if len(games) == len(d.games)
+                                        else {x["match_id"] for x in games})
         insights = []
         for row in s["by_champion"]:
             if row["games"] < an.MIN_CHAMPION_GAMES:
@@ -746,14 +781,18 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             positions=_bar_rows(sess["by_position"],
                                 short=lambda r: "5+" if r["key"] >= 5 else str(r["key"]),
                                 title=lambda r: r["label"]),
-            sess=sess, insights=insights, pat=death_patterns(d))
+            sess=sess, insights=insights, pat=death_patterns(d, games, profile), profile=profile,
+            line_ctx=line_context(d, games, profile))
 
     @app.get("/partidas")
     def games_list():
         d = data()
         if (page := empty_page(d)) is not None:
             return page
-        newest_first = d.games[::-1]
+        games = line_games(d)
+        if not games:
+            return render_template("vacio.html", reason="linea")
+        newest_first = games[::-1]
         pages = max(1, -(-len(newest_first) // PAGE_SIZE))
         try:
             n = int(request.args.get("pagina", 1))
@@ -763,23 +802,28 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
         chunk = newest_first[(n - 1) * PAGE_SIZE:n * PAGE_SIZE]
         return render_template("partidas.html", games=chunk, page=n, pages=pages,
                                total=len(newest_first), start=(n - 1) * PAGE_SIZE + 1,
-                               end=(n - 1) * PAGE_SIZE + len(chunk))
+                               end=(n - 1) * PAGE_SIZE + len(chunk), profile=an.profile_for_games(games),
+                               line_ctx=line_context(d, games, an.profile_for_games(games)))
 
     @app.get("/campeon/<nombre>")
     def champion(nombre):
         d = data()
         if d.total == 0:
             return empty_page(d)
-        games = an.games_for_champion(d.games, nombre)
+        scoped = line_games(d)
+        games = an.games_for_champion(scoped, nombre)
         if not games:
             everywhere = an.games_for_champion(
                 cache.get(g.player.puuid, None).games, nombre)
             if not everywhere:
                 abort(404, description=f"No hay partidas con el campeón «{nombre}».")
             return render_template("campeon.html", name=everywhere[0]["champion"], ins=None,
-                                   games=[])
-        ins = an.champion_insights(d.games, nombre)
-        return render_template("campeon.html", name=ins["champion"], ins=ins, games=games[::-1])
+                                   games=[], other_line=bool(an.games_for_champion(d.games, nombre)),
+                                   line_name=an.role_name(g.linea) if g.linea else "")
+        ins = an.champion_insights(scoped, nombre)
+        profile = an.profile_for_games(games)
+        return render_template("campeon.html", name=ins["champion"], ins=ins, games=games[::-1],
+                               profile=profile, line_ctx=line_context(d, scoped, profile))
 
     def game_plans(game):
         """Both teams' "plan de pelea" for the match page (None when the game has none).
@@ -836,20 +880,32 @@ def create_app(root=None, ddragon=None, live=None, gold=None) -> Flask:
             return "No encontrado", 404
         return send_file(path, mimetype="image/png", max_age=86400)
 
+    def clan_line_note(rows):
+        """A sentence about the line of each row of the clan table; None when all are laners' full lists."""
+        if all(r["ov"]["profile"] == "lane" and not r["left_out"] for r in rows):
+            return None
+        who = ("la línea que cada jugador más juega" if g.linea_choice == LINEA_AUTO
+               else "todas sus líneas" if g.linea is None else f"la línea {an.role_name(g.linea)}")
+        return (f"Cada jugador se mide con {who}. CS/min solo cuenta partidas de carril (top, mid, ADC); "
+                "quien juega soporte o jungla tiene su métrica en la última columna.")
+
     @app.get("/clan")
     def clan_page():
         queue = QUEUES[g.cola]
         rows, games_by = [], {}
         for p in g.roster.players:
             d = cache.get(p.puuid, queue)
-            games_by[p.puuid] = d.games
-            rows.append({"player": p, "slug": g.roster.slug(p), "ov": an.player_overview(d.games),
-                         "stored": d.total})
+            games_by[p.puuid] = d.games       # who played together does not depend on the line
+            scoped = an.games_in_line(d.games, an.resolve_line(g.linea_choice, d.games))
+            rows.append({"player": p, "slug": g.roster.slug(p), "ov": an.player_overview(scoped),
+                         "stored": d.total, "left_out": len(d.games) - len(scoped)})
         pairs = []
         for pr in an.pair_stats(games_by):
             pairs.append({**pr, "a": g.roster.by_puuid(pr["a"]), "b": g.roster.by_puuid(pr["b"])})
         return render_template("clan.html", rows=rows, pairs=pairs,
-                               min_pair_games=an.MIN_PAIR_GAMES)
+                               min_pair_games=an.MIN_PAIR_GAMES,
+                               line_stat=any(r["ov"]["line_stat"] for r in rows),
+                               line_note=clan_line_note(rows))
 
     @app.get("/composiciones")
     def comps_page():

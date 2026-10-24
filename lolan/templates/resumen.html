@@ -6,11 +6,13 @@
 
 {% if pat %}<p class="jump">Ir a: <a href="#patrones">Patrones de tus muertes</a> · <a href="#mapa-calor">Mapa de calor</a> · <a href="#rivales">Rivales</a> · <a href="#plan">Plan de mejora</a></p>{% endif %}
 
+{% include "_linea.html" %}
+
 <section class="stats" aria-label="Indicadores">
   {{ m.stat("Partidas", o.games, o.wins ~ " victorias · " ~ (o.games - o.wins) ~ " derrotas") }}
   {{ m.stat("Winrate", o.winrate|pct, tone=('win' if o.winrate >= 0.5 else 'loss')) }}
   {{ m.stat("KDA", o.kda|num) }}
-  {{ m.stat("CS/min", o.cs_per_min|num) }}
+  {% for k in profile.tiles %}{{ m.stat(column_labels[k], o[k]|val(k)) }}{% endfor %}
   {{ m.stat("Muertes/10 min", o.deaths_per_10|num) }}
   {{ m.stat("Período", first[:10] ~ " a " ~ last[:10], tone="small") }}
 </section>
@@ -24,14 +26,14 @@
 {% if cola == 'todas' and s.by_queue|length > 1 %}
 <section class="card">
   <h2>Por cola</h2>
-  {{ m.group_table(s.by_queue, "Cola") }}
+  {{ m.group_table(s.by_queue, "Cola", cols=profile.columns) }}
 </section>
 {% endif %}
 
 <div class="grid-2">
   <section class="card">
     <h2>Por rol</h2>
-    {{ m.group_table(s.by_role, "Rol") }}
+    {{ m.group_table(s.by_role, "Rol", cols=profile.columns) }}
   </section>
   <section class="card">
     <h2>Después de una victoria o una derrota</h2>
@@ -61,7 +63,7 @@
 
 <section class="card">
   <h2>Por campeón</h2>
-  {{ m.group_table(s.by_champion, "Campeón", champion_links=True) }}
+  {{ m.group_table(s.by_champion, "Campeón", champion_links=True, cols=profile.columns) }}
   <p class="note">Haz clic en el encabezado de una columna para ordenar.</p>
 </section>
 

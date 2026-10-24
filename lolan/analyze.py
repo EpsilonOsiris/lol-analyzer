@@ -511,6 +511,7 @@ class LineProfile:
     insights: tuple         # metrics ranked in "what decides your games" on a champion
     rules: tuple            # strength / weakness rule functions, in the order their texts are listed
     columns: tuple          # stats of the group tables (by role / queue / champion)
+    game_cols: tuple        # stats shown on each row of a games list
     tiles: tuple            # summary tiles between KDA and deaths per 10 min
     averages: tuple         # rows of the champion page's averages table
     note: str = ""          # one line about what this line leaves out of the numbers
@@ -526,6 +527,7 @@ LINE_PROFILES = {
         card=tuple(CARD_METRICS), neutral=frozenset(), insights=tuple(INSIGHT_METRICS),
         rules=(_rules_lane, _rules_common),
         columns=("kda", "cs_per_min", "deaths_per_10", "gold_diff_14"),
+        game_cols=("cs_per_min", "gold_diff_14"),
         tiles=("cs_per_min",),
         averages=("kda", "cs_per_min", "gold_per_min", "deaths_per_10", "kp", "vision_per_min",
                   "gold_diff_14", "cs_diff_14", "xp_diff_14")),
@@ -545,6 +547,7 @@ LINE_PROFILES = {
                   "deaths_enemy_half", "skillshots_dodged", "skillshots_hit", "first_blood"),
         rules=(_rules_support, _rules_common),
         columns=("kda", "vision_per_min", "kp", "heal_shield_per_min", "deaths_per_10"),
+        game_cols=("vision_per_min", "kp", "heal_shield_per_min"),
         tiles=("vision_per_min", "kp"),
         averages=("kda", "assists_per_10", "kp", "vision_per_min", "wards_per_min", "ward_takedowns_per_min",
                   "control_wards", "heal_shield_per_min", "cc_time_per_min", "immobilizations_per_10",
@@ -567,6 +570,7 @@ LINE_PROFILES = {
                   "xp_diff_14", "skillshots_dodged", "skillshots_hit", "first_blood"),
         rules=(_rules_jungle, _rules_common),
         columns=("kda", "jungle_cs_10", "epic_takedowns", "kp", "gold_diff_14", "deaths_per_10"),
+        game_cols=("jungle_cs_10", "kp", "gold_diff_14"),
         tiles=("jungle_cs_10", "epic_takedowns"),
         averages=("kda", "jungle_cs_10", "enemy_jungle_cs", "scuttle_crabs", "epic_takedowns", "ka_15",
                   "gold_per_min", "deaths_per_10", "kp", "vision_per_min", "gold_diff_14", "xp_diff_14"),
@@ -579,6 +583,7 @@ LINE_PROFILES = {
               ("deaths_enemy_half", None)),
         neutral=frozenset(), insights=_COMMON_INSIGHTS, rules=(_rules_common,),
         columns=("kda", "cs_per_min", "vision_per_min", "kp", "deaths_per_10", "gold_diff_14"),
+        game_cols=("cs_per_min", "vision_per_min", "kp"),
         tiles=("kp",),
         averages=("kda", "kp", "vision_per_min", "deaths_per_10"),
         note="Mezcla líneas distintas: CS por minuto y diferencias de línea solo cuentan las partidas de carril."),
@@ -604,6 +609,15 @@ def main_line_of(games) -> str | None:
     if not counts:
         return None
     return max(counts, key=lambda role: (counts[role], -ROLE_ORDER.index(role)))
+
+
+def row_stat(game, key):
+    """A game's value of `key`, or None where the stat means nothing for the role it was played in
+    (CS/min of a support, jungle CS@10 of a laner)."""
+    roles = STAT_ROLES.get(key)
+    if roles is not None and (game.get("role") or "") not in roles:
+        return None
+    return game.get(key)
 
 
 def games_in_line(games, line):
