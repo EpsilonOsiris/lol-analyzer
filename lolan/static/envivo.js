@@ -166,7 +166,7 @@
       kpTile(me) +
       (perMin ? '<div class="kv"><span>Visión por minuto</span><b>' + perMin + '</b></div>' : '');
     if (mp && (mp.duo_gold_diff != null || mp.duo_value_diff != null)) {
-      out += '<div class="kv" title="' + esc(DUO_HELP) + '"><span>Dúo de línea frente a ' + esc((mp.duo_opponents || []).join(' + ')) +
+      out += '<div class="kv wide" title="' + esc(DUO_HELP) + '"><span>Dúo de línea frente a ' + esc((mp.duo_opponents || []).join(' + ')) +
         '</span><b>' + (mp.duo_gold_diff != null ? '≈ ' + signed(mp.duo_gold_diff) : '—') + ' oro · ' +
         (mp.duo_value_diff != null ? signed(mp.duo_value_diff) : '—') + ' obj.</b></div>';
     }
