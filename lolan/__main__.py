@@ -40,11 +40,11 @@ def _parse_date(text: str):
 
 
 QUEUE_ALIASES = {"solo": 420, "soloq": 420, "flex": 440, "normal": 400, "blind": 430,
-                 "quickplay": 490}
+                 "quickplay": 490, "premade": 710}
 
 
 # Folder/file name used for a queue's reports (analyze --cola).
-QUEUE_SLUGS = {420: "solo", 440: "flex", 400: "normal", 430: "blind", 490: "quickplay"}
+QUEUE_SLUGS = {420: "solo", 440: "flex", 400: "normal", 430: "blind", 490: "quickplay", 710: "premade"}
 
 
 def queue_slug(queue: int) -> str:
@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="no descarga el timeline (más rápido, pero sin métricas por minuto)")
     p.add_argument("--cola", type=_parse_queue, metavar="COLA",
                    help="solo partidas de esa cola: solo (420), flex (440), normal (400), "
-                        "blind (430), quickplay (490) o un número de cola")
+                        "blind (430), quickplay (490), premade (710) o un número de cola")
     who = p.add_mutually_exclusive_group()
     _add_player_arg(who, "descarga las partidas de este jugador registrado")
     who.add_argument("--clan", action="store_true",

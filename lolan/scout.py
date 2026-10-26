@@ -52,7 +52,7 @@ SOLO_QUEUE, FLEX_QUEUE = "RANKED_SOLO_5x5", "RANKED_FLEX_SR"
 QUEUE_LABELS = {
     0: "Personalizada", 400: "Normal (draft)", 420: "Clasificatoria Solo/Dúo", 430: "Normal (a ciegas)",
     440: "Clasificatoria Flexible", 450: "ARAM", 480: "Juego rápido", 490: "Partida rápida",
-    700: "Clash", 1700: "Arena",
+    700: "Clash", 710: "Clasificatoria de 5", 1700: "Arena",
 }
 MODE_LABELS = {"CLASSIC": "Clásico", "ARAM": "ARAM", "CHERRY": "Arena", "PRACTICETOOL": "Herramienta de práctica"}
 STOP_REASONS = {

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-SR_QUEUES = frozenset({400, 420, 430, 440, 490})
+SR_QUEUES = frozenset({400, 420, 430, 440, 490, 710})
 MIN_DURATION_S = 300
 SNAPSHOT_MINUTES = (7, 14, 21, 28)
 # (key suffix, start minute, end minute exclusive or None)

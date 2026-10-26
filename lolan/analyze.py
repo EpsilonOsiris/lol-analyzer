@@ -131,6 +131,7 @@ QUEUE_NAMES = {
     430: "Normal (a ciegas)",
     440: "Clasificatoria Flexible",
     490: "Partida rápida",
+    710: "Clasificatoria de 5",
 }
 ROLE_NAMES = {
     "TOP": "Top", "JUNGLE": "Jungla", "MIDDLE": "Mid", "BOTTOM": "ADC", "UTILITY": "Soporte",
